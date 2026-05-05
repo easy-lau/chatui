@@ -1,161 +1,148 @@
-# 极简聊天工具 ChatUI
+# ChatUI 极简聊天与生图工具
 
-一个轻量、零前端构建、可直接部署的 OpenAI 兼容接口聊天与生图 Web 工具。
+ChatUI 是一个轻量、无需前端构建、可直接部署的 OpenAI 兼容接口 Web 工具。它同时支持聊天、生图、图片编辑、附件上传、Markdown、数学公式、代码复制、思考内容展示和模型配置。
 
-项目面向需要快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地代理服务的场景。前端直接使用浏览器能力完成聊天、生图、附件、缓存和预览；后端只提供静态文件服务与可选的安全代理能力。
+项目定位：用最少依赖快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地模型代理。
 
 ---
 
 ## 目录
 
+- [最新能力](#最新能力)
 - [功能特性](#功能特性)
-- [界面与交互](#界面与交互)
-- [技术栈](#技术栈)
-- [目录结构](#目录结构)
-- [环境要求](#环境要求)
 - [快速开始](#快速开始)
 - [Docker 部署](#docker-部署)
-- [配置说明](#配置说明)
-- [模型与接口要求](#模型与接口要求)
-- [附件能力](#附件能力)
+- [模型配置](#模型配置)
+- [模型接口与 type 分类](#模型接口与-type-分类)
+- [Markdown 与数学公式](#markdown-与数学公式)
 - [图片生成与图片编辑](#图片生成与图片编辑)
-- [数据存储与隐私](#数据存储与隐私)
-- [发布与 Docker Hub 自动构建](#发布与-docker-hub-自动构建)
+- [附件能力](#附件能力)
+- [本地存储与隐私](#本地存储与隐私)
+- [目录结构](#目录结构)
+- [开发与验证](#开发与验证)
+- [发布与 Docker Hub](#发布与-docker-hub)
 - [常见问题](#常见问题)
-- [开发说明](#开发说明)
 - [安全建议](#安全建议)
+
+---
+
+## 最新能力
+
+- 支持完整 GFM Markdown 渲染。
+- 支持 KaTeX 数学公式渲染。
+- 支持代码块右上角图标复制按钮，复制成功后显示打勾图标。
+- 支持模型配置弹窗，按模型 `type` 自动区分聊天模型和生图模型。
+- 支持未知类型模型标记：模型接口没有返回 `type` 或 `type` 为空时，聊天模型和生图模型均可选择，并显示红色 `未知类型`。
+- 支持本地 `vendor` 资源：`marked`、`KaTeX`、KaTeX 字体都已随项目提交，线上不依赖 CDN。
+- 支持思考内容持久展示，默认开启。
+- 支持发送与重新生成时的即时动效反馈。
+- 支持图片生成、图片编辑、基于上一张图片继续修改。
 
 ---
 
 ## 功能特性
 
-### 聊天能力
+### 聊天
 
 - 支持 OpenAI Chat Completions 兼容接口。
-- 支持流式输出，回复可以边生成边展示。
-- 支持 Markdown 渲染，包括：
-  - 标题
-  - 列表
-  - 引用
-  - 代码块
-  - 表格
-  - 行内代码
-- 代码块内置复制按钮。
-- 普通消息支持复制。
-- 用户消息支持编辑后重新发送。
-- 回复完成后播放轻量提示音。
-- 支持思考内容展示，兼容部分模型返回的字段：
-  - `reasoning_content`
-  - `reasoning`
-  - `thinking`
+- 支持流式输出。
+- 支持自动意图识别：自动判断聊天、生图或图片编辑。
+- 支持手动切换聊天 / 生图模式。
+- 支持普通消息复制。
+- 支持用户消息编辑后重新发送。
+- 支持助手回复重新生成。
+- 支持回复完成提示音。
+- 支持 reasoning / thinking / 思考内容展示。
+- 思考内容默认保持显示，可通过按钮切换。
 
-### 生图能力
+### Markdown
+
+使用本地 `marked` 渲染 Markdown，支持常见 GFM 语法：
+
+- 标题
+- 段落
+- 粗体 / 斜体 / 删除线
+- 引用
+- 有序列表 / 无序列表
+- 任务列表
+- 表格
+- 行内代码
+- fenced code block
+- 链接
+- 图片
+- 横线
+- 换行
+
+### 数学公式
+
+使用本地 KaTeX 渲染数学公式，支持：
+
+```text
+$a^2 + b^2 = c^2$
+```
+
+```text
+$$
+\frac{1}{n}\sum_{i=1}^n x_i
+$$
+```
+
+也支持：
+
+```text
+\( inline math \)
+\[ block math \]
+```
+
+### 代码块复制
+
+代码块会自动增强为带右上角复制按钮的代码框：
+
+- 右上角图标按钮。
+- 点击复制原始代码。
+- 成功后按钮显示打勾图标。
+- 不用文字提示，避免按钮被撑开。
+
+### 生图与图片编辑
 
 - 支持 OpenAI 兼容图片接口。
 - 支持文本生成图片。
-- 支持带图片附件的图片编辑 / 改图。
-- 支持基于上一张生成图继续编辑。
+- 支持上传图片后进行图片编辑。
+- 支持基于上一张生成图继续修改。
 - 支持图片预览。
-- 支持按原图比例展示生成图片缩略图，不强制裁切成统一方图。
 - 支持图片下载。
-- 图片生成 / 编辑完成后播放轻量提示音。
-- 支持图片结果本地持久化，刷新页面后仍可恢复历史图片。
-- 支持图片尺寸选择：
+- 支持保持原图比例显示缩略图。
+- 支持图片结果本地持久化，刷新后仍可恢复历史图片。
+- 支持图片尺寸：
   - `auto`
   - `1024x1024`
   - `1024x1536`
   - `1536x1024`
 
-### 自动意图识别
-
-- 自动模式下不使用本地关键词匹配，避免正则误判。
-- 每次发送后都会调用已配置的聊天模型做轻量路由分类，只要求模型基于用户真实意图返回 `chat`、`image` 或 `edit_image`。
-- 路由提示词保持中立，不通过固定业务关键词硬编码判断，避免对用户输入添油加醋。
-- 模型严格返回 `image` 时进入新图生成流程；严格返回 `edit_image` 时进入图片编辑流程。
-- 如果没有配置聊天模型，或路由模型请求失败，则兜底按聊天任务处理。
-- 如果希望完全跳过自动判断，可以手动切换聊天 / 生图模式。
-- 上传非图片附件时，仍会作为聊天上下文处理。
-
-### 附件能力
+### 附件
 
 - 支持多附件上传。
-- 支持图片作为多模态输入。
+- 支持图片附件作为多模态输入或图片编辑输入。
 - 支持常见文本 / 代码文件解析为上下文。
-- 不支持解析的文件会在消息中标注，避免误以为模型已读取正文。
+- 不支持解析的附件会明确标注，避免误以为模型已读取正文。
 
-### 本地缓存
+### 配置弹窗
 
-- 接口配置保存到浏览器 `localStorage`。
-- 聊天历史保存到浏览器 `localStorage`。
-- 生成图片保存到浏览器 `IndexedDB`。
-- 无需数据库。
-
-### 部署能力
-
-- 只依赖 Node.js 运行静态服务和代理。
-- 无需 npm install。
-- 无需前端打包。
-- 支持 Docker 单容器部署。
-- 使用多阶段极简 Docker 镜像，最终镜像只保留运行所需的 Node.js runtime 和静态文件。
-- 支持 GitHub Release 发布后自动构建并推送 Docker Hub 多架构镜像。
+- 设置入口名称为“模型配置”。
+- 浅色玻璃风 UI。
+- 自定义下拉菜单。
+- 支持模型加载。
+- 支持按 `type` 自动筛选聊天模型与生图模型。
+- 不再展示“直连模式”。
+- 默认通过本地代理访问接口，减少跨域与鉴权问题。
 
 ---
 
-## 界面与交互
+## 快速开始
 
-- 顶部工具栏：
-  - 当前模式 / 标题显示。
-  - 接口配置按钮。
-  - 清空对话按钮。
-- 输入区：
-  - `Enter` 发送。
-  - `Shift + Enter` 换行。
-  - 附件按钮支持多文件上传。
-- 消息区：
-  - 左右气泡式聊天布局。
-  - 用户消息可编辑重发。
-  - 助手消息可复制。
-  - 图片结果提供预览、下载、打开原图等操作。
-- 移动端：
-  - 支持小屏布局。
-  - 输入区和顶部栏适配移动端。
+### 环境要求
 
----
-
-## 技术栈
-
-- 前端：原生 HTML / CSS / JavaScript。
-- 后端：Node.js 原生 `http` 模块。
-- 存储：浏览器 `localStorage` + `IndexedDB`。
-- 容器：Docker。
-- CI/CD：GitHub Actions。
-- 镜像发布：Docker Hub。
-
-项目没有引入前端框架和构建工具，适合快速审查、二次开发和轻量部署。
-
----
-
-## 目录结构
-
-```text
-.
-├── app.js                         # 前端主要逻辑：聊天、生图、附件、缓存、渲染
-├── index.html                     # 页面结构
-├── styles.css                     # 页面样式
-├── server.js                      # 静态文件服务和可选接口代理
-├── Dockerfile                     # Docker 镜像定义
-├── .dockerignore                  # Docker 构建忽略文件
-├── .github/workflows/dockerhub.yml# Release 后构建并推送 Docker Hub
-└── README.md                      # 项目说明
-```
-
----
-
-## 环境要求
-
-### 本地运行
-
-需要：
+本地运行需要：
 
 ```text
 Node.js 18+
@@ -167,92 +154,47 @@ Node.js 18+
 Node.js 20+
 ```
 
-原因：服务端代理使用了 Node.js 内置 `fetch`，较新的 Node.js 版本兼容性更好。
-
-### Docker 运行
-
-需要：
-
-```text
-Docker 20+
-```
-
----
-
-## 快速开始
-
-### 1. 克隆仓库
+### 克隆仓库
 
 ```bash
 git clone https://github.com/MrLiuGangQiang/chatui.git
 cd chatui
 ```
 
-### 2. 本地启动
+### 启动服务
 
 ```bash
 node server.js
 ```
 
-启动后访问：
+默认访问：
 
 ```text
 http://127.0.0.1:8765
 ```
 
-局域网访问：
-
-```text
-http://<服务器IP>:8765
-```
-
-服务默认监听：
+默认监听：
 
 ```text
 HOST=0.0.0.0
 PORT=8765
 ```
 
-### 3. 页面配置接口
+可通过环境变量修改：
 
-打开页面后点击右上角“接口配置”，填写：
-
-```text
-Endpoint Base URL
-API Key
-聊天模型
-生图模型
-图片尺寸
+```bash
+HOST=127.0.0.1 PORT=3000 node server.js
 ```
-
-默认接口地址为空，需要你手动填写自己的 OpenAI 兼容接口地址。
-
-常见示例：
-
-```text
-https://api.openai.com/v1
-https://your-gateway.example.com/v1
-http://127.0.0.1:8000/v1
-```
-
-然后点击“加载模型”，选择聊天模型和生图模型，保存即可使用。
 
 ---
 
 ## Docker 部署
 
-### 方式一：使用 Docker Hub 镜像
-
-发布正式版本后，可直接运行 Docker Hub 镜像：
+### 本地构建
 
 ```bash
-docker run --rm -p 8765:8765 liugangqiang/chatui:latest
-```
-
-指定版本运行：
-
-```bash
-docker run --rm -p 8765:8765 liugangqiang/chatui:v1.0.0
+docker build -t chatui .
+docker run --rm -p 8765:8765 chatui
 ```
 
 访问：
@@ -261,76 +203,36 @@ docker run --rm -p 8765:8765 liugangqiang/chatui:v1.0.0
 http://127.0.0.1:8765
 ```
 
-### 方式二：本地构建镜像
+### 使用 Docker Hub 镜像
+
+如果已经发布 Docker Hub 镜像，可直接拉取运行：
 
 ```bash
-docker build -t chatui:local .
-docker run --rm -p 8765:8765 chatui:local
+docker pull <your-dockerhub-namespace>/chatui:latest
+docker run -d --name chatui -p 8765:8765 <your-dockerhub-namespace>/chatui:latest
 ```
 
-Dockerfile 使用多阶段极简构建，最终镜像不包含 npm、corepack、README、GitHub workflow 等运行时不需要的内容。
-
-### 方式三：后台运行
-
-```bash
-docker run -d \
-  --name chatui \
-  --restart unless-stopped \
-  -p 8765:8765 \
-  liugangqiang/chatui:latest
-```
-
-查看日志：
-
-```bash
-docker logs -f chatui
-```
-
-停止容器：
-
-```bash
-docker stop chatui
-```
-
-删除容器：
-
-```bash
-docker rm chatui
-```
-
-### Docker 环境变量
-
-容器支持以下环境变量：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `HOST` | `0.0.0.0` | 服务监听地址 |
-| `PORT` | `8765` | 服务监听端口 |
-| `MAX_BODY_BYTES` | `52428800` | 代理请求最大 body，默认 50MB |
-| `UPSTREAM_TIMEOUT_MS` | `120000` | 上游接口超时时间，默认 120 秒 |
-
-示例：
-
-```bash
-docker run -d \
-  --name chatui \
-  -p 9000:9000 \
-  -e PORT=9000 \
-  -e UPSTREAM_TIMEOUT_MS=180000 \
-  liugangqiang/chatui:latest
-```
+实际镜像名以项目发布配置为准。
 
 ---
 
-## 配置说明
+## 模型配置
 
-页面配置保存在当前浏览器中，不会写入服务器文件。
+打开页面后点击右上角“模型配置”。
 
-### Endpoint Base URL
+需要填写：
 
-填写 OpenAI 兼容接口的基础地址。
+| 配置项 | 说明 |
+| --- | --- |
+| Endpoint Base URL | OpenAI 兼容接口地址，例如 `https://api.openai.com/v1` |
+| API Key | 接口密钥 |
+| 聊天模型 | 用于聊天、路由判断、文本回复 |
+| 生图模型 | 用于图片生成或图片编辑 |
+| 图片尺寸 | 生图尺寸，默认 `auto` |
 
-示例：
+配置会保存到当前浏览器 `localStorage`。
+
+### Endpoint 示例
 
 ```text
 https://api.openai.com/v1
@@ -338,538 +240,381 @@ https://your-gateway.example.com/v1
 http://127.0.0.1:8000/v1
 ```
 
-注意：末尾是否带 `/` 都可以，程序会自动归一化。
-
-### API Key
-
-填写接口密钥。请求时会以 Bearer Token 方式传递：
-
-```http
-Authorization: Bearer <API_KEY>
-```
-
-### 聊天模型
-
-用于聊天接口：
+注意：Endpoint 不要写到具体接口路径，例如不要写成：
 
 ```text
-POST /chat/completions
+https://api.example.com/v1/chat/completions
 ```
 
-页面会从 `/models` 返回中读取模型列表。
-
-### 生图模型
-
-用于图片接口：
+应写成：
 
 ```text
-POST /images/generations
-POST /images/edits
+https://api.example.com/v1
 ```
-
-### 图片尺寸
-
-可选值：
-
-```text
-auto
-1024x1024
-1024x1536
-1536x1024
-```
-
-不同供应商对尺寸支持不完全一致，如果接口报错，请换成供应商支持的尺寸。
-
-### 直连模式
-
-配置项：
-
-```text
-直接从浏览器请求接口
-```
-
-开启后：
-
-- 浏览器直接请求 `Endpoint Base URL`。
-- 适合上游接口已正确配置 CORS 的情况。
-- 带附件改图时需要使用直连模式。
-
-关闭后：
-
-- 请求会经过本项目 `server.js` 的 `/api/*` 代理。
-- 适合上游接口没有开放浏览器跨域的情况。
-- 代理只允许以下路径：
-  - `/models`
-  - `/chat/completions`
-  - `/images/generations`
-  - `/images/edits`
 
 ---
 
-## 模型与接口要求
+## 模型接口与 type 分类
 
-本项目按 OpenAI 兼容协议调用接口。
+点击“加载模型”后，ChatUI 会请求：
 
-### 模型列表
-
-```http
+```text
 GET /models
 ```
 
-兼容返回：
+并根据返回模型的 `type` 字段自动分类。
+
+### 推荐返回格式
 
 ```json
 {
   "data": [
-    { "id": "gpt-4o-mini" },
-    { "id": "gpt-image-1" }
+    {
+      "id": "gpt-4.1",
+      "type": "chat"
+    },
+    {
+      "id": "gpt-image-1",
+      "type": "image_generation"
+    }
   ]
 }
 ```
 
-也兼容简单数组形式：
+也支持数组格式：
 
 ```json
 [
-  "gpt-4o-mini",
-  "gpt-image-1"
+  { "id": "chat-model", "type": "chat" },
+  { "id": "image-model", "type": "image" }
 ]
 ```
 
-### 聊天接口
+### 聊天模型识别
 
-```http
-POST /chat/completions
+以下 `type` 或关键词会归为聊天模型：
+
+- `chat`
+- `text`
+- `llm`
+- `language`
+- `completion`
+- `reason`
+- `assistant`
+- `gpt`
+- `claude`
+- `gemini`
+- `qwen`
+- `deepseek`
+- `llama`
+- `mistral`
+
+### 生图模型识别
+
+以下 `type` 或关键词会归为生图模型：
+
+- `image`
+- `image_generation`
+- `image-generation`
+- `imagegeneration`
+- `vision`
+- `picture`
+- `img`
+- `dall`
+- `gpt-image`
+- `flux`
+- `sd`
+- `stable`
+- `midjourney`
+- `wan`
+- `kling`
+
+### 未返回 type 的模型
+
+如果模型没有 `type` 字段，或 `type` 为空：
+
+- 聊天模型下拉可选。
+- 生图模型下拉也可选。
+- 模型后显示红色标记：`未知类型`。
+- 加载状态会显示未知类型数量，例如：
+
+```text
+已加载 12 个，3 个未知类型
 ```
 
-请求大致结构：
-
-```json
-{
-  "model": "你的聊天模型",
-  "messages": [
-    { "role": "user", "content": "你好" }
-  ],
-  "stream": true
-}
-```
-
-支持普通 JSON 返回，也支持 SSE 流式返回。
-
-### 图片生成接口
-
-```http
-POST /images/generations
-```
-
-请求大致结构：
-
-```json
-{
-  "model": "你的生图模型",
-  "prompt": "一只橘猫坐在窗边",
-  "size": "1024x1024"
-}
-```
-
-兼容返回字段：
-
-```json
-{
-  "data": [
-    { "url": "https://example.com/image.png" }
-  ]
-}
-```
-
-或：
-
-```json
-{
-  "data": [
-    { "b64_json": "..." }
-  ]
-}
-```
-
-### 图片编辑接口
-
-```http
-POST /images/edits
-```
-
-带图片附件时会使用 `multipart/form-data` 上传图片和 prompt。
+不会弹出额外警告框。
 
 ---
 
-## 附件能力
+## Markdown 与数学公式
 
-### 支持图片
-
-常见图片格式：
+本项目将 Markdown 与公式渲染资源放在本地：
 
 ```text
-png
-jpg
-jpeg
-webp
-gif
-svg
+vendor/marked.min.js
+vendor/katex.min.js
+vendor/katex.min.css
+vendor/fonts/*
 ```
 
-图片附件在聊天中会作为多模态 `image_url` 内容传给聊天模型；在改图场景中会作为图片编辑输入。
+部署时必须确保 `vendor/` 目录被包含，否则线上会出现：
 
-### 支持文本 / 代码文件
+- `marked.min.js 404`
+- `katex.min.js 404`
+- `katex.min.css 404`
+- MIME type 报错
+- Markdown / 公式无法渲染
 
-常见可解析格式：
+### 示例
 
-```text
-txt
-md
-markdown
-json
-csv
-xml
-yaml
-yml
-js
-ts
-jsx
-tsx
-html
-css
-py
-java
-go
-rs
-php
-sql
-log
-conf
-ini
-env
-sh
-bash
-zsh
-toml
-lock
+````md
+# 标题
+
+> 引用内容
+
+- [x] 任务列表
+- 普通列表
+
+| A | B |
+|---|---|
+| **粗体** | $a^2+b^2=c^2$ |
+
+```js
+console.log('hello')
 ```
+````
 
-这些文件会读取为文本，并附加到用户消息上下文中。
+数学公式：
 
-### Office / PDF 文件
+```md
+行内公式：$a^2+b^2=c^2$
 
-页面会识别：
-
-```text
-pdf
-doc
-docx
-xls
-xlsx
-ppt
-pptx
+块级公式：
+$$
+E = mc^2
+$$
 ```
-
-当前版本不会解析这些文件正文，只会提示“暂不支持解析”，避免错误地让用户以为模型已经读取文件内容。
 
 ---
 
 ## 图片生成与图片编辑
 
-### 文本生图
+### 文本生成图片
 
-输入类似：
+在自动模式下，输入明确生图需求时会自动走生图流程。
 
-```text
-画一张赛博朋克风格的城市夜景
-```
+也可以手动切换到生图模式。
 
-系统会自动识别为生图任务，并调用图片生成接口。
+### 上传图片编辑
 
-### 基于上一张图继续修改
-
-生成图片后，可以继续输入：
+上传图片后输入修改需求，例如：
 
 ```text
-把上一张图改成雨夜氛围
-```
-
-或：
-
-```text
-让这张图背景换成雪山
-```
-
-系统会尝试把上一张生成图作为图片编辑输入。
-
-### 上传图片改图
-
-点击附件按钮上传图片，然后输入：
-
-```text
-把这张图改成水彩风格
+把这张图改成赛博朋克风格
 ```
 
 系统会调用图片编辑接口。
 
-### 下载图片
+### 基于上一张图继续修改
 
-图片生成完成后，图片消息右上角会提供下载按钮。
+当已有生成图时，可以继续输入：
+
+```text
+基于上一张图，把背景换成雪山
+```
+
+系统会尝试使用上一张图作为编辑输入。
 
 ---
 
-## 数据存储与隐私
+## 附件能力
 
-本项目默认不需要后端数据库。
+支持：
 
-浏览器本地保存：
+- 图片文件
+- 文本文件
+- 常见代码文件
+- 多文件上传
+
+对于无法解析的文件，消息中会提示该文件未解析正文。
+
+---
+
+## 本地存储与隐私
+
+ChatUI 不需要数据库。
+
+浏览器本地存储内容：
 
 | 数据 | 存储位置 |
 | --- | --- |
-| 接口地址、API Key、模型选择 | `localStorage` |
-| 聊天历史 | `localStorage` |
-| 生成图片 Blob | `IndexedDB` |
+| 接口配置 | `localStorage` |
+| 聊天显示历史 | `localStorage` |
+| 生成图片 / 历史图片 | `IndexedDB` |
+| 最近生成图片上下文 | `localStorage` + `IndexedDB` |
 
 注意：
 
 - API Key 保存在当前浏览器本地。
-- 如果在公共电脑上使用，请及时清空浏览器数据。
-- 如果关闭直连模式，API Key 会经过本项目 Node.js 代理转发给上游接口。
-- 项目不会主动上传配置到其他服务。
+- 清空浏览器站点数据会删除配置与历史。
+- 不建议在不可信设备上保存长期可用的 API Key。
 
 ---
 
-## 发布与 Docker Hub 自动构建
-
-### 当前发布规则
-
-只有发布 GitHub Release 才会触发 Docker Hub 镜像构建。
-
-以下行为不会触发 Docker 构建：
-
-- 普通 push 到 `main`
-- 仅 push tag
-- 手动 workflow_dispatch
-
-### 版本号规范
-
-Release tag 必须符合：
+## 目录结构
 
 ```text
-vMAJOR.MINOR.PATCH
+.
+├── app.js                         # 前端主逻辑
+├── index.html                     # 页面结构
+├── styles.css                     # 页面样式
+├── server.js                      # 静态文件服务与代理
+├── vendor/                        # 本地第三方前端资源
+│   ├── marked.min.js              # Markdown 渲染
+│   ├── katex.min.js               # 数学公式渲染
+│   ├── katex.min.css              # KaTeX 样式
+│   └── fonts/                     # KaTeX 字体
+├── Dockerfile                     # Docker 镜像定义
+├── .dockerignore                  # Docker 构建忽略文件
+├── .github/workflows/dockerhub.yml# Release 后构建并推送 Docker Hub
+└── README.md                      # 项目说明
 ```
 
-示例：
+---
 
-```text
-v1.0.0
-v1.2.3
-v2.0.0
-```
+## 开发与验证
 
-不符合规范的 Release 会让 workflow 失败，并提示版本号格式错误。
-
-### GitHub Secrets
-
-需要在 GitHub 仓库中配置：
-
-```text
-Settings → Secrets and variables → Actions → Repository secrets
-```
-
-新增：
-
-| Secret 名称 | 说明 |
-| --- | --- |
-| `DOCKERHUB_TOKEN` | Docker Hub Personal Access Token。Docker Hub 用户名已固定为 `liugangqiang` |
-
-Docker Hub Token 建议权限：
-
-```text
-Read & Write
-```
-
-### 发布流程
-
-推荐流程：
+### 语法检查
 
 ```bash
-# 1. 确保 main 分支代码已提交并推送
-git checkout main
-git pull origin main
-
-# 2. 创建版本 tag
-git tag -a v1.0.1 -m "Release v1.0.1"
-git push origin v1.0.1
-
-# 3. 在 GitHub 页面基于该 tag 创建 Release
-# GitHub → Releases → Draft a new release → Choose a tag → Publish release
+node --check app.js
+node --check server.js
 ```
 
-发布 Release 后，GitHub Actions 会自动构建并推送 Docker Hub。
+### 启动检查
 
-### 镜像标签规范
-
-发布 `v1.2.3` 后，会推送以下标签：
-
-```text
-liugangqiang/chatui:v1.2.3
-liugangqiang/chatui:1.2.3
-liugangqiang/chatui:1.2
-liugangqiang/chatui:latest
-liugangqiang/chatui:sha-<commit>
+```bash
+node server.js
+curl -fsS http://127.0.0.1:8765
 ```
 
-### 为什么只用 Release 触发
+### 检查 vendor 资源
 
-这样可以避免同一个版本因为“push tag”和“publish release”触发两次构建，保证一次正式发布对应一次 Docker 构建。
+```bash
+curl -I http://127.0.0.1:8765/vendor/marked.min.js
+curl -I http://127.0.0.1:8765/vendor/katex.min.js
+curl -I http://127.0.0.1:8765/vendor/katex.min.css
+```
+
+期望：
+
+- JS 返回 `Content-Type: application/javascript`
+- CSS 返回 `Content-Type: text/css`
+- 状态码为 `200`
+
+---
+
+## 发布与 Docker Hub
+
+项目通过 GitHub Release 触发 GitHub Actions 构建 Docker 镜像。
+
+发版建议：
+
+1. 确认功能已验证。
+2. 确认新增文件已纳入 Git，特别是 `vendor/`。
+3. 提交并推送 `main`。
+4. 创建版本 tag，例如 `v1.0.21`。
+5. 创建 GitHub Release。
+6. 等待 GitHub Actions 完成 Docker 镜像构建。
+
+正式 Release Notes 应包含：
+
+- 新增
+- 删除
+- 修改
+- 修复
+
+并说明相对上一个正式版本的变化。
 
 ---
 
 ## 常见问题
 
-### 1. 点击“加载模型”失败
+### 页面提示 marked.min.js 或 katex.min.js 404
 
-可能原因：
+说明部署产物中缺少 `vendor/` 目录。
 
-- Endpoint Base URL 填错。
-- API Key 无效。
-- 上游接口不支持 `/models`。
-- 浏览器直连时上游接口没有配置 CORS。
+处理：
 
-处理方式：
+- 确认 `vendor/marked.min.js` 存在。
+- 确认 `vendor/katex.min.js` 存在。
+- 确认 `vendor/katex.min.css` 存在。
+- 确认 `vendor/fonts/` 存在。
+- 重新构建并部署。
 
-- 检查 Base URL 是否类似 `https://xxx/v1`。
-- 确认 API Key 是否可用。
-- 尝试关闭“直接从浏览器请求接口”，改走本地代理。
+### 控制台提示 MIME type 不支持
 
-### 2. 聊天请求跨域失败
+通常是请求的 JS/CSS 文件返回了 404 HTML 或空内容。
 
-如果浏览器控制台出现 CORS 错误，可以关闭直连模式。
+处理：
 
-关闭后请求会走：
-
-```text
-/api/chat/completions
+```bash
+curl -I http://your-host/vendor/marked.min.js
+curl -I http://your-host/vendor/katex.min.css
 ```
 
-由 `server.js` 转发给上游接口。
+确认状态码和 `Content-Type` 正确。
 
-### 3. 图片生成成功但图片打不开
+### 模型没有出现在正确下拉里
 
-可能原因：
+检查 `/models` 返回中的 `type` 字段。
 
-- 上游返回的图片 URL 需要鉴权。
-- 图片 URL 与接口 Base URL 不同源，代理拒绝下载。
-- 浏览器无法访问上游图片地址。
+推荐：
 
-建议：
+```json
+{ "id": "your-chat-model", "type": "chat" }
+{ "id": "your-image-model", "type": "image_generation" }
+```
 
-- 优先使用返回 `b64_json` 的图片接口。
-- 或开启直连模式，让浏览器直接访问图片。
+如果没有 `type`，模型会被标记为 `未知类型`，并同时出现在聊天和生图下拉中。
 
-### 4. 上传图片改图失败
-
-当前版本的附件改图需要直连模式。
-
-请确认：
-
-- 已开启“直接从浏览器请求接口”。
-- 上游接口支持 `/images/edits`。
-- 上游接口支持 `multipart/form-data`。
-
-### 5. 为什么 Office / PDF 上传后没有正文
-
-当前版本只解析文本和代码类文件。PDF、Word、Excel、PPT 暂不解析正文，只作为附件提示显示。
-
-### 6. Docker 容器启动后访问不了
+### 生图失败
 
 检查：
 
-```bash
-docker ps
-docker logs chatui
-```
+- Endpoint 是否正确。
+- 生图模型是否选择正确。
+- 模型是否支持 OpenAI 兼容图片接口。
+- 图片尺寸是否被该模型支持。
+- API Key 是否有生图权限。
 
-确认端口映射是否正确：
+### 聊天没有流式输出
 
-```bash
--p 8765:8765
-```
+可能原因：
 
-如果改了 `PORT`，宿主机映射也要对应修改。
+- 上游接口不支持 streaming。
+- 代理或网关没有正确转发 SSE。
+- 模型服务返回了非标准流式格式。
 
-### 7. Release 发布后 Docker 构建失败
+系统会尽量降级处理，但建议检查上游接口兼容性。
 
-重点检查：
+### 清空对话会删除配置吗？
 
-- Release tag 是否符合 `v1.2.3` 格式。
-- GitHub Secret 是否存在：`DOCKERHUB_TOKEN`
-- Docker Hub Token 是否有写入权限。
-- Docker Hub Token 是否属于 `liugangqiang` 账号或具备该 namespace 的写入权限。
-
----
-
-## 开发说明
-
-### 本地语法检查
-
-```bash
-node --check server.js
-node --check app.js
-```
-
-### 启动开发服务
-
-```bash
-node server.js
-```
-
-### 修改前端
-
-直接编辑：
-
-```text
-index.html
-styles.css
-app.js
-```
-
-刷新浏览器即可看到效果。
-
-### 修改服务端代理
-
-编辑：
-
-```text
-server.js
-```
-
-重启服务：
-
-```bash
-node server.js
-```
-
-### 构建 Docker 镜像
-
-```bash
-docker build -t chatui:dev .
-```
+不会。清空对话只删除聊天和图片上下文，不删除模型配置和 API Key。
 
 ---
 
 ## 安全建议
 
-- 不要把真实 API Key 写进代码仓库。
-- 不要把 `.env`、本地配置、密钥文件加入镜像或 Git。
-- 在公共环境使用后，记得清空浏览器缓存和 localStorage。
-- GitHub Token、Docker Hub Token 泄露后应立即撤销并重新生成。
-- 如果部署到公网，建议放在 HTTPS 反向代理后面，并限制访问范围。
+- 不要把真实 API Key 写入仓库。
+- 不要在公共设备上长期保存 API Key。
+- 生产环境建议通过 HTTPS 访问。
+- 如果使用反向代理，请限制管理入口访问范围。
+- 如果接入私有模型网关，请做好鉴权和访问控制。
+- `vendor/` 是前端公开资源，不要放任何密钥。
 
 ---
 
 ## License
 
-当前仓库未声明开源许可证。如需对外开源或商用分发，请先补充 LICENSE 文件。
+按仓库实际 License 为准。
