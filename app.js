@@ -2101,9 +2101,7 @@ function updateModeUi(mode, auto = state.autoMode) {
   $('modeDesc').textContent = auto
     ? '可配置兼容 OpenAPI 的第三方供应商，支持聊天和生图'
     : (mode === 'chat' ? '微信式左右气泡，支持 Markdown、复制和模型选择。' : '输入图片提示词，调用图片接口，图片可下载/预览/继续修改。');
-  $('prompt').placeholder = auto
-    ? '输入消息；我会自动判断聊天还是生图'
-    : (mode === 'chat' ? '输入消息，Enter 发送，Shift+Enter 换行' : '描述你要生成/修改的图片，Enter 发送');
+  $('prompt').placeholder = '输入消息，Enter 发送，Shift+Enter 换行';
 }
 
 async function onSubmit(e) {
@@ -2297,7 +2295,7 @@ async function clearChat() {
   await clearImageDb();
   clearAttachments();
 
-  $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话已开始</h3><p>继续输入你的问题；我会自动判断聊天还是生图。</p></div>`;
+  $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话已开始</h3><p>输入消息，Enter 发送，Shift+Enter 换行</p></div>`;
 }
 $('clearBtn').addEventListener('click', () => clearChat().catch(console.error));
 $('attachBtn').addEventListener('click', () => $('fileInput').click());

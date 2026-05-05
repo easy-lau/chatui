@@ -2807,3 +2807,101 @@ body {
   background: rgba(254,226,226,.98);
   color: #b91c1c;
 }
+
+/* mobile config drawer: full-height usable, scrollable content, fixed actions */
+@media (max-width: 640px) {
+  .modal.show {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .config-dialog {
+    position: relative;
+    left: auto;
+    right: auto;
+    top: auto;
+    bottom: auto;
+    width: 100vw;
+    height: min(92dvh, 92vh);
+    max-height: min(92dvh, 92vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 24px 24px 0 0;
+  }
+  .config-hero {
+    flex: 0 0 auto;
+    padding: 16px 16px 12px;
+  }
+  .config-dialog .dialog-head h2,
+  .dialog-head h2 {
+    font-size: 20px;
+  }
+  .config-dialog .dialog-head p {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .config-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 12px 16px;
+  }
+  .config-card {
+    padding: 12px;
+    border-radius: 17px;
+  }
+  .config-section-title {
+    gap: 9px;
+    margin-bottom: 10px;
+  }
+  .config-section-icon {
+    width: 31px;
+    height: 31px;
+    border-radius: 11px;
+  }
+  .model-section-head {
+    align-items: center;
+  }
+  .load-models-btn {
+    width: auto;
+    margin-left: auto;
+    padding: 9px 11px;
+    min-height: 36px;
+  }
+  .config-three-col,
+  .config-two-col {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .config-dialog input,
+  .config-dialog select,
+  .config-dialog .custom-select-trigger {
+    min-height: 40px;
+  }
+  .config-dialog .dialog-actions {
+    flex: 0 0 auto;
+    padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border-top: 1px solid rgba(203,213,225,.55);
+  }
+  .dialog-actions #saveConfigBtn {
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+  }
+  .config-dialog .custom-select-menu {
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    top: auto;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    max-height: min(42dvh, 320px);
+    z-index: 80;
+  }
+}
