@@ -6,7 +6,8 @@
   <title>极简聊天工具</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=1.0.39" />
+  <link rel="stylesheet" href="./vendor/katex.min.css" />
+  <link rel="stylesheet" href="./styles.css?v=1.0.58" />
 </head>
 <body class="app-booting">
   <div class="app shell-app">
@@ -60,52 +61,71 @@
   <div id="configModal" class="modal" aria-hidden="true">
     <div class="modal-mask" data-close-modal></div>
     <section class="config-dialog" role="dialog" aria-modal="true" aria-labelledby="configTitle">
-      <div class="dialog-head">
-        <div>
+      <div class="dialog-head config-hero">
+        <div class="config-hero-copy">
+          <span class="config-kicker">Provider Console</span>
           <h2 id="configTitle">接口配置</h2>
-          <p>配置会保存到当前浏览器缓存。</p>
+          <p>配置 Endpoint、密钥和模型，保存到当前浏览器缓存。</p>
         </div>
-        <button id="closeConfigBtn" class="dialog-close" type="button">×</button>
+        <button id="closeConfigBtn" class="dialog-close" type="button" aria-label="关闭配置">×</button>
       </div>
 
-      <label>
-        Endpoint Base URL
-        <input id="baseUrl" placeholder="https://api.openai.com/v1" />
-      </label>
-      <label>
-        API Key
-        <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-      </label>
+      <div class="config-grid">
+        <section class="config-card config-card-wide">
+          <div class="config-section-title">
+            <span class="config-section-icon">↯</span>
+            <div>
+              <h3>连接信息</h3>
+              <p>OpenAI 兼容 Endpoint</p>
+            </div>
+          </div>
+          <label>
+            <span>Endpoint Base URL</span>
+            <input id="baseUrl" placeholder="https://api.openai.com/v1" />
+          </label>
+          <form class="api-key-form" autocomplete="off" onsubmit="return false">
+            <input class="sr-only" type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" />
+            <label>
+              <span>API Key</span>
+              <input id="apiKey" name="apiKey" type="password" placeholder="sk-..." autocomplete="new-password" />
+            </label>
+          </form>
+        </section>
 
-      <div class="row-actions model-actions">
-        <span id="modelLoadStatus" class="mini-status"></span>
-        <button id="loadModelsBtn" type="button">加载模型</button>
+        <section class="config-card config-card-wide">
+          <div class="config-section-title model-section-head">
+            <span class="config-section-icon">✦</span>
+            <div>
+              <h3>模型选择</h3>
+              <p>加载模型后选择聊天和生图模型</p>
+            </div>
+            <button id="loadModelsBtn" type="button" class="load-models-btn">加载模型</button>
+          </div>
+          <span id="modelLoadStatus" class="mini-status"></span>
+          <div class="config-three-col">
+            <label>
+              <span>聊天模型</span>
+              <select id="chatModel"></select>
+            </label>
+            <label>
+              <span>生图模型</span>
+              <select id="imageModel"></select>
+            </label>
+            <label>
+              <span>图片尺寸</span>
+              <select id="imageSize">
+                <option value="auto">auto</option>
+                <option value="1024x1024">1024 × 1024</option>
+                <option value="1024x1536">1024 × 1536</option>
+                <option value="1536x1024">1536 × 1024</option>
+              </select>
+            </label>
+          </div>
+        </section>
       </div>
 
-      <label>
-        聊天模型
-        <select id="chatModel"></select>
-      </label>
-      <label>
-        生图模型
-        <select id="imageModel"></select>
-      </label>
-
-      <label>
-        图片尺寸
-        <select id="imageSize">
-          <option value="auto">auto</option>
-          <option value="1024x1024">1024 × 1024</option>
-          <option value="1024x1536">1024 × 1536</option>
-          <option value="1536x1024">1536 × 1024</option>
-        </select>
-      </label>
-      <label class="checkline">
-        <input id="directMode" type="checkbox" checked />
-        直连模式
-      </label>
       <div class="dialog-actions">
-        <button id="saveConfigBtn" type="button">保存</button>
+        <button id="saveConfigBtn" type="button">保存配置</button>
       </div>
     </section>
   </div>
@@ -138,6 +158,8 @@
     </article>
   </template>
 
-  <script src="./app.js?v=1.0.39"></script>
+  <script src="./vendor/marked.min.js"></script>
+  <script src="./vendor/katex.min.js"></script>
+  <script src="./app.js?v=1.0.62"></script>
 </body>
 </html>

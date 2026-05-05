@@ -146,7 +146,7 @@ async function fetchImageBlob(url, { baseUrl = '', apiKey = '', directMode = tru
     // 直接拉取可能被 CORS、鉴权或局域网访问限制拦截，下面自动走本地代理。
   }
 
-  if (directMode || !baseUrl) throw new Error('图片地址无法直接加载，请关闭直连模式后重试，或使用返回 base64 图片的接口');
+  if (!baseUrl) throw new Error('图片地址无法直接加载，请检查 Endpoint 配置，或使用返回 base64 图片的接口');
   const res = await fetch('/api/image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -216,7 +216,7 @@ const defaults = {
   chatModel: '',
   imageModel: '',
   imageSize: 'auto',
-  directMode: true,
+  directMode: false,
   models: [],
   editingIndex: null,
   editingNode: null,
@@ -239,7 +239,6 @@ function loadConfig() {
   $('baseUrl').value = cfg.baseUrl || '';
   $('apiKey').value = cfg.apiKey || '';
   $('imageSize').value = cfg.imageSize || defaults.imageSize;
-  $('directMode').checked = cfg.directMode !== false;
   state.models = Array.isArray(cfg.models) ? cfg.models : [];
   const knownModels = new Set(state.models);
   const chatModel = knownModels.has(cfg.chatModel) ? cfg.chatModel : '';
@@ -255,7 +254,7 @@ function getConfig() {
     chatModel: $('chatModel').value.trim(),
     imageModel: $('imageModel').value.trim(),
     imageSize: $('imageSize').value,
-    directMode: $('directMode').checked,
+    directMode: false,
     models: state.models,
   };
 }
@@ -276,7 +275,7 @@ function saveConfig(silent = false) {
     chatModel: cfg.chatModel,
     imageModel: cfg.imageModel,
     imageSize: cfg.imageSize,
-    directMode: cfg.directMode,
+    directMode: false,
     models: Array.isArray(state.models) ? state.models : [],
   }));
   if (!silent) {
@@ -382,20 +381,36 @@ function addMessage(role, content, options = {}) {
     setTimeout(() => btn.classList.remove('copied'), 900);
   });
 
-  node.querySelectorAll('[data-copy-text]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await copyText(btn.dataset.copyText || '');
-      const oldText = btn.textContent;
-      btn.textContent = '已复制';
-      setTimeout(() => btn.textContent = oldText, 1000);
-    });
-  });
+  bindInlineCopyButtons(node);
   hydrateMessageMedia(node, { save: !options.skipSave });
 
   $('messages').appendChild(node);
   scrollToBottom(true);
   if (!options.skipSave && !options.deferSave) saveDisplayHistory();
   return node;
+}
+
+function showCopySuccess(btn) {
+  if (!btn) return;
+  const oldHtml = btn.innerHTML;
+  btn.classList.add('copied');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"></path></svg>';
+  clearTimeout(btn._copyTimer);
+  btn._copyTimer = setTimeout(() => {
+    btn.innerHTML = oldHtml;
+    btn.classList.remove('copied');
+  }, 900);
+}
+
+function bindInlineCopyButtons(node) {
+  node.querySelectorAll('[data-copy-text]').forEach(btn => {
+    if (btn.dataset.copyBound === '1') return;
+    btn.dataset.copyBound = '1';
+    btn.addEventListener('click', async () => {
+      await copyText(btn.dataset.copyText || '');
+      showCopySuccess(btn);
+    });
+  });
 }
 
 function updateMessage(node, content, options = {}) {
@@ -405,14 +420,7 @@ function updateMessage(node, content, options = {}) {
   else delete node.dataset.persist;
   if (options.html) box.innerHTML = content;
   else box.innerHTML = renderMarkdown(String(content || ''));
-  node.querySelectorAll('[data-copy-text]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await copyText(btn.dataset.copyText || '');
-      const oldText = btn.textContent;
-      btn.textContent = '已复制';
-      setTimeout(() => btn.textContent = oldText, 1000);
-    });
-  });
+  bindInlineCopyButtons(node);
   hydrateMessageMedia(node, { save: options.skipSave !== true });
   scrollToBottom(true);
 }
@@ -465,10 +473,25 @@ function updateReasoning(node, text, options = {}) {
 }
 
 function finishReasoning(node, text) {
-  const contentText = String(text || '').trim();
+  const contentText = String(text || node?.dataset.reasoningText || '').trim();
   if (contentText) updateReasoning(node, contentText, { done: true, persistSave: state.reasoningPersist, keepReasoning: state.reasoningPersist });
   else updateReasoning(node, '', { keepEmpty: true, done: true });
   if (!state.reasoningPersist) setTimeout(() => clearReasoning(node), 2000);
+}
+
+function pendingFeedbackHtml(text) {
+  return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+}
+
+function setPendingFeedback(node, text) {
+  if (!node) return;
+  node.dataset.pendingFeedback = '1';
+  updateMessage(node, pendingFeedbackHtml(text), { html: true, rawText: text, skipSave: true });
+}
+
+function clearPendingFeedback(node) {
+  if (!node || node.dataset.pendingFeedback !== '1') return;
+  delete node.dataset.pendingFeedback;
 }
 
 function clearReasoning(node) {
@@ -684,6 +707,7 @@ async function regenerateAssistantMessage(node) {
 
   state.busy = true;
   $('sendBtn').disabled = true;
+  const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
   try {
     const restoredAttachments = hadGeneratedImage ? await restoreImageAttachmentsFromContext(imageContext) : [];
     const route = hadGeneratedImage
@@ -697,9 +721,13 @@ async function regenerateAssistantMessage(node) {
       : await getEffectiveRoute(prompt, []);
     const mode = route.mode;
     updateModeUi(mode, state.autoMode);
-    if (warnMissingModel(mode, true)) return;
-    if (mode === 'chat') await sendChat(prompt, []);
+    if (warnMissingModel(mode, true)) {
+      immediateFeedback.remove();
+      return;
+    }
+    if (mode === 'chat') await sendChat(prompt, [], immediateFeedback);
     else await sendImage(prompt, {
+      loadingNode: immediateFeedback,
       editMode: mode === 'edit_image',
       editTarget: route.target,
       usePreviousImage: false,
@@ -764,15 +792,6 @@ async function requestModels() {
   const cfg = getConfig();
   if (!cfg.baseUrl) throw new Error('请先配置 Endpoint Base URL');
 
-  if (cfg.directMode) {
-    const res = await fetch(`${cfg.baseUrl}/models`, {
-      headers: cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {},
-    });
-    const data = await parseResponseJson(res);
-    if (!res.ok) throw new Error(normalizeError(null, data));
-    return data;
-  }
-
   const res = await fetch('/api/models', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -791,6 +810,7 @@ function extractModels(data) {
 function setSelectValue(select, value) {
   const hasValue = [...select.options].some(opt => opt.value === value);
   select.value = hasValue ? value : '';
+  updateCustomSelect(select);
 }
 
 function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue = $('imageModel')?.value || '') {
@@ -800,6 +820,8 @@ function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue 
   $('imageModel').innerHTML = html;
   setSelectValue($('chatModel'), chatValue);
   setSelectValue($('imageModel'), imageValue);
+  refreshCustomSelectOptions($('chatModel'));
+  refreshCustomSelectOptions($('imageModel'));
 }
 
 function warnMissingModel(mode = state.mode, openSettings = false) {
@@ -1199,7 +1221,6 @@ function attachmentsSummaryMarkdown(attachments = state.attachments) {
 
 async function requestMultipart(url, fields, files, apiKey) {
   const cfg = getConfig();
-  if (!cfg.directMode) throw new Error('带附件生图需要直连模式，或后续扩展本地代理 multipart 转发');
   const form = new FormData();
   Object.entries(fields).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') form.append(k, v);
@@ -1326,7 +1347,7 @@ function updateReasoningToggleUi() {
 }
 
 function loadReasoningPreference() {
-  state.reasoningPersist = localStorage.getItem(REASONING_PERSIST_KEY) === '1';
+  state.reasoningPersist = localStorage.getItem(REASONING_PERSIST_KEY) !== '0';
   updateReasoningToggleUi();
 }
 
@@ -1374,7 +1395,7 @@ function loadChatHistory({ render = false } = {}) {
   }
 }
 
-async function sendChat(prompt, attachments = state.attachments) {
+async function sendChat(prompt, attachments = state.attachments, loadingNode = null) {
   const cfg = getConfig();
   if (!cfg.baseUrl || !cfg.chatModel) throw new Error('请先配置 Endpoint Base URL 和聊天模型');
 
@@ -1382,7 +1403,7 @@ async function sendChat(prompt, attachments = state.attachments) {
   const requestMessages = buildChatMessagesWithAttachments(prompt, attachments);
   state.messages.push({ role: 'user', content: prompt });
   saveChatHistory();
-  const loading = addMessage('assistant', '正在发送…', { rawText: '正在发送…' });
+  const loading = loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
 
   const payload = {
     model: cfg.chatModel,
@@ -1393,16 +1414,19 @@ async function sendChat(prompt, attachments = state.attachments) {
 
   try {
     const renderer = createRealtimeRenderer((visible) => {
-      updateMessage(loading, visible || '正在发送…', { rawText: visible || '正在发送…' });
+      clearPendingFeedback(loading);
+      updateMessage(loading, visible || '正在思考中', { rawText: visible || '正在思考中' });
     });
     const reasoningRenderer = createRealtimeRenderer((visible) => {
       updateReasoning(loading, visible || '');
     });
     updateReasoning(loading, '', { keepEmpty: true });
+    setPendingFeedback(loading, '正在处理，请稍等');
     const result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
       renderer.set(partial.content || '');
       reasoningRenderer.set(partial.reasoning || '');
     });
+    clearPendingFeedback(loading);
     const finalReply = result.content || '没有返回内容';
     renderer.flush(finalReply);
     reasoningRenderer.cancel();
@@ -1418,7 +1442,9 @@ async function sendChat(prompt, attachments = state.attachments) {
       messages: requestMessages,
       temperature: 0.7,
     };
+    setPendingFeedback(loading, '响应有点慢，正在继续尝试');
     const data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
+    clearPendingFeedback(loading);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
     state.messages.push({ role: 'assistant', content: reply });
     saveChatHistory();
@@ -1573,10 +1599,11 @@ async function sendImage(prompt, options = {}) {
 
   let requestStart = 0;
   let timer = null;
-  const loading = addMessage('assistant', '正在发送生图请求…', { rawText: '正在发送生图请求…', skipSave: true });
+  const loading = options.loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', skipSave: true });
 
   const startImageTimer = (label = '正在生成图片') => {
     requestStart = performance.now();
+    clearPendingFeedback(loading);
     updateMessage(loading, `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, skipSave: true });
     timer = setInterval(() => {
       const seconds = Math.floor((performance.now() - requestStart) / 1000);
@@ -1608,6 +1635,7 @@ async function sendImage(prompt, options = {}) {
       attachments: imageRefs.map(serializeImageAttachment).filter(Boolean),
     };
     setImageContext(loading, imageContext);
+    setPendingFeedback(loading, '正在处理，请稍等');
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
     const data = imageRefs.length
       ? await requestMultipart(`${cfg.baseUrl}/images/edits`, payload, imageRefs, cfg.apiKey)
@@ -1634,7 +1662,137 @@ function formatElapsed(ms) {
   return `${min} 分 ${sec} 秒`;
 }
 
+function extractMathSegments(text) {
+  const math = [];
+  let out = '';
+  let i = 0;
+  const pushMath = (raw, displayMode) => {
+    const token = `@@MATH${math.length}@@`;
+    math.push({ raw, displayMode });
+    out += token;
+  };
+
+  while (i < text.length) {
+    if (text.startsWith('$$', i)) {
+      const end = text.indexOf('$$', i + 2);
+      if (end !== -1) {
+        pushMath(text.slice(i + 2, end), true);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text.startsWith('\\[', i)) {
+      const end = text.indexOf('\\]', i + 2);
+      if (end !== -1) {
+        pushMath(text.slice(i + 2, end), true);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text.startsWith('\\(', i)) {
+      const end = text.indexOf('\\)', i + 2);
+      if (end !== -1) {
+        pushMath(text.slice(i + 2, end), false);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === '$' && text[i + 1] !== '$') {
+      let j = i + 1;
+      while (j < text.length) {
+        if (text[j] === '$' && text[j - 1] !== '\\') break;
+        j++;
+      }
+      if (j < text.length && j > i + 1) {
+        const raw = text.slice(i + 1, j);
+        if (!/^\s*$/.test(raw)) {
+          pushMath(raw, false);
+          i = j + 1;
+          continue;
+        }
+      }
+    }
+    out += text[i];
+    i++;
+  }
+  return { text: out, math };
+}
+
+function restoreMathSegments(html, math) {
+  return html.replace(/@@MATH(\d+)@@/g, (_, idx) => {
+    const item = math[Number(idx)];
+    if (!item) return '';
+    try {
+      if (!window.katex) throw new Error('KaTeX not loaded');
+      return katex.renderToString(item.raw, {
+        displayMode: item.displayMode,
+        throwOnError: false,
+        strict: false,
+        trust: false,
+        output: 'html',
+      });
+    } catch {
+      return item.displayMode
+        ? `<div class="math-fallback">${escapeHtml(item.raw)}</div>`
+        : `<span class="math-fallback">${escapeHtml(item.raw)}</span>`;
+    }
+  });
+}
+
+function enhanceCodeBlocks(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll('pre').forEach(pre => {
+    if (pre.parentElement?.classList.contains('code-block')) return;
+    const code = pre.querySelector('code');
+    const raw = code?.textContent || pre.textContent || '';
+    const langClass = [...(code?.classList || [])].find(c => c.startsWith('language-')) || '';
+    const lang = langClass ? langClass.replace(/^language-/, '') : '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block';
+    if (lang) {
+      const langEl = document.createElement('span');
+      langEl.className = 'code-lang';
+      langEl.textContent = lang;
+      wrapper.appendChild(langEl);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'inline-copy code-copy-icon';
+    btn.type = 'button';
+    btn.title = '复制代码';
+    btn.setAttribute('aria-label', '复制代码');
+    btn.dataset.copyText = raw;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    wrapper.appendChild(btn);
+    pre.replaceWith(wrapper);
+    wrapper.appendChild(pre);
+  });
+  return tpl.innerHTML;
+}
+
 function renderMarkdown(md) {
+  const source = String(md || '');
+  const { text, math } = extractMathSegments(source);
+
+  if (window.marked?.parse) {
+    try {
+      marked.setOptions({
+        gfm: true,
+        breaks: true,
+        mangle: false,
+        headerIds: false,
+      });
+      return enhanceCodeBlocks(restoreMathSegments(marked.parse(text), math));
+    } catch (err) {
+      console.warn('marked render failed, fallback to legacy renderer', err);
+    }
+  }
+
+  return enhanceCodeBlocks(restoreMathSegments(renderMarkdownLegacy(text), math));
+}
+
+function renderMarkdownLegacy(md) {
+
   const codeBlocks = [];
   let text = String(md || '').replace(/```([\w-]*)?\n?([\s\S]*?)```/g, (_, lang, code) => {
     const raw = code.replace(/\n$/, '');
@@ -1653,10 +1811,10 @@ function renderMarkdown(md) {
     .replace(/^## (.*)$/gm, '<h2>$1</h2>')
     .replace(/^# (.*)$/gm, '<h1>$1</h1>')
     .replace(/^---$/gm, '<hr>')
-    .replace(/^> (.*)$/gm, '<blockquote>$1</blockquote>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.*?)__/g, '<strong>$1</strong>')
-    .replace(/~~(.*?)~~/g, '<del>$1</del>')
+    .replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([\s\S]*?)__/g, '<strong>$1</strong>')
+    .replace(/~~([\s\S]*?)~~/g, '<del>$1</del>')
     .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
     .replace(/_([^_\n]+)_/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -1671,7 +1829,8 @@ function renderMarkdown(md) {
 
   codeBlocks.forEach((block, i) => {
     const lang = block.lang ? `<span class="code-lang">${escapeHtml(block.lang)}</span>` : '';
-    const html = `<div class="code-block"><div class="block-toolbar">${lang}<button class="inline-copy" type="button" data-copy-text="${escapeAttr(block.raw)}">复制代码</button></div><pre><code>${escapeHtml(block.raw)}</code></pre></div>`;
+    const copyIcon = `<button class="inline-copy code-copy-icon" type="button" title="复制代码" aria-label="复制代码" data-copy-text="${escapeAttr(block.raw)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
+    const html = `<div class="code-block">${lang}${copyIcon}<pre><code>${escapeHtml(block.raw)}</code></pre></div>`;
     text = text.replace(`@@CODE${i}@@`, html);
   });
   return text;
@@ -1897,6 +2056,7 @@ async function onSubmit(e) {
   state.busy = true;
   $('sendBtn').disabled = true;
 
+  const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
   let effectiveMode = state.mode;
   let effectiveRoute = normalizeRoute({ mode: state.mode, target: state.mode === 'image' ? 'new' : 'none', confidence: 1 }, state.mode);
 
@@ -1911,6 +2071,7 @@ async function onSubmit(e) {
     }
     updateModeUi(effectiveMode, state.autoMode);
     if (warnMissingModel(effectiveMode, true)) {
+      immediateFeedback.remove();
       return;
     }
     // 如果模型判断为聊天，但刚才没有应用编辑状态，这里补一次编辑处理。
@@ -1918,8 +2079,9 @@ async function onSubmit(e) {
       applyPendingEdit(prompt);
     }
 
-    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments);
+    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments, immediateFeedback);
     else await sendImage(prompt, {
+      loadingNode: immediateFeedback,
       editMode: effectiveMode === 'edit_image',
       editTarget: effectiveRoute.target,
       usePreviousImage: effectiveRoute.usePreviousImage,
@@ -1934,6 +2096,77 @@ async function onSubmit(e) {
     $('sendBtn').disabled = false;
     $('prompt').focus();
   }
+}
+
+function closeAllCustomSelects(except = null) {
+  document.querySelectorAll('.custom-select.open').forEach(el => {
+    if (el !== except) el.classList.remove('open');
+  });
+}
+
+function selectedOptionLabel(select) {
+  const opt = select?.selectedOptions?.[0];
+  return opt?.textContent || select?.options?.[0]?.textContent || '请选择';
+}
+
+function updateCustomSelect(select) {
+  const wrapper = select?.closest('.custom-select');
+  const valueEl = wrapper?.querySelector('.custom-select-value');
+  if (valueEl) valueEl.textContent = selectedOptionLabel(select);
+  wrapper?.querySelectorAll('.custom-select-option').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.value === select.value);
+  });
+}
+
+function refreshCustomSelectOptions(select) {
+  const wrapper = select?.closest('.custom-select');
+  const menu = wrapper?.querySelector('.custom-select-menu');
+  if (!wrapper || !menu) return;
+  menu.innerHTML = '';
+  [...select.options].forEach(opt => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'custom-select-option';
+    btn.dataset.value = opt.value;
+    btn.setAttribute('role', 'option');
+    btn.textContent = opt.textContent;
+    btn.addEventListener('click', () => {
+      select.value = opt.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      updateCustomSelect(select);
+      wrapper.classList.remove('open');
+    });
+    menu.appendChild(btn);
+  });
+  updateCustomSelect(select);
+}
+
+function enhanceConfigSelects() {
+  ['chatModel', 'imageModel', 'imageSize'].forEach(id => {
+    const select = $(id);
+    if (!select || select.closest('.custom-select')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'custom-select';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'custom-select-trigger';
+    trigger.innerHTML = '<span class="custom-select-value"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+    const menu = document.createElement('div');
+    menu.className = 'custom-select-menu';
+    menu.setAttribute('role', 'listbox');
+    select.parentNode.insertBefore(wrapper, select);
+    wrapper.appendChild(select);
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(menu);
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nextOpen = !wrapper.classList.contains('open');
+      closeAllCustomSelects(wrapper);
+      wrapper.classList.toggle('open', nextOpen);
+    });
+    select.addEventListener('change', () => updateCustomSelect(select));
+    refreshCustomSelectOptions(select);
+  });
 }
 
 function autoResize() {
@@ -1956,7 +2189,7 @@ function scheduleAutoResize() {
   });
 }
 
-['baseUrl', 'apiKey', 'chatModel', 'imageModel', 'imageSize', 'directMode'].forEach(id => {
+['baseUrl', 'apiKey', 'chatModel', 'imageModel', 'imageSize'].forEach(id => {
   $(id).addEventListener('change', () => saveConfig(true));
 });
 $('saveConfigBtn').addEventListener('click', () => saveConfig(false));
@@ -2031,10 +2264,12 @@ $('imagePreview').addEventListener('click', (e) => { if (e.target.id === 'imageP
 $('configBtn').addEventListener('click', openConfigModal);
 $('closeConfigBtn').addEventListener('click', closeConfigModal);
 document.querySelectorAll('[data-close-modal]').forEach(el => el.addEventListener('click', closeConfigModal));
+document.addEventListener('click', () => closeAllCustomSelects());
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeConfigModal(); closeImagePreview(); }
+  if (e.key === 'Escape') { closeAllCustomSelects(); closeConfigModal(); closeImagePreview(); }
 });
 
+enhanceConfigSelects();
 loadConfig();
 loadReasoningPreference();
 loadLastGeneratedImage();

@@ -50,7 +50,7 @@ button { cursor: pointer; }
 .topbar p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .ghost-btn { background: #fff; color: var(--text); border: 1px solid var(--border); }
 .ghost-btn:hover { background: #f5f5f5; }
-.messages { overflow-y: auto; padding: 28px 28px 116px; }
+.messages { overflow-y: auto; padding: 28px 28px 148px; }
 .empty { max-width: 680px; margin: 14vh auto 0; text-align: center; color: var(--muted); }
 .app-booting .empty { visibility: hidden; }
 .empty-icon { font-size: 42px; }
@@ -775,7 +775,7 @@ body {
   backdrop-filter: blur(10px);
 }
 .composer {
-  width: min(1180px, calc(100% - 28px));
+  width: min(1040px, calc(100% - 72px));
   left: 50% !important;
   right: auto;
   transform: translateX(-50%);
@@ -948,7 +948,7 @@ body {
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 14px 8px 92px !important;
+    padding: 14px 8px 118px !important;
   }
   .empty {
     width: auto;
@@ -1871,4 +1871,903 @@ body {
   .topbar.fixed-toolbar {
     border-radius: 9px !important;
   }
+}
+
+/* composer visual polish */
+.composer.compact-composer,
+.composer {
+  border: 1px solid rgba(125, 211, 252, .42);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.78), rgba(240,253,250,.64)) padding-box,
+    linear-gradient(135deg, rgba(16,163,127,.55), rgba(59,130,246,.42), rgba(168,85,247,.32)) border-box;
+  box-shadow:
+    0 24px 70px rgba(15,23,42,.16),
+    0 0 0 1px rgba(255,255,255,.58) inset,
+    0 0 36px rgba(16,163,127,.10);
+}
+.composer textarea {
+  border: 1px solid rgba(148,163,184,.34);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(16,163,127,.10), transparent 32%),
+    radial-gradient(circle at 96% 12%, rgba(59,130,246,.10), transparent 30%),
+    rgba(255,255,255,.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    0 1px 2px rgba(15,23,42,.04);
+}
+.composer textarea:focus {
+  background: rgba(255,255,255,.96);
+  border-color: rgba(16,163,127,.68);
+  box-shadow:
+    0 0 0 4px rgba(16,163,127,.12),
+    0 0 28px rgba(59,130,246,.10),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle {
+  border-color: rgba(148,163,184,.32);
+  background: rgba(255,255,255,.74);
+  box-shadow: 0 8px 22px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.78);
+  transition: transform .16s ease, background .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.composer-actions .attach-btn:hover,
+.composer-actions .reasoning-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.94);
+  border-color: rgba(16,163,127,.42);
+  box-shadow: 0 12px 28px rgba(15,23,42,.12), 0 0 18px rgba(16,163,127,.10);
+}
+.composer-actions button[type="submit"] {
+  background: linear-gradient(135deg, #10b981, #0ea5e9, #4f46e5);
+  box-shadow: 0 14px 30px rgba(14,165,233,.28), 0 0 18px rgba(16,185,129,.16);
+}
+.composer-actions button[type="submit"]:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 18px 38px rgba(14,165,233,.34), 0 0 24px rgba(16,185,129,.22);
+}
+
+/* remove extra outer composer border */
+.composer.compact-composer,
+.composer {
+  border: none !important;
+  background: rgba(255,255,255,.72) !important;
+  box-shadow: 0 24px 70px rgba(15,23,42,.14), 0 0 36px rgba(16,163,127,.08) !important;
+}
+
+/* keep only the real input box; remove outer composer shell completely */
+.composer.compact-composer,
+.composer {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 0 !important;
+}
+
+/* remove the remaining input border line */
+.composer textarea,
+.composer textarea:focus {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: rgba(255,255,255,.66) !important;
+}
+
+/* final composer boundary + unified action buttons */
+.composer textarea,
+.composer textarea:focus {
+  border: 1px solid rgba(16, 163, 127, .34) !important;
+  background: rgba(255,255,255,.78) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.86),
+    0 10px 30px rgba(15,23,42,.08) !important;
+}
+.composer textarea:focus {
+  border-color: rgba(16, 163, 127, .58) !important;
+  box-shadow:
+    0 0 0 3px rgba(16,163,127,.10),
+    0 14px 34px rgba(15,23,42,.10),
+    inset 0 1px 0 rgba(255,255,255,.92) !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions button[type="submit"] {
+  border: 0 !important;
+  color: #fff !important;
+  background: linear-gradient(135deg, #10b981, #0ea5e9, #4f46e5) !important;
+  box-shadow: 0 14px 30px rgba(14,165,233,.28), 0 0 18px rgba(16,185,129,.16) !important;
+}
+.composer-actions .attach-btn:hover,
+.composer-actions .reasoning-toggle:hover,
+.composer-actions button[type="submit"]:hover {
+  transform: translateY(-1px) scale(1.02);
+  filter: brightness(1.04);
+  box-shadow: 0 18px 38px rgba(14,165,233,.34), 0 0 24px rgba(16,185,129,.22) !important;
+}
+.composer-actions .attach-btn svg,
+.composer-actions .reasoning-toggle svg,
+.composer-actions button[type="submit"] svg {
+  color: #fff !important;
+  opacity: 1 !important;
+}
+.composer-actions .attach-btn svg path,
+.composer-actions .reasoning-toggle svg path,
+.composer-actions button[type="submit"] svg path {
+  stroke: currentColor !important;
+  fill: none !important;
+}
+
+/* composer button interaction states */
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions button[type="submit"] {
+  position: relative;
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease, background .18s ease, color .18s ease !important;
+}
+.composer-actions .attach-btn:active,
+.composer-actions button[type="submit"]:active {
+  transform: translateY(1px) scale(.96) !important;
+  filter: brightness(.95) saturate(1.08) !important;
+  box-shadow: 0 7px 16px rgba(14,165,233,.24), inset 0 2px 7px rgba(15,23,42,.20) !important;
+}
+.composer-actions .reasoning-toggle {
+  background: linear-gradient(135deg, #64748b, #475569) !important;
+  box-shadow: 0 10px 22px rgba(71,85,105,.22) !important;
+  opacity: .86;
+}
+.composer-actions .reasoning-toggle.active,
+.composer-actions .reasoning-toggle[aria-pressed="true"] {
+  background: linear-gradient(135deg, #10b981, #0ea5e9, #4f46e5) !important;
+  box-shadow: 0 14px 30px rgba(14,165,233,.28), 0 0 20px rgba(16,185,129,.22) !important;
+  opacity: 1;
+}
+.composer-actions .reasoning-toggle:not(.active):not([aria-pressed="true"]) svg {
+  opacity: .78 !important;
+}
+.composer-actions .reasoning-toggle:active {
+  transform: translateY(1px) scale(.96) !important;
+  filter: brightness(.96) !important;
+  box-shadow: 0 7px 16px rgba(71,85,105,.22), inset 0 2px 7px rgba(15,23,42,.20) !important;
+}
+.composer-actions .reasoning-toggle.active:active,
+.composer-actions .reasoning-toggle[aria-pressed="true"]:active {
+  box-shadow: 0 7px 16px rgba(14,165,233,.24), inset 0 2px 7px rgba(15,23,42,.20) !important;
+}
+
+/* animated pending feedback */
+.pending-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 0;
+  color: #0f172a;
+  font-weight: 650;
+}
+.pending-orb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 35%, #fff, #67e8f9 35%, #10b981 70%, #4f46e5);
+  box-shadow: 0 0 0 0 rgba(16,185,129,.38), 0 0 18px rgba(14,165,233,.36);
+  animation: pendingPulse 1.25s ease-in-out infinite;
+}
+.pending-text {
+  background: linear-gradient(90deg, #0f172a, #0f766e, #2563eb);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.pending-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.pending-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  animation: pendingDot 1s ease-in-out infinite;
+}
+.pending-dots i:nth-child(2) { animation-delay: .15s; }
+.pending-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes pendingPulse {
+  0%, 100% { transform: scale(.86); box-shadow: 0 0 0 0 rgba(16,185,129,.38), 0 0 16px rgba(14,165,233,.30); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 7px rgba(16,185,129,0), 0 0 24px rgba(79,70,229,.34); }
+}
+@keyframes pendingDot {
+  0%, 80%, 100% { transform: translateY(0); opacity: .38; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* full markdown/math rendering */
+.markdown-body .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+.markdown-body .task-list-item {
+  list-style: none;
+}
+.markdown-body .task-list-item input[type="checkbox"] {
+  margin-right: 6px;
+  transform: translateY(1px);
+}
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+  margin: .55em 0;
+}
+.math-fallback {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #7c3aed;
+  background: rgba(124,58,237,.08);
+  border-radius: 6px;
+  padding: 2px 5px;
+}
+
+/* code block copy icon button */
+.markdown-body .code-block {
+  position: relative;
+}
+.markdown-body .code-block .code-lang {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  z-index: 2;
+  margin: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: #a9b7c6;
+  font-size: 11px;
+  line-height: 16px;
+}
+.markdown-body .code-block pre {
+  padding-top: 34px;
+}
+.markdown-body .code-block .code-copy-icon {
+  position: absolute;
+  right: 9px;
+  top: 8px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148,163,184,.32);
+  background: rgba(255,255,255,.10);
+  color: #cbd5e1;
+  backdrop-filter: blur(8px);
+  transition: transform .12s ease, background .12s ease, color .12s ease, border-color .12s ease;
+}
+.markdown-body .code-block .code-copy-icon:hover {
+  transform: translateY(-1px);
+  background: rgba(16,185,129,.18);
+  border-color: rgba(16,185,129,.42);
+  color: #fff;
+}
+.markdown-body .code-block .code-copy-icon:active {
+  transform: translateY(1px) scale(.96);
+}
+.markdown-body .code-block .code-copy-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.markdown-body .code-block .code-copy-icon svg rect,
+.markdown-body .code-block .code-copy-icon svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* config modal form wrapper: keep previous label layout */
+.api-key-form {
+  margin: 0;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* code copy success uses icon, never text */
+.markdown-body .code-block .code-copy-icon.copied {
+  color: #fff;
+  background: rgba(16,185,129,.28);
+  border-color: rgba(16,185,129,.58);
+  box-shadow: 0 0 18px rgba(16,185,129,.24);
+}
+.markdown-body .code-block .code-copy-icon.copied svg path {
+  stroke-width: 2.4;
+}
+
+/* futuristic config dialog */
+.config-dialog {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(84vh, 760px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(125,211,252,.34);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(56,189,248,.22), transparent 34%),
+    radial-gradient(circle at 96% 10%, rgba(16,185,129,.20), transparent 30%),
+    linear-gradient(145deg, rgba(15,23,42,.94), rgba(17,24,39,.88));
+  color: #e5f3ff;
+  box-shadow: 0 34px 110px rgba(2,6,23,.48), inset 0 1px 0 rgba(255,255,255,.14);
+  backdrop-filter: blur(30px) saturate(170%);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+}
+.config-dialog::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148,163,184,.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,163,184,.07) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), transparent 75%);
+}
+.config-dialog::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(125,211,252,.75), rgba(16,185,129,.65), transparent);
+}
+.config-hero {
+  position: relative;
+  padding: 22px 22px 16px;
+  margin: 0;
+  border-bottom: 1px solid rgba(148,163,184,.16);
+}
+.config-hero-copy { min-width: 0; }
+.config-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(125,211,252,.28);
+  border-radius: 999px;
+  color: #7dd3fc;
+  background: rgba(14,165,233,.10);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.config-dialog .dialog-head h2,
+.dialog-head h2 {
+  background: linear-gradient(90deg, #f8fafc, #7dd3fc 46%, #34d399);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 22px;
+  letter-spacing: -.02em;
+}
+.config-dialog .dialog-head p {
+  color: rgba(226,232,240,.68);
+  font-size: 12px;
+}
+.config-dialog .dialog-close {
+  background: rgba(15,23,42,.62);
+  color: #dbeafe;
+  border: 1px solid rgba(148,163,184,.24);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.config-dialog .dialog-close:hover {
+  color: #fff;
+  border-color: rgba(125,211,252,.42);
+  background: rgba(14,165,233,.16);
+}
+.config-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  max-height: calc(min(84vh, 760px) - 150px);
+  overflow-y: auto;
+}
+.config-card {
+  position: relative;
+  padding: 14px;
+  border: 1px solid rgba(148,163,184,.18);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(30,41,59,.72), rgba(15,23,42,.54));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 12px 30px rgba(2,6,23,.16);
+}
+.config-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(125,211,252,.14), transparent 42%, rgba(52,211,153,.10));
+}
+.config-section-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.config-section-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ecfeff;
+  background: linear-gradient(135deg, rgba(14,165,233,.75), rgba(16,185,129,.72));
+  box-shadow: 0 10px 24px rgba(14,165,233,.20);
+  font-weight: 900;
+}
+.config-section-title h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #f8fafc;
+}
+.config-section-title p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: rgba(203,213,225,.62);
+}
+.config-dialog label {
+  position: relative;
+  color: rgba(226,232,240,.78);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 11px;
+}
+.config-dialog label:last-child { margin-bottom: 0; }
+.config-dialog label > span {
+  display: inline-block;
+  margin-bottom: 7px;
+}
+.config-dialog input,
+.config-dialog select {
+  margin-top: 0;
+  min-height: 42px;
+  border: 1px solid rgba(125,211,252,.22);
+  background: rgba(2,6,23,.42);
+  color: #f8fafc;
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+.config-dialog input::placeholder { color: rgba(148,163,184,.62); }
+.config-dialog input:focus,
+.config-dialog select:focus {
+  border-color: rgba(45,212,191,.72);
+  box-shadow: 0 0 0 3px rgba(45,212,191,.16), 0 0 24px rgba(14,165,233,.12);
+}
+.config-dialog select option {
+  color: #0f172a;
+  background: #f8fafc;
+}
+.config-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.model-section-head {
+  align-items: flex-start;
+}
+.load-models-btn,
+.config-dialog .model-actions #loadModelsBtn,
+.dialog-actions button {
+  border: none;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #0ea5e9, #10b981);
+  color: #fff;
+  padding: 10px 14px;
+  font-weight: 850;
+  box-shadow: 0 14px 30px rgba(14,165,233,.22);
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+}
+.load-models-btn {
+  margin-left: auto;
+  white-space: nowrap;
+  min-height: 38px;
+}
+.load-models-btn:hover,
+.dialog-actions button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 18px 38px rgba(16,185,129,.26);
+}
+.config-dialog .mini-status {
+  display: block;
+  min-height: 16px;
+  margin: -4px 0 9px;
+  color: #6ee7b7;
+  text-align: right;
+  font-size: 12px;
+}
+.config-dialog .dialog-actions {
+  position: relative;
+  justify-content: flex-end;
+  padding: 14px 18px 18px;
+  margin: 0;
+  border-top: 1px solid rgba(148,163,184,.16);
+  background: linear-gradient(180deg, rgba(15,23,42,.10), rgba(15,23,42,.48));
+}
+.dialog-actions #saveConfigBtn {
+  min-width: 126px;
+  min-height: 42px;
+}
+.api-key-form { margin: 0; }
+@media (max-width: 640px) {
+  .config-dialog {
+    width: 100vw;
+    max-height: 88vh;
+    border-radius: 24px 24px 0 0;
+  }
+  .config-hero { padding: 20px 18px 14px; }
+  .config-grid {
+    padding: 14px;
+    max-height: calc(88vh - 148px);
+  }
+  .config-two-col { grid-template-columns: 1fr; }
+  .model-section-head { flex-wrap: wrap; }
+  .load-models-btn { width: 100%; margin-left: 44px; }
+}
+
+/* config dialog theme refinement: align with main light glass UI */
+.config-dialog {
+  border: 1px solid rgba(203,213,225,.72);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(59,130,246,.16), transparent 34%),
+    radial-gradient(circle at 100% 8%, rgba(16,185,129,.16), transparent 30%),
+    linear-gradient(145deg, rgba(255,255,255,.94), rgba(248,250,252,.88));
+  color: #0f172a;
+  box-shadow: 0 28px 86px rgba(15,23,42,.20), inset 0 1px 0 rgba(255,255,255,.86);
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+}
+.config-dialog::before {
+  background-image:
+    linear-gradient(rgba(14,165,233,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16,185,129,.055) 1px, transparent 1px);
+  opacity: .72;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.58), transparent 80%);
+}
+.config-dialog::after {
+  background: linear-gradient(90deg, transparent, rgba(59,130,246,.52), rgba(16,185,129,.50), transparent);
+}
+.config-hero {
+  border-bottom-color: rgba(203,213,225,.56);
+}
+.config-kicker {
+  color: #047857;
+  border-color: rgba(16,185,129,.24);
+  background: rgba(16,185,129,.08);
+}
+.config-dialog .dialog-head h2,
+.dialog-head h2 {
+  background: linear-gradient(90deg, #0f172a, #2563eb 48%, #059669);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.config-dialog .dialog-head p {
+  color: #64748b;
+}
+.config-dialog .dialog-close {
+  background: rgba(255,255,255,.78);
+  color: #334155;
+  border-color: rgba(203,213,225,.75);
+  box-shadow: 0 8px 22px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.78);
+}
+.config-dialog .dialog-close:hover {
+  color: #0f172a;
+  background: rgba(239,246,255,.95);
+  border-color: rgba(59,130,246,.34);
+}
+.config-card {
+  border-color: rgba(203,213,225,.66);
+  background: linear-gradient(180deg, rgba(255,255,255,.82), rgba(248,250,252,.72));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 14px 34px rgba(15,23,42,.08);
+}
+.config-card::before {
+  background: linear-gradient(135deg, rgba(59,130,246,.08), transparent 46%, rgba(16,185,129,.08));
+}
+.config-section-icon {
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #10b981);
+  box-shadow: 0 10px 22px rgba(59,130,246,.18);
+}
+.config-section-title h3 {
+  color: #0f172a;
+}
+.config-section-title p {
+  color: #64748b;
+}
+.config-dialog label {
+  color: #334155;
+}
+.config-dialog input,
+.config-dialog select {
+  border-color: rgba(203,213,225,.82);
+  background-color: rgba(255,255,255,.86);
+  color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 8px 18px rgba(15,23,42,.045);
+}
+.config-dialog input::placeholder {
+  color: #94a3b8;
+}
+.config-dialog input:focus,
+.config-dialog select:focus {
+  border-color: rgba(16,185,129,.62);
+  box-shadow: 0 0 0 3px rgba(16,185,129,.13), 0 10px 26px rgba(59,130,246,.10);
+}
+.config-dialog select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 42px;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #2563eb 50%),
+    linear-gradient(135deg, #2563eb 50%, transparent 50%),
+    linear-gradient(135deg, rgba(59,130,246,.12), rgba(16,185,129,.10));
+  background-position:
+    calc(100% - 22px) 50%,
+    calc(100% - 16px) 50%,
+    100% 0;
+  background-size: 6px 6px, 6px 6px, 42px 100%;
+  background-repeat: no-repeat;
+}
+.config-dialog select:hover,
+.config-dialog input:hover {
+  border-color: rgba(59,130,246,.38);
+  background-color: rgba(255,255,255,.96);
+}
+.config-dialog select option {
+  color: #0f172a;
+  background: #fff;
+}
+.load-models-btn,
+.config-dialog .model-actions #loadModelsBtn,
+.dialog-actions button {
+  background: linear-gradient(135deg, #2563eb, #10b981);
+  box-shadow: 0 14px 30px rgba(37,99,235,.18);
+}
+.load-models-btn:hover,
+.dialog-actions button:hover {
+  box-shadow: 0 18px 38px rgba(16,185,129,.22);
+}
+.config-dialog .mini-status {
+  color: #059669;
+}
+.config-dialog .dialog-actions {
+  border-top-color: rgba(203,213,225,.58);
+  background: linear-gradient(180deg, rgba(255,255,255,.25), rgba(248,250,252,.74));
+}
+
+/* config layout refinement: wider panel, merge image output into model section */
+.config-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+.config-grid {
+  max-height: calc(min(84vh, 760px) - 160px);
+}
+.config-three-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, .72fr);
+  gap: 12px;
+}
+.config-dialog .dialog-actions {
+  padding: 16px 22px 28px;
+}
+.dialog-actions #saveConfigBtn {
+  margin-bottom: 2px;
+}
+@media (max-width: 760px) {
+  .config-three-col {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .config-dialog {
+    width: 100vw;
+  }
+  .config-grid {
+    max-height: calc(88vh - 158px);
+  }
+  .config-dialog .dialog-actions {
+    padding: 14px 18px calc(24px + env(safe-area-inset-bottom));
+  }
+}
+
+/* custom glass dropdowns for config panel */
+.config-dialog .custom-select {
+  position: relative;
+}
+.config-dialog .custom-select > select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.config-dialog .custom-select-trigger {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 42px 10px 12px;
+  border: 1px solid rgba(203,213,225,.82);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.94), rgba(239,246,255,.82)),
+    radial-gradient(circle at 100% 0%, rgba(16,185,129,.10), transparent 40%);
+  color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 8px 18px rgba(15,23,42,.045);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease, background .14s ease;
+}
+.config-dialog .custom-select-trigger:hover,
+.config-dialog .custom-select.open .custom-select-trigger {
+  border-color: rgba(59,130,246,.42);
+  background: linear-gradient(135deg, #fff, rgba(240,253,250,.92));
+  box-shadow: 0 0 0 3px rgba(59,130,246,.08), 0 12px 24px rgba(15,23,42,.08);
+}
+.config-dialog .custom-select-trigger svg {
+  position: absolute;
+  right: 13px;
+  width: 18px;
+  height: 18px;
+  color: #2563eb;
+  transition: transform .16s ease;
+}
+.config-dialog .custom-select-trigger svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.config-dialog .custom-select.open .custom-select-trigger svg {
+  transform: rotate(180deg);
+}
+.config-dialog .custom-select-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-dialog .custom-select-menu {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  max-height: 230px;
+  overflow-y: auto;
+  padding: 7px;
+  border: 1px solid rgba(203,213,225,.82);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(59,130,246,.12), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.96));
+  box-shadow: 0 20px 52px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.9);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  opacity: 0;
+  transform: translateY(-4px) scale(.98);
+  pointer-events: none;
+  transition: opacity .14s ease, transform .14s ease;
+}
+.config-dialog .custom-select.open .custom-select-menu {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.config-dialog .custom-select-option {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 11px;
+  padding: 8px 10px;
+  background: transparent;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.config-dialog .custom-select-option:hover {
+  background: linear-gradient(135deg, rgba(59,130,246,.10), rgba(16,185,129,.08));
+  color: #0f172a;
+}
+.config-dialog .custom-select-option.selected {
+  background: linear-gradient(135deg, rgba(37,99,235,.14), rgba(16,185,129,.13));
+  color: #075985;
+}
+.config-dialog .custom-select-option.selected::before {
+  content: "✓";
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb, #10b981);
+  font-size: 11px;
+  font-weight: 900;
+}
+.config-dialog .custom-select-menu::-webkit-scrollbar { width: 8px; }
+.config-dialog .custom-select-menu::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,.45);
+  border-radius: 999px;
+}
+@media (max-width: 640px) {
+  .config-dialog .custom-select-menu {
+    max-height: 190px;
+  }
+}
+
+/* config dialog: no internal scrollbar on desktop after layout merge */
+.config-dialog {
+  overflow: visible;
+  max-height: none;
+}
+.config-grid {
+  max-height: none;
+  overflow: visible;
+}
+@media (max-width: 640px) {
+  .config-dialog {
+    overflow: hidden;
+    max-height: 88vh;
+  }
+  .config-grid {
+    overflow-y: auto;
+  }
+}
+
+/* closed custom dropdowns should not inflate dialog scroll height */
+.config-dialog .custom-select:not(.open) .custom-select-menu {
+  display: none;
+}
+.config-dialog .custom-select.open .custom-select-menu {
+  display: block;
+}
+
+/* config footer: remove extra bottom layer that leaks under rounded dialog */
+.config-dialog .dialog-actions {
+  border-top: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 12px 22px 28px;
 }
