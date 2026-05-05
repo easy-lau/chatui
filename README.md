@@ -208,8 +208,8 @@ http://127.0.0.1:8765
 如果已经发布 Docker Hub 镜像，可直接拉取运行：
 
 ```bash
-docker pull <your-dockerhub-namespace>/chatui:latest
-docker run -d --name chatui -p 8765:8765 <your-dockerhub-namespace>/chatui:latest
+docker pull liugangqiang/chatui:latest
+docker run -d --name chatui -p 8765:8765 liugangqiang/chatui:latest
 ```
 
 实际镜像名以项目发布配置为准。
