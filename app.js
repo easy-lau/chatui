@@ -5,6 +5,7 @@ const state = {
   messages: [],
   busy: false,
   models: [],
+  modelMeta: {},
   editingIndex: null,
   editingNode: null,
   attachments: [],
@@ -233,6 +234,19 @@ function readJsonStorage(key, fallback) {
   }
 }
 
+function normalizeModelMeta(models, savedMeta = {}) {
+  const meta = {};
+  (Array.isArray(models) ? models : []).forEach(id => {
+    const prev = savedMeta?.[id] || {};
+    meta[id] = {
+      id,
+      type: String(prev.type || '').trim(),
+      unrecognized: prev.unrecognized === true || !String(prev.type || '').trim(),
+    };
+  });
+  return meta;
+}
+
 function loadConfig() {
   const saved = readJsonStorage(CONFIG_KEY, readJsonStorage('openapi-chat-image-config', {}));
   const cfg = { ...defaults, ...saved };
@@ -240,6 +254,7 @@ function loadConfig() {
   $('apiKey').value = cfg.apiKey || '';
   $('imageSize').value = cfg.imageSize || defaults.imageSize;
   state.models = Array.isArray(cfg.models) ? cfg.models : [];
+  state.modelMeta = normalizeModelMeta(state.models, cfg.modelMeta || {});
   const knownModels = new Set(state.models);
   const chatModel = knownModels.has(cfg.chatModel) ? cfg.chatModel : '';
   const imageModel = knownModels.has(cfg.imageModel) ? cfg.imageModel : '';
@@ -277,6 +292,7 @@ function saveConfig(silent = false) {
     imageSize: cfg.imageSize,
     directMode: false,
     models: Array.isArray(state.models) ? state.models : [],
+    modelMeta: state.modelMeta || {}, 
   }));
   if (!silent) {
     closeConfigModal();
@@ -802,9 +818,57 @@ async function requestModels() {
   return data;
 }
 
+function normalizeModelType(type = '') {
+  const raw = String(type || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (/image|image_generation|image-generation|imagegeneration|vision|picture|img|dall|gpt-image|flux|sd|stable|midjourney|wan|kling/.test(raw)) return 'image';
+  if (/chat|text|llm|language|completion|reason|assistant|gpt|claude|gemini|qwen|deepseek|llama|mistral/.test(raw)) return 'chat';
+  return raw;
+}
+
+function extractModelType(item) {
+  if (!item || typeof item === 'string') return '';
+  const candidates = [
+    item.type,
+    item.model_type,
+    item.modelType,
+    item.mode,
+    item.category,
+    item.task,
+    item.capability,
+    Array.isArray(item.capabilities) ? item.capabilities.join(',') : '',
+  ];
+  return normalizeModelType(candidates.find(v => String(v || '').trim()) || '');
+}
+
 function extractModels(data) {
   const arr = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-  return arr.map(item => typeof item === 'string' ? item : item.id || item.name).filter(Boolean).sort();
+  const meta = {};
+  const models = [];
+  arr.forEach(item => {
+    const id = typeof item === 'string' ? item : item?.id || item?.name;
+    if (!id) return;
+    const modelId = String(id);
+    const type = extractModelType(item);
+    meta[modelId] = { id: modelId, type, unrecognized: !type };
+    models.push(modelId);
+  });
+  const unique = [...new Set(models)].sort();
+  return { models: unique, meta };
+}
+
+function isModelAllowedFor(id, target) {
+  const type = state.modelMeta?.[id]?.type || '';
+  if (!type) return true;
+  if (target === 'image') return type === 'image';
+  if (target === 'chat') return type !== 'image';
+  return true;
+}
+
+function modelOptionHtml(id) {
+  const unrecognized = state.modelMeta?.[id]?.unrecognized;
+  const label = unrecognized ? `${id}（未知类型）` : id;
+  return `<option value="${escapeHtml(id)}" data-unrecognized="${unrecognized ? '1' : '0'}">${escapeHtml(label)}</option>`;
 }
 
 function setSelectValue(select, value) {
@@ -815,9 +879,11 @@ function setSelectValue(select, value) {
 
 function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue = $('imageModel')?.value || '') {
   const models = [...new Set(state.models)].filter(Boolean);
-  const html = `<option value="">请选择模型</option>` + models.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
-  $('chatModel').innerHTML = html;
-  $('imageModel').innerHTML = html;
+  const chatModels = models.filter(id => isModelAllowedFor(id, 'chat'));
+  const imageModels = models.filter(id => isModelAllowedFor(id, 'image'));
+  const empty = `<option value="">请选择模型</option>`;
+  $('chatModel').innerHTML = empty + chatModels.map(modelOptionHtml).join('');
+  $('imageModel').innerHTML = empty + imageModels.map(modelOptionHtml).join('');
   setSelectValue($('chatModel'), chatValue);
   setSelectValue($('imageModel'), imageValue);
   refreshCustomSelectOptions($('chatModel'));
@@ -844,12 +910,18 @@ async function loadModels() {
   status.textContent = '加载中…';
   try {
     const data = await requestModels();
-    const models = extractModels(data);
+    const { models, meta } = extractModels(data);
     if (!models.length) throw new Error('未从 /models 返回中识别到模型列表');
     state.models = models;
+    state.modelMeta = meta;
     renderModelOptions($('chatModel').value, $('imageModel').value);
     saveConfig(true);
-    status.textContent = `已加载 ${models.length} 个`;
+    const unknownCount = models.filter(id => state.modelMeta?.[id]?.unrecognized).length;
+    if (unknownCount) {
+      status.textContent = `已加载 ${models.length} 个，${unknownCount} 个未知类型`;
+    } else {
+      status.textContent = `已加载 ${models.length} 个`;
+    }
   } catch (err) {
     status.textContent = err.message || String(err);
   } finally {
@@ -2109,10 +2181,26 @@ function selectedOptionLabel(select) {
   return opt?.textContent || select?.options?.[0]?.textContent || '请选择';
 }
 
+function renderCustomSelectLabel(container, option) {
+  if (!container) return;
+  container.innerHTML = '';
+  const main = document.createElement('span');
+  main.className = 'custom-select-main-text';
+  const isUnknown = option?.dataset?.unrecognized === '1';
+  main.textContent = isUnknown ? (option.textContent || '').replace(/（未知类型）$/, '') : (option?.textContent || '请选择');
+  container.appendChild(main);
+  if (isUnknown) {
+    const badge = document.createElement('span');
+    badge.className = 'model-unrecognized-badge';
+    badge.textContent = '未知类型';
+    container.appendChild(badge);
+  }
+}
+
 function updateCustomSelect(select) {
   const wrapper = select?.closest('.custom-select');
   const valueEl = wrapper?.querySelector('.custom-select-value');
-  if (valueEl) valueEl.textContent = selectedOptionLabel(select);
+  if (valueEl) renderCustomSelectLabel(valueEl, select?.selectedOptions?.[0]);
   wrapper?.querySelectorAll('.custom-select-option').forEach(btn => {
     btn.classList.toggle('selected', btn.dataset.value === select.value);
   });
@@ -2128,8 +2216,9 @@ function refreshCustomSelectOptions(select) {
     btn.type = 'button';
     btn.className = 'custom-select-option';
     btn.dataset.value = opt.value;
+    btn.dataset.unrecognized = opt.dataset.unrecognized || '0';
     btn.setAttribute('role', 'option');
-    btn.textContent = opt.textContent;
+    renderCustomSelectLabel(btn, opt);
     btn.addEventListener('click', () => {
       select.value = opt.value;
       select.dispatchEvent(new Event('change', { bubbles: true }));

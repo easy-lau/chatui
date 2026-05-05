@@ -2771,3 +2771,39 @@ body {
   box-shadow: none;
   padding: 12px 22px 28px;
 }
+
+/* model type recognition badge */
+.config-dialog .custom-select-value,
+.config-dialog .custom-select-option {
+  min-width: 0;
+}
+.config-dialog .custom-select-value {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+}
+.config-dialog .custom-select-main-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-dialog .model-unrecognized-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #dc2626;
+  background: rgba(254,226,226,.92);
+  border: 1px solid rgba(248,113,113,.42);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 15px;
+}
+.config-dialog .custom-select-option .model-unrecognized-badge {
+  margin-left: auto;
+}
+.config-dialog .custom-select-option.selected .model-unrecognized-badge {
+  background: rgba(254,226,226,.98);
+  color: #b91c1c;
+}
