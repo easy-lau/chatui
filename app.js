@@ -781,9 +781,10 @@ async function regenerateAssistantMessage(node) {
   if (!Number.isFinite(userIndex)) userIndex = Math.max(0, state.messages.length - 2);
   const hadGeneratedImage = !!node.querySelector('img.generated-thumb');
   let imageContext = null;
-  if (hadGeneratedImage && node.dataset.imageContext) {
+  if (node.dataset.imageContext) {
     try { imageContext = JSON.parse(node.dataset.imageContext); } catch {}
   }
+  const hadImageContext = !!(imageContext && Array.isArray(imageContext.attachments) && imageContext.attachments.length);
 
   // 删除当前回复及其后的旧分支，并把上下文回退到对应用户消息之前，随后复用同一条提示重新请求。
   let current = node;
@@ -802,8 +803,8 @@ async function regenerateAssistantMessage(node) {
   const liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
   immediateFeedback.__displayItem = liveItem;
   try {
-    const restoredAttachments = hadGeneratedImage ? await restoreImageAttachmentsFromContext(imageContext) : [];
-    const route = hadGeneratedImage
+    const restoredAttachments = hadImageContext ? await restoreImageAttachmentsFromContext(imageContext) : [];
+    const route = (hadGeneratedImage || hadImageContext)
       ? normalizeRoute({
           mode: restoredAttachments.length ? 'edit_image' : 'image',
           target: restoredAttachments.length ? (imageContext?.target || 'uploaded') : 'new',
