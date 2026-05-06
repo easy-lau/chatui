@@ -18,6 +18,7 @@ const state = {
   reasoningPersist: false,
   pageUnloading: false,
   resumingJobs: new Set(),
+  autoScrollLocked: true,
 };
 
 const CONFIG_KEY = 'openapi-chat-image-config-v2';
@@ -334,22 +335,38 @@ function clearEmpty() {
 }
 
 let scrollTimer = null;
+function isNearMessagesBottom(threshold = 180) {
+  const el = $('messages');
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+function updateAutoScrollLock() {
+  state.autoScrollLocked = isNearMessagesBottom(220);
+}
+
+function markManualMessageScroll() {
+  state.autoScrollLocked = isNearMessagesBottom(80);
+}
+
 function scrollToBottom(force = true) {
   const el = $('messages');
   if (!el) return;
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 260;
-  if (!force && !nearBottom) return;
+  if (!force && !state.autoScrollLocked && !isNearMessagesBottom(220)) return;
 
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
   const apply = () => {
-    // 移动端只滚动消息容器，不滚 body/documentElement，避免键盘弹出时页面闪动。
+    // .messages 是唯一主滚动容器；移动端不要滚 window，避免抢手势和键盘抖动。
     el.scrollTop = el.scrollHeight;
     if (!isMobile) {
+      const doc = document.scrollingElement || document.documentElement;
+      doc.scrollTop = doc.scrollHeight;
       document.documentElement.scrollTop = document.documentElement.scrollHeight;
       document.body.scrollTop = document.body.scrollHeight;
     }
   };
 
+  state.autoScrollLocked = true;
   apply();
   requestAnimationFrame(apply);
 
@@ -436,7 +453,8 @@ function updateMessageContentLight(node, content, options = {}) {
     bindInlineCopyButtons(node);
   }
   // 流式阶段只做 Markdown 渲染，不做图片 IndexedDB 恢复、媒体按钮搬运、历史保存等重操作。
-  scrollToBottom(false);
+  // 如果用户没有主动上滑，移动端也要持续跟随到底部。
+  scrollToBottom(options.forceScroll ?? false);
 }
 
 function updateMessage(node, content, options = {}) {
@@ -494,7 +512,7 @@ function updateReasoning(node, text, options = {}) {
   const content = panel.querySelector('.reasoning-content');
   content.textContent = contentText;
   content.hidden = !contentText;
-  scrollToBottom(false);
+  scrollToBottom(options.forceScroll ?? false);
   if (options.persistSave && node.isConnected) saveDisplayHistory();
 }
 
@@ -1362,11 +1380,11 @@ async function startChatJob(payload, cfg, jobId) {
   return data;
 }
 
-async function registerChatStreamJob(payload, cfg, jobId) {
+async function registerChatStreamJob(payload, cfg, jobId, options = {}) {
   const res = await fetch('/api/chat-stream-jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload }),
+    body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload, start: options.start === true }),
   });
   const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
@@ -1723,7 +1741,7 @@ function updateLiveDisplay(sessionId, item, role, content, options = {}) {
   if (!node) node = addDisplayItemNode(item);
   if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: true });
   const light = options.pending !== false && !options.html;
-  if (light) updateMessageContentLight(node, content, { ...options, skipSave: true });
+  if (light) updateMessageContentLight(node, content, { ...options, skipSave: true, forceScroll: options.forceScroll ?? false });
   else updateMessage(node, content, { ...options, skipSave: options.pending !== false });
 }
 
@@ -2167,8 +2185,8 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
   if (backgroundJobId) {
     saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now() });
-    // 不等待预登记完成；尽早发出即可，避免“已收到”阶段刷新后 job 尚未存在。
-    registerChatStreamJob(payload, cfg, backgroundJobId).catch(err => console.warn('register chat stream job failed', err));
+    // 正常发送只预登记，不启动后台流；刷新恢复时才 start，避免占用同一个 job 导致正常 token 流式被中断。
+    registerChatStreamJob(payload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register chat stream job failed', err));
   }
 
   try {
@@ -2176,12 +2194,12 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       const text = visible || '正在思考中';
       if (loading?.isConnected) {
         clearPendingFeedback(loading);
-        updateMessage(loading, text, { rawText: text, skipSave: true });
+        updateMessageContentLight(loading, text, { rawText: text, skipSave: true, forceScroll: false });
       }
-      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, forceScroll: false });
     });
     const reasoningRenderer = createRealtimeRenderer((visible) => {
-      if (loading?.isConnected) updateReasoning(loading, visible || '');
+      if (loading?.isConnected) updateReasoning(loading, visible || '', { forceScroll: false });
       if (liveItem) liveItem.reasoningText = visible || '';
     });
     if (loading?.isConnected) {
@@ -2571,7 +2589,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
     };
     // 刷新恢复时先调用后端接口登记/重建 streaming job，再连接 SSE。
     // 这样“已收到，马上处理”阶段刷新，即使原请求没来得及建 job，也不会直接 /events 404。
-    if (saved.payload && cfg.baseUrl) await registerChatStreamJob(saved.payload, cfg, saved.id);
+    if (saved.payload && cfg.baseUrl) await registerChatStreamJob(saved.payload, cfg, saved.id, { start: true });
     const data = await waitChatJob(saved.id, onJobUpdate);
     const final = extractChatJobText(data);
     const reply = final.content || '没有返回内容';
@@ -3252,6 +3270,11 @@ function scrollPromptByWheel(e) {
 }
 $('prompt').addEventListener('wheel', scrollPromptByWheel, { passive: false });
 document.querySelector('.input-stack')?.addEventListener('wheel', scrollPromptByWheel, { passive: false });
+$('messages')?.addEventListener('scroll', updateAutoScrollLock, { passive: true });
+$('messages')?.addEventListener('touchstart', markManualMessageScroll, { passive: true });
+$('messages')?.addEventListener('touchmove', markManualMessageScroll, { passive: true });
+$('messages')?.addEventListener('wheel', markManualMessageScroll, { passive: true });
+window.visualViewport?.addEventListener('resize', () => scrollToBottom(false));
 window.addEventListener('resize', scheduleAutoResize);
 scheduleAutoResize();
 $('prompt').addEventListener('keydown', (e) => {

@@ -3301,3 +3301,38 @@ body.session-sidebar-collapsed .composer { left: 0; }
   .session-sidebar { box-shadow: 22px 0 58px rgba(15,23,42,.16) !important; }
   .session-drawer-mask { background: rgba(15,23,42,.22) !important; }
 }
+
+/* mobile scroll fix: make messages the single touch-scroll container */
+@media (max-width: 640px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden !important;
+  }
+  .app,
+  .shell-app.app,
+  .main {
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+  }
+  .main {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .messages {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-y: contain !important;
+    touch-action: pan-y !important;
+    padding-bottom: calc(122px + env(safe-area-inset-bottom)) !important;
+  }
+  .composer {
+    flex: 0 0 auto !important;
+  }
+}

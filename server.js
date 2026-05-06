@@ -474,7 +474,7 @@ async function registerChatStreamJob(req, res) {
       job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true });
       chatJobs.set(jobId, job);
     }
-    if (!job.streamStarted && job.status === 'running') runChatStreamJob(job);
+    if (body.start === true && !job.streamStarted && job.status === 'running') runChatStreamJob(job);
     sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   } catch (err) {
     sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
