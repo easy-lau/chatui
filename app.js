@@ -690,9 +690,24 @@ function closeImagePreview() {
 
 
 function editUserMessage(node) {
-  const idx = Number(node.dataset.messageIndex);
-  if (!Number.isFinite(idx)) return;
+  let idx = Number(node.dataset.messageIndex);
   const text = node.dataset.rawText || '';
+  if (!Number.isFinite(idx)) {
+    const userNodes = [...$('messages').querySelectorAll('.message.user')];
+    const userOrdinal = userNodes.indexOf(node);
+    let seen = -1;
+    idx = state.messages.findIndex(msg => {
+      if (msg?.role !== 'user') return false;
+      seen += 1;
+      return seen === userOrdinal;
+    });
+    if (idx < 0 && text) idx = state.messages.findIndex(msg => msg?.role === 'user' && String(msg.content || '') === text);
+    if (idx >= 0) node.dataset.messageIndex = String(idx);
+  }
+  if (!Number.isFinite(idx) || idx < 0) {
+    toast('找不到这条消息的上下文，无法编辑重发');
+    return;
+  }
 
   if (state.editingNode) state.editingNode.classList.remove('editing');
   state.editingIndex = idx;
