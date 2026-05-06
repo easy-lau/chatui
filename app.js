@@ -261,6 +261,24 @@ function normalizeModelMeta(models, savedMeta = {}) {
   return meta;
 }
 
+
+function setApiKeyVisible(visible) {
+  const input = $('apiKey');
+  const btn = $('toggleApiKeyVisibility');
+  if (!input || !btn) return;
+  input.type = visible ? 'text' : 'password';
+  btn.textContent = visible ? '隐藏' : '显示';
+  btn.setAttribute('aria-label', visible ? '隐藏 API Key' : '显示 API Key');
+  btn.setAttribute('aria-pressed', visible ? 'true' : 'false');
+}
+
+function toggleApiKeyVisibility() {
+  const input = $('apiKey');
+  if (!input) return;
+  setApiKeyVisible(input.type === 'password');
+  input.focus();
+}
+
 function loadConfig() {
   const saved = readJsonStorage(CONFIG_KEY, readJsonStorage('openapi-chat-image-config', {}));
   const cfg = { ...defaults, ...saved };
@@ -3212,6 +3230,7 @@ function scheduleAutoResize() {
 });
 $('saveConfigBtn').addEventListener('click', () => saveConfig(false));
 $('loadModelsBtn').addEventListener('click', loadModels);
+$('toggleApiKeyVisibility')?.addEventListener('click', toggleApiKeyVisibility);
 async function clearChat() {
   state.messages = [];
   state.attachments = [];
