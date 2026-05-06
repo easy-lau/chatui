@@ -3371,3 +3371,42 @@ body.session-sidebar-collapsed .composer { left: 0; }
   .secret-field { gap: 6px; }
   .secret-toggle { min-height: 40px; padding: 0 10px; }
 }
+
+/* mobile direct settings entry: keep model config reachable on iPhone even when the drawer entry sits below the fold/safe-area */
+.mobile-config-float { display: none; }
+@media (max-width: 840px) {
+  .mobile-config-float {
+    position: fixed;
+    right: max(12px, env(safe-area-inset-right));
+    top: max(12px, env(safe-area-inset-top));
+    z-index: 46;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(147,197,253,.55);
+    border-radius: 13px;
+    color: #2563eb;
+    background: rgba(239,246,255,.88);
+    box-shadow: 0 10px 26px rgba(37,99,235,.12);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+  }
+  .mobile-config-float svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.95;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  body.session-drawer-open .mobile-config-float,
+  body.modal-open .mobile-config-float {
+    display: none;
+  }
+}
+@media (min-width: 841px) {
+  .mobile-config-float { display: none !important; }
+}

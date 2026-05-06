@@ -3272,6 +3272,7 @@ async function clearChat() {
 }
 $('newSessionBtn')?.addEventListener('click', newSession);
 $('mobileSessionFloatBtn')?.addEventListener('click', openSessionDrawer);
+$('mobileConfigFloatBtn')?.addEventListener('click', () => { closeSessionDrawer(); openConfigModal(); });
 $('railExpandBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
 $('railChatBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
 $('railNewSessionBtn')?.addEventListener('click', newSession);
@@ -3321,12 +3322,14 @@ $('prompt').addEventListener('keydown', (e) => {
 
 
 function openConfigModal() {
+  document.body.classList.add('modal-open');
   $('configModal').classList.add('show');
   $('configModal').setAttribute('aria-hidden', 'false');
   setTimeout(() => $('baseUrl')?.focus(), 0);
 }
 
 function closeConfigModal() {
+  document.body.classList.remove('modal-open');
   $('configModal').classList.remove('show');
   $('configModal').setAttribute('aria-hidden', 'true');
 }
