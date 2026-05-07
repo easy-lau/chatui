@@ -22,6 +22,8 @@ const state = {
   pageUnloading: false,
   resumingJobs: new Set(),
   autoScrollLocked: true,
+  activeOutputNode: null,
+  scrollVersion: 0,
 };
 
 const CONFIG_KEY = 'openapi-chat-image-config-v2';
@@ -354,8 +356,14 @@ function toast(text) {
 
 
 function clearEmpty() {
-  const empty = document.querySelector('.empty');
-  if (empty) empty.remove();
+  document.querySelector('.empty')?.remove();
+  document.querySelector('.empty-welcome')?.remove();
+}
+
+function renderEmptyWelcome() {
+  const messages = $('messages');
+  if (!messages || messages.children.length) return;
+  messages.innerHTML = `<div class="empty-welcome" aria-hidden="true"><div class="welcome-title" data-text="ChatUI极简聊天工具">ChatUI极简聊天工具</div></div>`;
 }
 
 let scrollTimer = null;
@@ -391,11 +399,52 @@ function scrollToBottom(force = true) {
   };
 
   state.autoScrollLocked = true;
+  const token = ++state.scrollVersion;
   apply();
-  requestAnimationFrame(apply);
+  requestAnimationFrame(() => { if (state.scrollVersion === token) apply(); });
 
   clearTimeout(scrollTimer);
-  scrollTimer = setTimeout(apply, isMobile ? 80 : 160);
+  scrollTimer = setTimeout(() => { if (state.scrollVersion === token) apply(); }, isMobile ? 80 : 160);
+}
+
+function scrollToActiveOutput(node, options = {}) {
+  const el = $('messages');
+  if (!el || !node?.isConnected) return;
+  const isActiveOutput = state.activeOutputNode === node;
+  if (!options.force && !isActiveOutput && !state.autoScrollLocked && !isNearMessagesBottom(220)) return;
+
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const margin = Number.isFinite(options.margin) ? options.margin : 24;
+  const apply = () => {
+    const nodeRect = node.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const nodeBottom = el.scrollTop + (nodeRect.bottom - elRect.top);
+    const targetBottom = Math.min(el.scrollHeight, nodeBottom + margin);
+    // 自动跟随时锚定正在输出的消息，而不是无脑贴到整个列表底部；
+    // 这样编辑/重生成早期消息时，不会被后面的旧消息拉到最下方。
+    el.scrollTop = Math.max(0, targetBottom - el.clientHeight);
+    if (!isMobile) {
+      const doc = document.scrollingElement || document.documentElement;
+      doc.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
+  };
+
+  if (options.active) state.activeOutputNode = node;
+  state.autoScrollLocked = true;
+  const token = ++state.scrollVersion;
+  apply();
+  if (options.settle !== false) {
+    requestAnimationFrame(() => { if (state.scrollVersion === token) apply(); });
+
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => { if (state.scrollVersion === token) apply(); }, isMobile ? 80 : 160);
+  } else {
+    // 最终完成态不再允许流式阶段遗留的 RAF/timer 二次补滚。
+    state.scrollVersion += 1;
+    clearTimeout(scrollTimer);
+  }
 }
 
 function addMessage(role, content, options = {}) {
@@ -421,7 +470,7 @@ function addMessage(role, content, options = {}) {
   }
 
   const refreshBtn = node.querySelector('.refresh-btn');
-  if (role === 'assistant') {
+  if (role === 'assistant' || role === 'error') {
     refreshBtn.addEventListener('click', () => regenerateAssistantMessage(node));
   } else {
     refreshBtn.remove();
@@ -442,7 +491,7 @@ function addMessage(role, content, options = {}) {
 }
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
-const COPY_SUCCESS_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.6 9.7 16.8 18.8 7.7"></path></svg>';
+const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.5 12.4 11.2 16.1 18 8"></path></svg>';
 
 function showCopySuccess(btn) {
   if (!btn) return;
@@ -480,12 +529,14 @@ function updateMessageContentLight(node, content, options = {}) {
     bindInlineCopyButtons(node);
   }
   // 流式阶段只做 Markdown 渲染，不做图片 IndexedDB 恢复、媒体按钮搬运、历史保存等重操作。
-  // 如果用户没有主动上滑，移动端也要持续跟随到底部。
-  scrollToBottom(options.forceScroll ?? false);
+  // 自动滚动锚定正在输出的消息底部，而不是无脑贴到整个消息列表底部。
+  scrollToActiveOutput(node, { force: options.forceScroll ?? false, active: options.followActive === true });
 }
 
 function updateMessage(node, content, options = {}) {
   const box = node.querySelector('.content');
+  const messagesEl = $('messages');
+  const preservedScrollTop = options.noScroll && messagesEl ? messagesEl.scrollTop : null;
   node.dataset.rawText = options.rawText ?? content;
   if (options.skipSave) node.dataset.persist = '0';
   else delete node.dataset.persist;
@@ -493,7 +544,34 @@ function updateMessage(node, content, options = {}) {
   else box.innerHTML = renderMarkdown(String(content || ''));
   bindInlineCopyButtons(node);
   hydrateMessageMedia(node, { save: options.skipSave !== true });
-  scrollToBottom(true);
+  if (options.noScroll) {
+    state.scrollVersion += 1;
+    clearTimeout(scrollTimer);
+    if (messagesEl && preservedScrollTop !== null) {
+      const restore = () => { messagesEl.scrollTop = preservedScrollTop; };
+      restore();
+      requestAnimationFrame(restore);
+      setTimeout(restore, 80);
+    }
+    return;
+  }
+  const shouldFollowActive = options.followActive === true || state.activeOutputNode === node;
+  if (shouldFollowActive) {
+    const force = options.forceScroll ?? (options.followActive === true);
+    if (force) {
+      if (options.settleScroll === false) {
+        clearTimeout(scrollTimer);
+        scrollToActiveOutput(node, { force: true, active: true, settle: false });
+        clearTimeout(scrollTimer);
+      } else {
+        scrollToActiveOutput(node, { force: true, active: true, settle: true });
+      }
+    } else {
+      state.activeOutputNode = node;
+      state.scrollVersion += 1;
+      clearTimeout(scrollTimer);
+    }
+  } else scrollToBottom(options.forceScroll ?? true);
 }
 
 function hydrateMessageMedia(node, { save = false } = {}) {
@@ -556,7 +634,7 @@ function updateReasoning(node, text, options = {}) {
     bindInlineCopyButtons(panel);
   }
   content.hidden = !contentText;
-  scrollToBottom(options.forceScroll ?? false);
+  scrollToActiveOutput(node, { force: options.forceScroll ?? false, active: options.followActive === true });
   if (options.persistSave && node.isConnected) saveDisplayHistory();
 }
 
@@ -592,10 +670,16 @@ function pendingFeedbackHtml(text) {
   return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
 }
 
-function setPendingFeedback(node, text) {
+function setPendingFeedback(node, text, options = {}) {
   if (!node) return;
   node.dataset.pendingFeedback = '1';
-  updateMessage(node, pendingFeedbackHtml(text), { html: true, rawText: text, skipSave: true });
+  updateMessage(node, pendingFeedbackHtml(text), {
+    html: true,
+    rawText: text,
+    skipSave: true,
+    followActive: options.followActive === true || state.activeOutputNode === node,
+    forceScroll: options.forceScroll ?? (state.activeOutputNode === node),
+  });
 }
 
 function clearPendingFeedback(node) {
@@ -771,39 +855,61 @@ function applyPendingEdit(newText) {
   if (state.editingIndex === null || !state.editingNode) return null;
   const idx = state.editingIndex;
   const node = state.editingNode;
-  const session = getActiveSession();
 
-  // 发送时再清理：原位替换当前用户消息，删除它后面的旧回复/旧分支，并回退上下文。
-  state.messages = state.messages.slice(0, idx);
+  // 编辑重发只修改当前用户消息，并复用它后面紧邻的回答位置；不删除后续消息。
   if (state.messages[idx]?.role === 'user') state.messages[idx].content = newText;
-  else state.messages.push({ role: 'user', content: newText });
+  else state.messages.splice(idx, 0, { role: 'user', content: newText });
   node.dataset.rawText = newText;
+  node.dataset.messageIndex = String(idx);
   const box = node.querySelector('.content');
   box.innerHTML = renderMarkdown(newText);
+  bindInlineCopyButtons(node);
 
-  let current = node.nextElementSibling;
-  while (current) {
-    const next = current.nextElementSibling;
-    current.remove();
-    current = next;
+  const nextNode = node.nextElementSibling;
+  const responseNode = nextNode && (nextNode.classList?.contains('assistant') || nextNode.classList?.contains('error'))
+    ? nextNode
+    : null;
+  const responseIndex = idx + 1;
+
+  if (node.__displayItem) {
+    node.__displayItem.rawText = newText;
+    node.__displayItem.html = renderMarkdown(newText);
   }
 
-  if (session?.display) {
-    const keepCount = [...$('messages').querySelectorAll('.message')].indexOf(node) + 1;
-    session.display = session.display.slice(0, Math.max(keepCount, 0));
-    const userItem = session.display[keepCount - 1];
-    if (userItem) {
-      userItem.rawText = newText;
-      userItem.html = renderMarkdown(newText);
-    }
-    persistSessionDisplay(session.id);
-  }
+  saveDisplayHistory();
 
   node.classList.remove('editing');
   state.editingIndex = null;
   state.editingNode = null;
   delete $('prompt').dataset.editing;
-  return { index: idx, node };
+  return { index: idx, responseIndex, node, responseNode };
+}
+
+function prepareReplacementResponse(editResult, sessionId, text = '已收到，马上处理') {
+  const html = pendingFeedbackHtml(text);
+  let node = editResult?.responseNode || null;
+  if (!node) {
+    node = addMessage('assistant', html, { html: true, rawText: text, skipSave: true });
+    editResult?.node?.after(node);
+  } else {
+    node.classList.remove('error');
+    node.classList.add('assistant');
+    const avatar = node.querySelector('.avatar');
+    if (avatar) avatar.textContent = 'AI';
+    clearReasoning(node);
+    updateMessage(node, html, { html: true, rawText: text, skipSave: true, followActive: true, forceScroll: true });
+    state.activeOutputNode = node;
+  }
+
+  let liveItem = node.__displayItem || null;
+  if (!liveItem) {
+    liveItem = appendSessionDisplayMessage(sessionId, 'assistant', html, { html: true, rawText: text, pending: true });
+    node.__displayItem = liveItem;
+    node.dataset.displayItemId = liveItem.id;
+  } else {
+    updateSessionDisplayItem(sessionId, liveItem, 'assistant', html, { html: true, rawText: text, pending: true });
+  }
+  return { node, liveItem };
 }
 
 function findPreviousUserMessageNode(node) {
@@ -826,6 +932,7 @@ async function regenerateAssistantMessage(node) {
 
   let userIndex = Number(userNode.dataset.messageIndex);
   if (!Number.isFinite(userIndex)) userIndex = Math.max(0, state.messages.length - 2);
+  const responseIndex = userIndex + 1;
   const hadGeneratedImage = !!node.querySelector('img.generated-thumb');
   let imageContext = null;
   if (node.dataset.imageContext) {
@@ -833,22 +940,26 @@ async function regenerateAssistantMessage(node) {
   }
   const hadImageContext = !!(imageContext && Array.isArray(imageContext.attachments) && imageContext.attachments.length);
 
-  // 删除当前回复及其后的旧分支，并把上下文回退到对应用户消息之前，随后复用同一条提示重新请求。
-  let current = node;
-  while (current) {
-    const next = current.nextElementSibling;
-    current.remove();
-    current = next;
-  }
-  state.messages = state.messages.slice(0, userIndex);
-  saveChatHistory();
-  saveDisplayHistory();
-
   const runSessionId = state.activeSessionId;
   setSessionBusy(runSessionId, true);
-  const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
-  const liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
-  immediateFeedback.__displayItem = liveItem;
+  node.classList.remove('error');
+  node.classList.add('assistant');
+  const avatar = node.querySelector('.avatar');
+  if (avatar) avatar.textContent = 'AI';
+  clearReasoning(node);
+  updateMessage(node, pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true, followActive: true, forceScroll: true });
+  state.activeOutputNode = node;
+
+  let liveItem = node.__displayItem || null;
+  if (!liveItem) {
+    liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+    node.__displayItem = liveItem;
+    node.dataset.displayItemId = liveItem.id;
+  } else {
+    updateSessionDisplayItem(runSessionId, liveItem, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+    node.dataset.displayItemId = liveItem.id;
+  }
+
   try {
     const restoredAttachments = hadImageContext ? await restoreImageAttachmentsFromContext(imageContext) : [];
     const route = (hadGeneratedImage || hadImageContext)
@@ -859,31 +970,34 @@ async function regenerateAssistantMessage(node) {
           confidence: 1,
           evidence: restoredAttachments.length ? '刷新复用原图片上下文' : '',
         }, 'image')
-      : await getEffectiveRoute(prompt, []);
+      : await getEffectiveRoute(prompt, [], runSessionId);
     const mode = route.mode;
     updateModeUi(mode, state.autoMode);
     if (warnMissingModel(mode, true)) {
-      immediateFeedback.remove();
+      node.remove();
       return;
     }
-    if (mode === 'chat') await sendChat(prompt, [], immediateFeedback, { sessionId: runSessionId, liveItem });
+    if (mode === 'chat') await sendChat(prompt, [], node, { sessionId: runSessionId, userAlreadyAdded: true, liveItem, replaceAssistantIndex: responseIndex, requestBaseMessages: state.messages.slice(0, userIndex) });
     else await sendImage(prompt, {
-      loadingNode: immediateFeedback,
+      loadingNode: node,
       editMode: mode === 'edit_image',
       editTarget: route.target,
       usePreviousImage: false,
       attachments: restoredAttachments,
       imageContext,
       sessionId: runSessionId,
+      userAlreadyAdded: true,
       liveItem,
+      replaceAssistantIndex: responseIndex,
     });
   } catch (err) {
-    showRunError(runSessionId, err, liveItem, immediateFeedback);
+    showRunError(runSessionId, err, liveItem, node);
   } finally {
     setSessionBusy(runSessionId, false);
     $('prompt').focus();
   }
 }
+
 
 async function copyText(text) {
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
@@ -1682,14 +1796,21 @@ function persistSessionDisplay(sessionId) {
   saveSessionsMeta();
 }
 
-function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false } = {}) {
+function makeDisplayItemId() {
+  return `display_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '' } = {}) {
   return {
+    id: id || makeDisplayItemId(),
     role,
     rawText: rawText || '',
     html: html ? String(content || '') : renderMarkdown(String(content || '')),
     reasoningText: '',
     keepReasoning: false,
     messageIndex: messageIndex !== null && messageIndex !== undefined ? String(messageIndex) : '',
+    responseIndex: responseIndex !== null && responseIndex !== undefined ? String(responseIndex) : '',
+    jobId: jobId || '',
     imageContext: '',
     pending: pending ? '1' : '',
   };
@@ -1722,6 +1843,18 @@ function saveChatJob(sessionId, job) {
   localStorage.setItem(sessionChatJobKey(sessionId), JSON.stringify(job));
 }
 
+function replaceAssistantMessageAt(sessionId, index, content) {
+  if (!Number.isFinite(index)) return false;
+  const session = state.sessions.find(item => item.id === sessionId);
+  const messages = sessionId === state.activeSessionId ? state.messages : session?.messages;
+  if (!Array.isArray(messages)) return false;
+  if (messages[index]?.role === 'assistant') messages[index].content = content;
+  else messages.splice(index, 0, { role: 'assistant', content });
+  if (sessionId === state.activeSessionId) saveChatHistory();
+  else saveSessionMessages(sessionId, messages);
+  return true;
+}
+
 function loadChatJob(sessionId = state.activeSessionId) {
   try { return JSON.parse(localStorage.getItem(sessionChatJobKey(sessionId)) || 'null'); }
   catch { return null; }
@@ -1748,7 +1881,11 @@ function updateSessionDisplayItem(sessionId, item, role, content, options = {}) 
   item.role = role;
   item.rawText = options.rawText ?? content;
   item.html = options.html ? String(content || '') : renderMarkdown(String(content || ''));
+  if (!item.id) item.id = makeDisplayItemId();
   if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
+  if (options.id !== undefined && options.id) item.id = options.id;
+  if (options.responseIndex !== undefined && options.responseIndex !== null) item.responseIndex = String(options.responseIndex);
+  if (options.jobId !== undefined) item.jobId = options.jobId || '';
   persistSessionDisplay(sessionId);
 }
 
@@ -1774,7 +1911,10 @@ function replaceLastSessionDisplayMessage(sessionId, role, content, options = {}
 
 function findMessageNodeByDisplayItem(item) {
   if (!item) return null;
-  return [...$('messages').querySelectorAll('.message')].find(node => node.__displayItem === item) || null;
+  const nodes = [...$('messages').querySelectorAll('.message')];
+  return nodes.find(node => node.__displayItem === item)
+    || (item.id ? nodes.find(node => node.dataset.displayItemId === item.id) : null)
+    || null;
 }
 
 function addDisplayItemNode(item) {
@@ -1785,7 +1925,11 @@ function addDisplayItemNode(item) {
     skipSave: item.pending === '1',
     deferSave: true,
   });
+  if (!item.id) item.id = makeDisplayItemId();
   node.__displayItem = item;
+  node.dataset.displayItemId = item.id;
+  if (item.responseIndex !== undefined && item.responseIndex !== '') node.dataset.responseIndex = item.responseIndex;
+  if (item.jobId) node.dataset.jobId = item.jobId;
   if (item.imageContext) node.dataset.imageContext = item.imageContext;
   if (item.reasoningText) updateReasoning(node, item.reasoningText, { done: true, keepReasoning: item.keepReasoning !== false });
   return node;
@@ -1816,15 +1960,52 @@ function takePendingLiveItem(sessionId, fallbackText, matcher = null) {
   return liveItem;
 }
 
+function takeChatJobLiveItem(sessionId, saved, fallbackText, matcher = null) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return null;
+  session.display ||= [];
+
+  let liveItem = null;
+  if (saved?.displayItemId) liveItem = session.display.find(item => item.id === saved.displayItemId) || null;
+  if (saved?.id && !liveItem) liveItem = session.display.find(item => item.jobId === saved.id) || null;
+  if (!liveItem && saved?.responseIndex !== undefined && saved.responseIndex !== null) {
+    const responseIndex = String(saved.responseIndex);
+    liveItem = session.display.find(item => item.responseIndex === responseIndex) || null;
+    if (!liveItem) {
+      const assistantItems = session.display.filter(item => item.role === 'assistant' || !item.role);
+      const assistantPosition = Math.max(0, Math.floor(Number(saved.responseIndex) / 2));
+      liveItem = assistantItems[assistantPosition] || null;
+    }
+  }
+
+  const pendingItems = session.display.filter(item => item.pending === '1' && (item.role === 'assistant' || !item.role));
+  if (!liveItem && matcher) liveItem = [...pendingItems].reverse().find(item => matcher.test(item.rawText || '')) || null;
+  if (!liveItem) liveItem = pendingItems[pendingItems.length - 1] || null;
+  if (!liveItem) liveItem = appendSessionDisplayMessage(sessionId, 'assistant', fallbackText, { rawText: fallbackText, pending: true, responseIndex: saved?.responseIndex ?? null, jobId: saved?.id || '' });
+
+  if (!liveItem.id) liveItem.id = saved?.displayItemId || makeDisplayItemId();
+  if (saved?.id) liveItem.jobId = saved.id;
+  if (saved?.responseIndex !== undefined && saved.responseIndex !== null) liveItem.responseIndex = String(saved.responseIndex);
+  liveItem.pending = '1';
+
+  const removeSet = new Set(pendingItems.filter(item => item !== liveItem));
+  if (removeSet.size) {
+    session.display = session.display.filter(item => !removeSet.has(item));
+    removeSet.forEach(removeDisplayItemNode);
+  }
+  persistSessionDisplay(sessionId);
+  return liveItem;
+}
+
 function updateLiveDisplay(sessionId, item, role, content, options = {}) {
   updateSessionDisplayItem(sessionId, item, role, content, { ...options, pending: options.pending ?? true });
   if (sessionId !== state.activeSessionId) return;
   let node = findMessageNodeByDisplayItem(item);
   if (!node) node = addDisplayItemNode(item);
-  if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: true });
+  if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: true, forceScroll: options.forceScroll ?? false, followActive: options.followActive === true });
   const light = options.pending !== false && !options.html;
   if (light) updateMessageContentLight(node, content, { ...options, skipSave: true, forceScroll: options.forceScroll ?? false });
-  else updateMessage(node, content, { ...options, skipSave: options.pending !== false });
+  else updateMessage(node, content, { ...options, skipSave: options.pending !== false, noScroll: options.noScroll === true });
 }
 
 function isAbortLikeError(err) {
@@ -2027,7 +2208,7 @@ function renderActiveSession() {
   state.lastGeneratedImage = session.lastGeneratedImage || null;
   if (!loadDisplayHistory()) loadChatHistory({ render: true });
   if (!$('messages').children.length) {
-    $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话</h3><p>当前会话独立保存上下文；可点击“新会话”开启另一条隔离对话。</p></div>`;
+    renderEmptyWelcome();
   }
   renderSessionList();
   scrollToBottom(true);
@@ -2101,12 +2282,15 @@ function saveDisplayHistory() {
       });
       const reasoningText = node.dataset.keepReasoning === '1' ? (node.dataset.reasoningText || '') : '';
       return {
+        id: node.dataset.displayItemId || node.__displayItem?.id || makeDisplayItemId(),
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
         rawText: node.dataset.rawText || '',
         html: clone?.innerHTML || '',
         reasoningText,
         keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || '',
+        responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
+        jobId: node.dataset.jobId || node.__displayItem?.jobId || '',
         imageContext: node.dataset.imageContext || '',
       };
     }).slice(-80);
@@ -2394,9 +2578,11 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   const sessionId = options.sessionId || state.activeSessionId;
   const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
   const baseMessages = sessionId === state.activeSessionId ? state.messages : [...(session.messages || [])];
-  const requestBaseMessages = options.userAlreadyAdded && baseMessages.at(-1)?.role === 'user'
-    ? baseMessages.slice(0, -1)
-    : baseMessages;
+  const requestBaseMessages = Array.isArray(options.requestBaseMessages)
+    ? options.requestBaseMessages
+    : options.userAlreadyAdded && baseMessages.at(-1)?.role === 'user'
+      ? baseMessages.slice(0, -1)
+      : baseMessages;
   const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages);
   if (sessionId === state.activeSessionId) {
     if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
@@ -2409,12 +2595,25 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     ? (loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true }))
     : null;
   const liveItem = options.liveItem || appendSessionDisplayMessage(sessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
-  if (loading && liveItem && !loading.__displayItem) loading.__displayItem = liveItem;
+  if (loading && liveItem) {
+    if (!loading.__displayItem) loading.__displayItem = liveItem;
+    if (liveItem.id) loading.dataset.displayItemId = liveItem.id;
+  }
 
   const payload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true });
   const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
+  if (backgroundJobId && liveItem) {
+    liveItem.jobId = backgroundJobId;
+    if (Number.isFinite(options.replaceAssistantIndex)) liveItem.responseIndex = String(options.replaceAssistantIndex);
+    if (!liveItem.id) liveItem.id = makeDisplayItemId();
+    persistSessionDisplay(sessionId);
+    if (loading) {
+      loading.dataset.jobId = backgroundJobId;
+      if (Number.isFinite(options.replaceAssistantIndex)) loading.dataset.responseIndex = String(options.replaceAssistantIndex);
+    }
+  }
   if (backgroundJobId) {
-    saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now() });
+    saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now(), displayItemId: liveItem?.id || '', responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : null });
     // 正常发送只预登记，不启动后台流；刷新恢复时才 start，避免占用同一个 job 导致正常 token 流式被中断。
     registerChatStreamJob(payload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register chat stream job failed', err));
   }
@@ -2426,7 +2625,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     const markReasoningDone = () => {
       if (reasoningDone || !lastReasoningText) return;
       reasoningDone = true;
-      if (loading?.isConnected) updateReasoning(loading, lastReasoningText, { done: true, forceScroll: false, keepReasoning: true });
+      if (loading?.isConnected) updateReasoning(loading, lastReasoningText, { done: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex), keepReasoning: true });
       if (liveItem) {
         liveItem.reasoningText = lastReasoningText;
         liveItem.keepReasoning = true;
@@ -2440,7 +2639,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       const text = visible || '正在处理…';
       if (loading?.isConnected) {
         clearPendingFeedback(loading);
-        updateMessageContentLight(loading, text, { rawText: text, skipSave: true, forceScroll: false });
+        updateMessageContentLight(loading, text, { rawText: text, skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
       }
       updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, forceScroll: false });
     });
@@ -2459,7 +2658,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
         reasoningDone = false;
         scheduleReasoningDone();
       }
-      if (loading?.isConnected) updateReasoning(loading, nextText, { done: reasoningDone, forceScroll: false, keepEmpty: !!nextText });
+      if (loading?.isConnected) updateReasoning(loading, nextText, { done: reasoningDone, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex), keepEmpty: !!nextText });
       if (liveItem) {
         liveItem.reasoningText = nextText;
         liveItem.keepReasoning = !!nextText;
@@ -2468,7 +2667,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     if (loading?.isConnected) {
       if (state.reasoningMode) updateReasoning(loading, '', { keepEmpty: true });
       else clearReasoning(loading);
-      setPendingFeedback(loading, '正在处理，请稍等');
+      setPendingFeedback(loading, '正在处理，请稍等', { followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
     }
     let result;
     try {
@@ -2482,7 +2681,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
         ? buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoningEffort: 'high' })
         : buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
       if (backgroundJobId) {
-        saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: retryPayload, startedAt: Date.now() });
+        saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: retryPayload, startedAt: Date.now(), displayItemId: liveItem?.id || '', responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : null });
         registerChatStreamJob(retryPayload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register retry chat stream job failed', err));
       }
       if (!isUnsupportedXhighError(streamErr)) {
@@ -2505,13 +2704,19 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     reasoningRenderer.cancel();
     clearTimeout(reasoningCompleteTimer);
     if (sessionId === state.activeSessionId) {
-      state.messages.push({ role: 'assistant', content: finalReply });
+      if (Number.isFinite(options.replaceAssistantIndex) && state.messages[options.replaceAssistantIndex]?.role === 'assistant') {
+        state.messages[options.replaceAssistantIndex].content = finalReply;
+      } else if (Number.isFinite(options.replaceAssistantIndex)) {
+        state.messages.splice(options.replaceAssistantIndex, 0, { role: 'assistant', content: finalReply });
+      } else {
+        state.messages.push({ role: 'assistant', content: finalReply });
+      }
       saveChatHistory();
       if (loading?.isConnected) {
-        updateMessage(loading, finalReply, { rawText: finalReply });
+        updateMessage(loading, finalReply, { rawText: finalReply, noScroll: Number.isFinite(options.replaceAssistantIndex) });
         finishReasoning(loading, result.reasoning || '');
       }
-      updateLiveDisplay(sessionId, liveItem, 'assistant', finalReply, { rawText: finalReply, pending: false });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', finalReply, { rawText: finalReply, pending: false, noScroll: Number.isFinite(options.replaceAssistantIndex) });
       if (backgroundJobId) clearChatJob(sessionId);
     } else {
       baseMessages.push({ role: 'assistant', content: finalReply });
@@ -2524,7 +2729,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     if (state.pageUnloading && isAbortLikeError(err)) return;
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求；刷新/返回导致的 Safari Load failed 不降级、不落错误气泡。
     let fallbackPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: false });
-    if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试');
+    if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试', { followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
     let data;
     try {
       data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
@@ -2538,13 +2743,19 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     if (loading?.isConnected) clearPendingFeedback(loading);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
     if (sessionId === state.activeSessionId) {
-      state.messages.push({ role: 'assistant', content: reply });
+      if (Number.isFinite(options.replaceAssistantIndex) && state.messages[options.replaceAssistantIndex]?.role === 'assistant') {
+        state.messages[options.replaceAssistantIndex].content = reply;
+      } else if (Number.isFinite(options.replaceAssistantIndex)) {
+        state.messages.splice(options.replaceAssistantIndex, 0, { role: 'assistant', content: reply });
+      } else {
+        state.messages.push({ role: 'assistant', content: reply });
+      }
       saveChatHistory();
       if (loading?.isConnected) {
-        updateMessage(loading, reply, { rawText: reply });
+        updateMessage(loading, reply, { rawText: reply, noScroll: Number.isFinite(options.replaceAssistantIndex) });
         finishReasoning(loading, normalizeReasoningText(data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.thinking || data?.choices?.[0]?.message?.reasoning_details || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.output?.filter?.(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) || ''));
       }
-      updateLiveDisplay(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false, noScroll: Number.isFinite(options.replaceAssistantIndex) });
       if (backgroundJobId) clearChatJob(sessionId);
     } else {
       baseMessages.push({ role: 'assistant', content: reply });
@@ -2747,7 +2958,10 @@ async function sendImage(prompt, options = {}) {
     ? (options.loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', skipSave: true }))
     : null;
   const liveItem = options.liveItem || appendSessionDisplayMessage(sessionId, 'assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', pending: true });
-  if (loading && liveItem && !loading.__displayItem) loading.__displayItem = liveItem;
+  if (loading && liveItem) {
+    if (!loading.__displayItem) loading.__displayItem = liveItem;
+    if (liveItem.id) loading.dataset.displayItemId = liveItem.id;
+  }
 
   const startImageTimer = (label = '正在生成图片') => {
     requestStart = performance.now();
@@ -2814,7 +3028,13 @@ async function sendImage(prompt, options = {}) {
         setImageContext(loading, imageContext);
       } else appendSessionDisplayMessage(sessionId, 'assistant', result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
       if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
-      state.messages.push({ role: 'assistant', content: assistantText });
+      if (Number.isFinite(options.replaceAssistantIndex) && state.messages[options.replaceAssistantIndex]?.role === 'assistant') {
+        state.messages[options.replaceAssistantIndex].content = assistantText;
+      } else if (Number.isFinite(options.replaceAssistantIndex)) {
+        state.messages.splice(options.replaceAssistantIndex, 0, { role: 'assistant', content: assistantText });
+      } else {
+        state.messages.push({ role: 'assistant', content: assistantText });
+      }
       saveChatHistory();
     } else {
       if (!options.userAlreadyAdded) baseMessages.push({ role: 'user', content: prompt });
@@ -2885,7 +3105,12 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
   if (!saved?.id) { state.resumingJobs.delete(resumeKey); return; }
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session) { clearChatJob(sessionId); state.resumingJobs.delete(resumeKey); return; }
-  let liveItem = takePendingLiveItem(sessionId, '正在恢复聊天任务…', /正在处理|正在思考|正在恢复聊天任务|已收到/);
+  let liveItem = takeChatJobLiveItem(sessionId, saved, '正在恢复聊天任务…', /正在处理|正在思考|正在恢复聊天任务|已收到/);
+  if (liveItem) {
+    if (saved.id && !liveItem.jobId) liveItem.jobId = saved.id;
+    if (saved.responseIndex !== undefined && saved.responseIndex !== null && liveItem.responseIndex === '') liveItem.responseIndex = String(saved.responseIndex);
+    persistSessionDisplay(sessionId);
+  }
   setSessionBusy(sessionId, true);
   const start = saved.startedAt || Date.now();
   const isStatusText = (text = '') => /正在处理|正在思考|正在恢复聊天任务|已收到/.test(String(text || ''));
@@ -2902,7 +3127,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
       const partial = extractChatJobText(job.data);
       if (partial.content || partial.reasoning) {
         hasOutput = !!partial.content || hasOutput;
-        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在处理…'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: state.reasoningMode ? partial.reasoning : undefined });
+        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在处理…'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: state.reasoningMode ? partial.reasoning : undefined, forceScroll: true, followActive: true });
       } else {
         tick();
       }
@@ -2918,13 +3143,16 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
     if (sessionId === state.activeSessionId) {
       const node = findMessageNodeByDisplayItem(liveItem);
       if (node) {
-        updateMessage(node, reply, { rawText: reply });
+        updateMessage(node, reply, { rawText: reply, noScroll: true });
         finishReasoning(node, reasoning);
       }
     }
-    const baseMessages = [...(session.messages || [])];
-    baseMessages.push({ role: 'assistant', content: reply });
-    saveSessionMessages(sessionId, baseMessages);
+    const responseIndex = Number(liveItem?.responseIndex ?? saved.responseIndex);
+    if (!replaceAssistantMessageAt(sessionId, responseIndex, reply)) {
+      const baseMessages = [...(session.messages || [])];
+      baseMessages.push({ role: 'assistant', content: reply });
+      saveSessionMessages(sessionId, baseMessages);
+    }
     clearChatJob(sessionId);
     playDoneSound();
   } catch (err) {
@@ -3381,10 +3609,17 @@ async function onSubmit(e) {
 
   const session = getActiveSession();
   let liveItem = null;
-  const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
-  if (session) {
-    liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
-    immediateFeedback.__displayItem = liveItem;
+  let immediateFeedback;
+  if (editResult) {
+    const replacement = prepareReplacementResponse(editResult, runSessionId);
+    immediateFeedback = replacement.node;
+    liveItem = replacement.liveItem;
+  } else {
+    immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
+    if (session) {
+      liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+      immediateFeedback.__displayItem = liveItem;
+    }
   }
   let effectiveMode = state.mode;
   let effectiveRoute = normalizeRoute({ mode: state.mode, target: state.mode === 'image' ? 'new' : 'none', confidence: 1 }, state.mode);
@@ -3403,7 +3638,7 @@ async function onSubmit(e) {
       immediateFeedback.remove();
       return;
     }
-    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments, immediateFeedback, { sessionId: runSessionId, userAlreadyAdded: true, liveItem });
+    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments, immediateFeedback, { sessionId: runSessionId, userAlreadyAdded: true, liveItem, replaceAssistantIndex: editResult?.responseIndex, requestBaseMessages: editResult ? state.messages.slice(0, editResult.index) : null });
     else await sendImage(prompt, {
       loadingNode: immediateFeedback,
       editMode: effectiveMode === 'edit_image',
@@ -3413,6 +3648,7 @@ async function onSubmit(e) {
       sessionId: runSessionId,
       userAlreadyAdded: true,
       liveItem,
+      replaceAssistantIndex: editResult?.responseIndex,
     });
     state.editingIndex = null;
     state.editingNode = null;
@@ -3554,7 +3790,8 @@ async function clearChat() {
   await clearImageDb();
   clearAttachments();
 
-  $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话已开始</h3><p>输入消息，Enter 发送，Shift+Enter 换行</p></div>`;
+  $('messages').innerHTML = '';
+  renderEmptyWelcome();
 }
 $('newSessionBtn')?.addEventListener('click', newSession);
 $('mobileSessionFloatBtn')?.addEventListener('click', openSessionDrawer);

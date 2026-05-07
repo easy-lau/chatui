@@ -4635,3 +4635,475 @@ body.session-sidebar-collapsed .composer {
     transform: none !important;
   }
 }
+
+/* responsive content rail: use proportional width, maximize message space */
+:root {
+  --chat-content-width: 94%;
+  --chat-content-max: 100%;
+  --chat-content-gap: clamp(14px, 2.2vw, 34px);
+}
+@media (min-width: 841px) {
+  .messages {
+    padding-left: var(--chat-content-gap) !important;
+    padding-right: var(--chat-content-gap) !important;
+  }
+  .empty,
+  .message {
+    width: var(--chat-content-width) !important;
+    max-width: var(--chat-content-max) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  .bubble-wrap {
+    max-width: min(88%, 100%) !important;
+  }
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    width: calc((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .94) !important;
+    max-width: calc(100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) !important;
+    left: calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - ((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .94)) / 2) !important;
+    right: auto !important;
+    transform: none !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .94) !important;
+    max-width: calc(100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) !important;
+    left: calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - ((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .94)) / 2) !important;
+    right: auto !important;
+    transform: none !important;
+  }
+}
+@media (min-width: 1600px) {
+  :root {
+    --chat-content-width: 96%;
+    --chat-content-gap: clamp(18px, 1.8vw, 40px);
+  }
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    width: calc((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .96) !important;
+    left: calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - ((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .96)) / 2) !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .96) !important;
+    left: calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - ((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .96)) / 2) !important;
+  }
+}
+@media (max-width: 840px) {
+  :root {
+    --chat-content-width: 100%;
+    --chat-content-gap: 8px;
+  }
+  .empty,
+  .message {
+    width: calc(100vw - var(--chat-content-gap) * 2) !important;
+    max-width: calc(100vw - var(--chat-content-gap) * 2) !important;
+  }
+}
+
+/* message rail alignment: bubble edges align with composer edges */
+@media (min-width: 841px) {
+  .message,
+  .message.user,
+  .message.assistant,
+  .message.error {
+    position: relative !important;
+    width: var(--chat-content-width) !important;
+    max-width: var(--chat-content-max) !important;
+    gap: 0 !important;
+  }
+  .message.assistant,
+  .message.error {
+    justify-content: flex-start !important;
+  }
+  .message.user {
+    justify-content: flex-end !important;
+  }
+  .message.assistant .avatar,
+  .message.error .avatar {
+    position: absolute !important;
+    left: -48px !important;
+    top: 0 !important;
+    order: 0 !important;
+  }
+  .message.user .avatar {
+    position: absolute !important;
+    right: -48px !important;
+    top: 0 !important;
+    order: 2 !important;
+  }
+  .message .bubble-wrap {
+    max-width: 88% !important;
+  }
+  .message.assistant .bubble-wrap,
+  .message.error .bubble-wrap {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+    align-items: flex-start !important;
+  }
+  .message.user .bubble-wrap {
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    align-items: flex-end !important;
+  }
+  .message.assistant .bubble,
+  .message.error .bubble {
+    border-top-left-radius: 12px !important;
+  }
+  .message.user .bubble {
+    border-top-right-radius: 12px !important;
+  }
+}
+@media (max-width: 840px) {
+  .message {
+    gap: 10px !important;
+  }
+  .message .avatar {
+    position: static !important;
+  }
+}
+
+/* message rail alignment v2: avatar outer edges align with composer edges */
+@media (min-width: 841px) {
+  .message,
+  .message.user,
+  .message.assistant,
+  .message.error {
+    position: relative !important;
+    display: flex !important;
+    width: var(--chat-content-width) !important;
+    max-width: var(--chat-content-max) !important;
+    gap: 10px !important;
+  }
+  .message.assistant,
+  .message.error {
+    justify-content: flex-start !important;
+  }
+  .message.user {
+    justify-content: flex-end !important;
+  }
+  .message.assistant .avatar,
+  .message.error .avatar,
+  .message.user .avatar {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    flex: 0 0 36px !important;
+  }
+  .message.assistant .avatar,
+  .message.error .avatar {
+    order: 0 !important;
+  }
+  .message.user .avatar {
+    order: 2 !important;
+  }
+  .message .bubble-wrap {
+    max-width: calc(88% - 46px) !important;
+  }
+  .message.assistant .bubble-wrap,
+  .message.error .bubble-wrap {
+    order: 1 !important;
+    margin-left: 0 !important;
+    margin-right: auto !important;
+    align-items: flex-start !important;
+  }
+  .message.user .bubble-wrap {
+    order: 1 !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    align-items: flex-end !important;
+  }
+}
+
+/* collapsed sidebar alignment fix: same proportional rail in the current main area */
+@media (min-width: 841px) {
+  body.session-sidebar-collapsed .messages {
+    padding-left: var(--chat-content-gap) !important;
+    padding-right: var(--chat-content-gap) !important;
+  }
+  body.session-sidebar-collapsed .empty,
+  body.session-sidebar-collapsed .message,
+  body.session-sidebar-collapsed .message.user,
+  body.session-sidebar-collapsed .message.assistant,
+  body.session-sidebar-collapsed .message.error {
+    width: var(--chat-content-width) !important;
+    max-width: var(--chat-content-max) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    left: calc(var(--session-rail-width) + ((100vw - var(--session-rail-width)) * .03) + var(--chat-content-gap)) !important;
+    right: auto !important;
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .94) !important;
+    max-width: calc(100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) !important;
+    transform: none !important;
+  }
+}
+@media (min-width: 1600px) {
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    left: calc(var(--session-rail-width) + ((100vw - var(--session-rail-width)) * .02) + var(--chat-content-gap)) !important;
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .96) !important;
+  }
+}
+
+/* exact proportional rail formula: composer matches message rail including gaps */
+@media (min-width: 841px) {
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    width: calc((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .94) !important;
+    left: calc(var(--session-sidebar-width) + var(--chat-content-gap) + ((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .03)) !important;
+    right: auto !important;
+    transform: none !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .94) !important;
+    left: calc(var(--session-rail-width) + var(--chat-content-gap) + ((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .03)) !important;
+    right: auto !important;
+    transform: none !important;
+  }
+}
+@media (min-width: 1600px) {
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    width: calc((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .96) !important;
+    left: calc(var(--session-sidebar-width) + var(--chat-content-gap) + ((100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2) * .02)) !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: calc((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .96) !important;
+    left: calc(var(--session-rail-width) + var(--chat-content-gap) + ((100vw - var(--session-rail-width) - var(--chat-content-gap) * 2) * .02)) !important;
+  }
+}
+
+/* empty welcome: artistic title only */
+.empty-welcome {
+  width: 100% !important;
+  min-height: min(46vh, 420px) !important;
+  display: grid !important;
+  place-items: center !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+.welcome-title {
+  position: relative !important;
+  isolation: isolate !important;
+  font-size: clamp(36px, 7vw, 108px) !important;
+  line-height: 1.02 !important;
+  letter-spacing: clamp(-2px, -0.16vw, -1px) !important;
+  font-weight: 1000 !important;
+  text-align: center !important;
+  color: transparent !important;
+  background:
+    linear-gradient(90deg, #0f172a 0%, #0f766e 22%, #38bdf8 48%, #6366f1 72%, #ec4899 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  text-shadow: 0 18px 44px rgba(37,99,235,.18) !important;
+  filter: drop-shadow(0 0 22px rgba(56,189,248,.18)) !important;
+}
+.welcome-title::before {
+  content: attr(data-text) !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: -1 !important;
+  color: transparent !important;
+  -webkit-text-stroke: 1px rgba(255,255,255,.88) !important;
+  transform: translate(3px, 4px) !important;
+  opacity: .8 !important;
+}
+.welcome-title::after {
+  content: '' !important;
+  position: absolute !important;
+  left: 50% !important;
+  bottom: -18px !important;
+  width: min(62%, 520px) !important;
+  height: 4px !important;
+  border-radius: 999px !important;
+  transform: translateX(-50%) !important;
+  background: linear-gradient(90deg, transparent, rgba(56,189,248,.78), rgba(20,184,166,.72), transparent) !important;
+  box-shadow: 0 0 24px rgba(56,189,248,.36) !important;
+}
+.session-bottom-actions {
+  width: 100% !important;
+  flex: 0 0 auto !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+.session-bottom-actions .session-config-btn {
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+.session-github-btn {
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  border: 1px solid rgba(148,163,184,.26) !important;
+  border-radius: 12px !important;
+  color: #334155 !important;
+  text-decoration: none !important;
+  background: rgba(255,255,255,.62) !important;
+  box-shadow: 0 10px 28px rgba(15,23,42,.055), inset 0 1px 0 rgba(255,255,255,.78) !important;
+  backdrop-filter: blur(10px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(140%) !important;
+}
+.session-github-btn:hover {
+  color: #0f766e !important;
+  border-color: rgba(20,184,166,.38) !important;
+  background: rgba(240,253,250,.82) !important;
+}
+.session-github-btn svg {
+  width: 20px !important;
+  height: 20px !important;
+  display: block !important;
+  fill: currentColor !important;
+}
+.session-github-btn span {
+  display: none !important;
+}
+@media (max-width: 840px) {
+  .empty-welcome {
+    min-height: min(42vh, 360px) !important;
+  }
+  .welcome-title {
+    font-size: clamp(32px, 10vw, 58px) !important;
+    max-width: calc(100vw - 34px) !important;
+  }
+  .session-bottom-actions {
+    display: none !important;
+  }
+}
+
+/* welcome title centering: true center of the visible chat area */
+.messages:has(.empty-welcome) {
+  position: relative !important;
+}
+.empty-welcome {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  padding-bottom: clamp(90px, 16vh, 170px) !important;
+}
+.welcome-title {
+  margin: 0 auto !important;
+  transform: translateY(-2vh) !important;
+}
+@media (max-width: 840px) {
+  .empty-welcome {
+    padding-bottom: clamp(88px, 18vh, 150px) !important;
+  }
+  .welcome-title {
+    transform: translateY(-1.5vh) !important;
+  }
+}
+
+/* welcome title style: restored center, sharper cyber neon typography */
+.empty-welcome {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  gap: 0 !important;
+  padding-bottom: clamp(90px, 16vh, 170px) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+.welcome-title {
+  position: relative !important;
+  isolation: isolate !important;
+  margin: 0 auto !important;
+  transform: translateY(-2vh) skewX(-6deg) !important;
+  max-width: min(1120px, calc(100vw - 52px)) !important;
+  font-family: "Orbitron", "Rajdhani", "Arial Black", "Microsoft YaHei UI", system-ui, sans-serif !important;
+  font-size: clamp(40px, 7.4vw, 116px) !important;
+  line-height: .92 !important;
+  letter-spacing: clamp(-1px, .08vw, 2px) !important;
+  font-weight: 1000 !important;
+  text-align: center !important;
+  text-transform: uppercase !important;
+  color: transparent !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(191,219,254,.95) 20%, rgba(34,211,238,.98) 45%, rgba(99,102,241,.96) 66%, rgba(236,72,153,.98) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-stroke: 1px rgba(226,232,240,.46) !important;
+  text-shadow:
+    0 0 8px rgba(34,211,238,.45),
+    0 0 22px rgba(99,102,241,.38),
+    0 0 48px rgba(236,72,153,.28),
+    0 18px 46px rgba(15,23,42,.22) !important;
+  filter: drop-shadow(0 0 18px rgba(34,211,238,.28)) !important;
+}
+.welcome-title::before {
+  content: attr(data-text) !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: -1 !important;
+  color: transparent !important;
+  -webkit-text-stroke: 2px rgba(14,165,233,.36) !important;
+  transform: translate(5px, 6px) !important;
+  opacity: .78 !important;
+  filter: blur(.2px) !important;
+}
+.welcome-title::after {
+  content: '' !important;
+  position: absolute !important;
+  left: 50% !important;
+  bottom: -22px !important;
+  width: min(68%, 620px) !important;
+  height: 5px !important;
+  border-radius: 999px !important;
+  transform: translateX(-50%) skewX(-18deg) !important;
+  background: linear-gradient(90deg, transparent, #22d3ee 14%, #60a5fa 42%, #a855f7 68%, #ec4899 86%, transparent) !important;
+  box-shadow: 0 0 18px rgba(34,211,238,.62), 0 0 34px rgba(168,85,247,.36) !important;
+}
+@media (max-width: 840px) {
+  .empty-welcome {
+    padding-bottom: clamp(88px, 18vh, 150px) !important;
+  }
+  .welcome-title {
+    transform: translateY(-1.5vh) skewX(-5deg) !important;
+    font-size: clamp(34px, 10.5vw, 62px) !important;
+    max-width: calc(100vw - 34px) !important;
+  }
+}
+
+
+/* welcome title size/no-wrap correction */
+.welcome-title {
+  white-space: nowrap !important;
+  font-size: clamp(30px, 5.8vw, 88px) !important;
+  max-width: calc(100vw - var(--session-sidebar-width, 280px) - 96px) !important;
+  letter-spacing: clamp(-1.5px, -0.04vw, .5px) !important;
+}
+@media (min-width: 1600px) {
+  .welcome-title {
+    font-size: clamp(34px, 5.2vw, 96px) !important;
+  }
+}
+@media (max-width: 840px) {
+  .welcome-title {
+    white-space: nowrap !important;
+    font-size: clamp(24px, 7.2vw, 42px) !important;
+    max-width: calc(100vw - 28px) !important;
+    letter-spacing: -1px !important;
+  }
+}
+
+/* scroll control: disable browser native anchoring; ChatUI owns active-output scrolling */
+.messages {
+  overflow-anchor: none !important;
+}
