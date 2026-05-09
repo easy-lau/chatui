@@ -433,6 +433,12 @@ function markManualMessageScroll() {
   state.autoScrollLocked = isNearMessagesBottom(80);
 }
 
+function getComposerSafeBottom() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--composer-safe-bottom');
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? value : 168;
+}
+
 function scrollToBottom(force = true) {
   const el = $('messages');
   if (!el) return;
@@ -441,7 +447,7 @@ function scrollToBottom(force = true) {
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
   const apply = () => {
     // .messages 是唯一主滚动容器；移动端不要滚 window，避免抢手势和键盘抖动。
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight + getComposerSafeBottom());
     if (!isMobile) {
       const doc = document.scrollingElement || document.documentElement;
       doc.scrollTop = doc.scrollHeight;
@@ -472,9 +478,11 @@ function scrollToActiveOutput(node, options = {}) {
     const elRect = el.getBoundingClientRect();
     const nodeBottom = el.scrollTop + (nodeRect.bottom - elRect.top);
     const targetBottom = Math.min(el.scrollHeight, nodeBottom + margin);
-    // 自动跟随时锚定正在输出的消息，而不是无脑贴到整个列表底部；
-    // 这样编辑/重生成早期消息时，不会被后面的旧消息拉到最下方。
-    el.scrollTop = Math.max(0, targetBottom - el.clientHeight);
+    const safeBottom = getComposerSafeBottom();
+    const visibleHeight = Math.max(120, el.clientHeight - safeBottom);
+    // 自动跟随时锚定正在输出的消息底部，并预留固定输入框安全区；
+    // 否则流式输出会贴到容器底部，被 composer 盖住。
+    el.scrollTop = Math.max(0, targetBottom - visibleHeight);
     if (!isMobile) {
       const doc = document.scrollingElement || document.documentElement;
       doc.scrollTop = 0;
@@ -1156,19 +1164,22 @@ function normalizeModelType(type = '') {
   return raw;
 }
 
-function extractModelType(item) {
-  if (!item || typeof item === 'string') return '';
-  const candidates = [
-    item.type,
-    item.model_type,
-    item.modelType,
-    item.mode,
-    item.category,
-    item.task,
-    item.capability,
-    Array.isArray(item.capabilities) ? item.capabilities.join(',') : '',
-  ];
-  return normalizeModelType(candidates.find(v => String(v || '').trim()) || '');
+function extractModelType(item, modelId = '') {
+  if (item && typeof item !== 'string') {
+    const candidates = [
+      item.type,
+      item.model_type,
+      item.modelType,
+      item.mode,
+      item.category,
+      item.task,
+      item.capability,
+      Array.isArray(item.capabilities) ? item.capabilities.join(',') : '',
+    ];
+    const explicitType = candidates.find(v => String(v || '').trim());
+    if (explicitType) return normalizeModelType(explicitType);
+  }
+  return normalizeModelType(modelId);
 }
 
 function extractModels(data) {
@@ -1179,8 +1190,18 @@ function extractModels(data) {
     const id = typeof item === 'string' ? item : item?.id || item?.name;
     if (!id) return;
     const modelId = String(id);
-    const type = extractModelType(item);
-    meta[modelId] = { id: modelId, type, unrecognized: !type };
+    const hasExplicitType = !!(item && typeof item !== 'string' && [
+      item.type,
+      item.model_type,
+      item.modelType,
+      item.mode,
+      item.category,
+      item.task,
+      item.capability,
+      Array.isArray(item.capabilities) ? item.capabilities.join(',') : '',
+    ].some(v => String(v || '').trim()));
+    const type = extractModelType(item, modelId);
+    meta[modelId] = { id: modelId, type, unrecognized: !hasExplicitType && !type, inferred: !hasExplicitType && !!type };
     models.push(modelId);
   });
   const unique = [...new Set(models)].sort();
@@ -1197,7 +1218,8 @@ function isModelAllowedFor(id, target) {
 
 function modelOptionHtml(id) {
   const unrecognized = state.modelMeta?.[id]?.unrecognized;
-  const label = unrecognized ? `${id}（未知类型）` : id;
+  const inferred = state.modelMeta?.[id]?.inferred;
+  const label = unrecognized ? `${id}（未知类型）` : inferred ? `${id}（按名称识别）` : id;
   return `<option value="${escapeHtml(id)}" data-unrecognized="${unrecognized ? '1' : '0'}">${escapeHtml(label)}</option>`;
 }
 
@@ -3900,6 +3922,17 @@ function enhanceConfigSelects() {
   });
 }
 
+function updateComposerSafeArea() {
+  const composer = $('composer');
+  const messages = $('messages');
+  if (!composer || !messages) return;
+  const rect = composer.getBoundingClientRect();
+  const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0;
+  const safeBottom = Math.ceil(Math.max(120, viewportHeight - rect.top + 28));
+  document.documentElement.style.setProperty('--composer-safe-bottom', `${safeBottom}px`);
+  messages.style.scrollPaddingBottom = `${safeBottom}px`;
+}
+
 function autoResize() {
   const el = $('prompt');
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
@@ -3911,6 +3944,7 @@ function autoResize() {
   el.style.setProperty('--prompt-height', `${nextHeight}px`);
   el.style.setProperty('height', `${nextHeight}px`, 'important');
   el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  updateComposerSafeArea();
 }
 
 function scheduleAutoResize() {
@@ -4017,7 +4051,7 @@ $('messages')?.addEventListener('scroll', updateAutoScrollLock, { passive: true 
 $('messages')?.addEventListener('touchstart', markManualMessageScroll, { passive: true });
 $('messages')?.addEventListener('touchmove', markManualMessageScroll, { passive: true });
 $('messages')?.addEventListener('wheel', markManualMessageScroll, { passive: true });
-window.visualViewport?.addEventListener('resize', () => scrollToBottom(false));
+window.visualViewport?.addEventListener('resize', () => { scheduleAutoResize(); scrollToBottom(false); });
 window.addEventListener('resize', () => {
   scheduleAutoResize();
   clearTimeout(window.__welcomeBallResizeTimer);

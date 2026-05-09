@@ -669,7 +669,7 @@ body {
 }
 
 /* FINAL desktop width alignment: toolbar / messages / composer share same content width */
-:root { --page-content-width: 1180px; --page-side-gap: 28px; }
+:root { --page-content-width: 1180px; --page-side-gap: 28px; --composer-safe-bottom: 168px; }
 @media (min-width: 641px) {
   .messages {
     padding-left: 0 !important;
@@ -689,6 +689,12 @@ body {
   .bubble-wrap {
     max-width: min(86%, 980px) !important;
   }
+}
+
+/* keep the last messages above the fixed composer, including expanded textarea / attachments */
+.messages {
+  padding-bottom: var(--composer-safe-bottom, 168px) !important;
+  scroll-padding-bottom: var(--composer-safe-bottom, 168px);
 }
 
 /* FINAL mobile anti-flicker: no viewport/body scroll hacks, no costly touch animations */
