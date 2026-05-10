@@ -5705,7 +5705,8 @@ body.session-sidebar-collapsed .composer {
   white-space: nowrap !important;
 }
 .rail-icon-btn.rail-bottom {
-  position: absolute !important;
+  position: relative !important;
+  margin-top: auto !important;
 }
 .rail-version-badge {
   position: absolute !important;
