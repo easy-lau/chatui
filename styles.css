@@ -5588,7 +5588,7 @@ body.session-sidebar-collapsed .composer {
 .session-prompt-panel-subtitle { font-size: 12px !important; line-height: 1.35 !important; color: #64748b !important; }
 .session-prompt-hint-value {
   align-self: center !important;
-  padding: 4px 8px !important;
+  padding: 4px 7px !important;
   border-radius: 999px !important;
   background: rgba(241,245,249,.90) !important;
   font-size: 12px !important;
@@ -5678,21 +5678,31 @@ body.session-sidebar-collapsed .composer {
   .session-prompt-footer { padding: 11px 14px 13px !important; }
 }
 
-/* version badges on model config entry buttons */
-.session-config-btn {
-  position: relative !important;
+/* version badges beside model config entry buttons */
+.session-config-wrap {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+.session-config-wrap .session-config-btn {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
 }
 .sidebar-version-badge {
-  margin-left: auto !important;
-  padding: 2px 7px !important;
-  border: 1px solid rgba(125,211,252,.30) !important;
+  flex: 0 0 auto !important;
+  padding: 4px 7px !important;
+  border: 1px solid rgba(20,184,166,.22) !important;
   border-radius: 999px !important;
-  background: rgba(255,255,255,.12) !important;
-  color: rgba(255,255,255,.90) !important;
-  font-size: 10px !important;
+  background: rgba(240,253,250,.82) !important;
+  color: #0f766e !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 8px 16px rgba(15,23,42,.07) !important;
+  font-size: 9.5px !important;
   line-height: 1.2 !important;
   font-weight: 900 !important;
-  letter-spacing: .04em !important;
+  letter-spacing: .035em !important;
+  white-space: nowrap !important;
 }
 .rail-icon-btn.rail-bottom {
   position: absolute !important;
@@ -5717,5 +5727,5 @@ body.session-sidebar-collapsed .composer {
   pointer-events: none !important;
 }
 @media (max-width: 840px) {
-  .sidebar-version-badge { display: none !important; }
+  .session-config-wrap { display: none !important; }
 }
