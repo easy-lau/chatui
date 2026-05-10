@@ -3597,38 +3597,57 @@ body.session-sidebar-collapsed .composer { left: 0; }
 }
 
 
-/* API key plaintext toggle */
+/* API key visibility toggle */
 .secret-field {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 .secret-field input {
   flex: 1 1 auto;
   min-width: 0;
+  padding-right: 46px !important;
 }
 .config-dialog .secret-field input {
-  width: auto;
+  width: 100%;
 }
 .secret-toggle {
-  flex: 0 0 auto;
-  min-height: 42px;
-  border: 1px solid rgba(125,211,252,.22);
-  border-radius: 13px;
-  padding: 0 12px;
-  background: rgba(15,23,42,.56);
-  color: #bae6fd;
-  font-size: 12px;
-  font-weight: 800;
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
 }
 .secret-toggle:hover {
-  border-color: rgba(45,212,191,.58);
-  background: rgba(14,165,233,.18);
-  color: #ecfeff;
+  color: #0f766e;
+  background: rgba(15,118,110,.08);
 }
+.secret-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.secret-toggle .eye-closed { display: none; }
+.secret-toggle.visible .eye-open { display: none; }
+.secret-toggle.visible .eye-closed { display: block; }
 @media (max-width: 640px) {
-  .secret-field { gap: 6px; }
-  .secret-toggle { min-height: 40px; padding: 0 10px; }
+  .secret-toggle { right: 6px; width: 30px; height: 30px; min-width: 30px; min-height: 30px; }
+  .secret-field input { padding-right: 42px !important; }
 }
 
 /* final icon action geometry: square with small radius, exact centered glyphs */
@@ -4153,8 +4172,7 @@ body {
 }
 .composer-actions .reasoning-menu-item,
 .config-dialog input,
-.config-dialog select,
-.secret-field {
+.config-dialog select {
   border-color: rgba(148,163,184,.24) !important;
   background: rgba(255,255,255,.64) !important;
 }

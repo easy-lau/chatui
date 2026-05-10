@@ -277,7 +277,7 @@ function setApiKeyVisible(visible) {
   const btn = $('toggleApiKeyVisibility');
   if (!input || !btn) return;
   input.type = visible ? 'text' : 'password';
-  btn.textContent = visible ? '隐藏' : '显示';
+  btn.classList.toggle('visible', visible);
   btn.setAttribute('aria-label', visible ? '隐藏 API Key' : '显示 API Key');
   btn.setAttribute('aria-pressed', visible ? 'true' : 'false');
 }
