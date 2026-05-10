@@ -5660,28 +5660,44 @@ body.session-sidebar-collapsed .composer {
   .session-prompt-footer { padding: 11px 14px 13px !important; }
 }
 
-/* config version badge */
-.config-title-row {
-  display: flex !important;
-  align-items: center !important;
-  gap: 10px !important;
-  flex-wrap: wrap !important;
+/* version badges on model config entry buttons */
+.session-config-btn {
+  position: relative !important;
 }
-.config-title-row h2 {
-  margin: 0 !important;
-}
-.config-version {
-  display: inline-flex !important;
-  align-items: center !important;
-  height: 24px !important;
-  padding: 0 10px !important;
-  border: 1px solid rgba(16,185,129,.22) !important;
+.sidebar-version-badge {
+  margin-left: auto !important;
+  padding: 2px 7px !important;
+  border: 1px solid rgba(125,211,252,.30) !important;
   border-radius: 999px !important;
-  background: linear-gradient(135deg, rgba(236,253,245,.92), rgba(239,246,255,.88)) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.86), 0 8px 18px rgba(15,23,42,.06) !important;
-  font-size: 12px !important;
-  line-height: 1 !important;
+  background: rgba(255,255,255,.12) !important;
+  color: rgba(255,255,255,.90) !important;
+  font-size: 10px !important;
+  line-height: 1.2 !important;
   font-weight: 900 !important;
   letter-spacing: .04em !important;
+}
+.rail-icon-btn.rail-bottom {
+  position: absolute !important;
+}
+.rail-version-badge {
+  position: absolute !important;
+  right: -7px !important;
+  bottom: -5px !important;
+  min-width: 28px !important;
+  height: 15px !important;
+  padding: 0 4px !important;
+  border: 1px solid rgba(16,185,129,.34) !important;
+  border-radius: 999px !important;
+  background: rgba(236,253,245,.96) !important;
+  color: #047857 !important;
+  box-shadow: 0 6px 14px rgba(15,23,42,.14), inset 0 1px 0 rgba(255,255,255,.82) !important;
+  font-size: 8.5px !important;
+  line-height: 14px !important;
+  font-weight: 950 !important;
+  letter-spacing: -.03em !important;
+  text-align: center !important;
+  pointer-events: none !important;
+}
+@media (max-width: 840px) {
+  .sidebar-version-badge { display: none !important; }
 }
