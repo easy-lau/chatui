@@ -1736,6 +1736,13 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
   return applyDefaultSystemPrompt([...baseMessages, { role: 'user', content: parts }], systemPrompt);
 }
 
+
+function buildUserMessageContent(prompt, attachments = []) {
+  if (!attachments.length) return prompt;
+  const content = buildChatMessagesWithAttachments(prompt, attachments, [], '')[0]?.content;
+  return content || prompt || attachmentsSummaryMarkdown(attachments).trim();
+}
+
 function attachmentsSummaryMarkdown(attachments = state.attachments) {
   if (!attachments.length) return '';
   return '\n\n' + attachments.map(f => `📎 ${f.name}`).join('\n');
@@ -3995,7 +4002,7 @@ async function onSubmit(e) {
   e.preventDefault();
   if (isSessionBusy(state.activeSessionId)) return;
   const prompt = $('prompt').value.trim();
-  if (!prompt) return;
+  if (!prompt && !state.attachments.length) return;
   unlockDoneSound();
   saveConfig(true);
 
@@ -4006,12 +4013,14 @@ async function onSubmit(e) {
   let editResult = null;
   if (editingCandidate) editResult = applyPendingEdit(prompt);
   if (!editResult) {
-    const userHtml = renderUserMessageWithAttachments(prompt, submittedAttachments);
+    const displayPrompt = prompt || '已发送附件';
+    const userHtml = renderUserMessageWithAttachments(displayPrompt, submittedAttachments);
+    const rawUserContent = buildUserMessageContent(prompt, submittedAttachments);
     const userNode = addMessage('user', userHtml, { html: true, rawText: prompt, messageIndex: displayIndex });
-    const userItem = appendSessionDisplayMessage(runSessionId, 'user', userHtml, { html: true, rawText: prompt, messageIndex: displayIndex });
+    const userItem = appendSessionDisplayMessage(runSessionId, 'user', userHtml, { html: true, rawText: rawUserContent, messageIndex: displayIndex });
     userNode.__displayItem = userItem;
     if (userItem?.id) userNode.dataset.displayItemId = userItem.id;
-    state.messages.push({ role: 'user', content: prompt });
+    state.messages.push({ role: 'user', content: rawUserContent });
   }
   saveChatHistory();
   $('prompt').value = '';
