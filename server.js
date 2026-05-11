@@ -936,14 +936,27 @@ async function runImageJob(job) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
+    const headers = { ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
+    let body;
+    if (job.mode === 'edit_image') {
+      const form = new FormData();
+      Object.entries(job.payload || {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') form.append(k, v);
+      });
+      (job.files || []).forEach((item, idx) => {
+        const blob = new Blob([Buffer.from(item.data, 'base64')], { type: item.type || 'application/octet-stream' });
+        form.append(idx === 0 ? 'image' : 'image[]', blob, item.name || `image-${idx + 1}.png`);
+      });
+      body = form;
+    } else {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(job.payload || {});
+    }
     const upstream = await fetch(job.targetUrl, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
-      },
-      body: JSON.stringify(job.payload),
+      headers,
+      body,
     });
     const text = await upstream.text();
     let data = null;
@@ -971,14 +984,19 @@ async function startImageJob(req, res) {
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
     const jobId = makeJobId(body.jobId);
     if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+    const mode = body.mode === 'edit_image' ? 'edit_image' : 'image';
+    const files = Array.isArray(body.files) ? body.files.filter(item => item?.data) : [];
+    if (mode === 'edit_image' && !files.length) return sendJson(res, 400, { error: { message: '图片编辑任务缺少图片附件' } });
     const job = {
       id: jobId,
       status: 'running',
+      mode,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      targetUrl: `${baseUrl}/images/generations`,
+      targetUrl: `${baseUrl}/images/${mode === 'edit_image' ? 'edits' : 'generations'}`,
       apiKey,
       payload,
+      files,
       data: null,
       error: '',
     };
