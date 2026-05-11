@@ -1850,6 +1850,12 @@ function loadLastGeneratedImage() {
 
 
 function buildUserMessageContent(prompt, attachments = []) {
+  const base = String(prompt || '').trim();
+  if (base) return base;
+  return attachments.length ? '已发送附件' : '';
+}
+
+function buildUserApiContent(prompt, attachments = []) {
   if (!attachments.length) return prompt;
   const content = buildChatMessagesWithAttachments(prompt, attachments, [], '')[0]?.content;
   return content || prompt || attachmentsSummaryMarkdown(attachments).trim();
@@ -4343,7 +4349,8 @@ async function onSubmit(e) {
     const displayPrompt = prompt || '已发送附件';
     const userHtml = renderUserMessageWithAttachments(displayPrompt, submittedAttachments);
     const rawUserContent = buildUserMessageContent(prompt, submittedAttachments);
-    const userNode = addMessage('user', userHtml, { html: true, rawText: prompt, messageIndex: displayIndex });
+    const apiUserContent = buildUserApiContent(prompt, submittedAttachments);
+    const userNode = addMessage('user', userHtml, { html: true, rawText: rawUserContent, messageIndex: displayIndex });
     const userItem = appendSessionDisplayMessage(runSessionId, 'user', userHtml, { html: true, rawText: rawUserContent, messageIndex: displayIndex });
     const uploadedImageContext = await buildUploadedImageContext(prompt, submittedAttachments);
     const uploadedImageContextRaw = uploadedImageContext ? JSON.stringify(uploadedImageContext) : '';
@@ -4354,7 +4361,7 @@ async function onSubmit(e) {
     }
     userNode.__displayItem = userItem;
     if (userItem?.id) userNode.dataset.displayItemId = userItem.id;
-    state.messages.push({ role: 'user', content: rawUserContent, html: userHtml, rawText: rawUserContent, messageIndex: displayIndex, ...(uploadedImageContextRaw ? { imageContext: uploadedImageContextRaw } : {}) });
+    state.messages.push({ role: 'user', content: apiUserContent, html: userHtml, rawText: rawUserContent, messageIndex: displayIndex, ...(uploadedImageContextRaw ? { imageContext: uploadedImageContextRaw } : {}) });
     getActiveSession().messages = cloneMessageList(state.messages);
   }
   saveChatHistory();
