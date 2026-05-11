@@ -4604,7 +4604,7 @@ $('sessionDrawerMask')?.addEventListener('click', closeSessionDrawer);
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
 
 function reasoningTypeText(type = state.reasoningType) {
-  return ({ low: '简洁', medium: '标准', high: '深入', xhigh: '最强' })[type] || '标准';
+  return ({ low: '快速', medium: '标准', high: '深度', xhigh: '最强' })[type] || '标准';
 }
 
 function reasoningProviderText(provider = state.reasoningProvider) {
