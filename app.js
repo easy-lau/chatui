@@ -1906,6 +1906,18 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
   return applyDefaultSystemPrompt([...history, { role: 'user', content: parts }], systemPrompt);
 }
 
+function buildPromptWithTextAttachments(prompt, attachments = state.attachments) {
+  const textFiles = attachments.filter(f => f.text);
+  const unsupported = attachments.filter(f => !f.text && !isImageFile(f));
+  const chunks = [];
+  if (prompt) chunks.push(prompt);
+  if (textFiles.length) chunks.push(textFiles.map(f => `[附件：${f.name}]\n${f.text}`).join('\n\n'));
+  if (unsupported.length) {
+    chunks.push(`[以下附件已上传到页面，但未能解析正文，因此不会直接发送二进制文件给模型，避免接口报错：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析，请转换为文本/Markdown/CSV 后再上传'}`).join('\n')}\n]`);
+  }
+  return chunks.filter(Boolean).join('\n\n') || prompt;
+}
+
 
 function reasoningBudgetTokens(effort = 'medium') {
   return ({ low: 1024, medium: 4096, high: 8192, xhigh: 16384 })[effort] || 4096;
@@ -2011,7 +2023,7 @@ async function requestMultipart(url, fields, files, apiKey) {
   Object.entries(fields).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') form.append(k, v);
   });
-  files.forEach((item, idx) => form.append(idx === 0 ? 'image' : 'image[]', item.file, item.name));
+  files.forEach(item => form.append('image', item.file, item.name));
   const res = await fetch(url, {
     method: 'POST',
     headers: { ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
@@ -3726,11 +3738,12 @@ async function sendImage(prompt, options = {}) {
     }, 1000);
   };
 
-  const payload = { model: cfg.imageModel, prompt, n: 1 };
+  const attachments = options.attachments || state.attachments;
+  const requestPrompt = buildPromptWithTextAttachments(prompt, attachments);
+  const payload = { model: cfg.imageModel, prompt: requestPrompt, n: 1 };
   if (cfg.imageSize && cfg.imageSize !== 'auto') payload.size = cfg.imageSize;
 
   try {
-    const attachments = options.attachments || state.attachments;
     let imageRefs = attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
     if (!imageRefs.length && options.usePreviousImage) {
@@ -3770,16 +3783,16 @@ async function sendImage(prompt, options = {}) {
     if (imageRefs.length) {
       const jobId = makeClientImageJobId();
       const jobFiles = await imageFilesToJobPayload(imageRefs);
-      saveImageJob(sessionId, { id: jobId, prompt, payload, mode: 'edit_image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       const job = await startImageGenerationJob(payload, cfg, jobId, { mode: 'edit_image', files: jobFiles });
-      saveImageJob(sessionId, { id: job.id, prompt, payload, mode: 'edit_image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       data = await waitImageGenerationJob(job.id);
       clearImageJob(sessionId);
     } else {
       const jobId = makeClientImageJobId();
-      saveImageJob(sessionId, { id: jobId, prompt, payload, mode: 'image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       const job = await startImageGenerationJob(payload, cfg, jobId);
-      saveImageJob(sessionId, { id: job.id, prompt, payload, mode: 'image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       data = await waitImageGenerationJob(job.id);
       clearImageJob(sessionId);
     }

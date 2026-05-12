@@ -945,7 +945,7 @@ async function runImageJob(job) {
       });
       (job.files || []).forEach((item, idx) => {
         const blob = new Blob([Buffer.from(item.data, 'base64')], { type: item.type || 'application/octet-stream' });
-        form.append(idx === 0 ? 'image' : 'image[]', blob, item.name || `image-${idx + 1}.png`);
+        form.append('image', blob, item.name || `image-${idx + 1}.png`);
       });
       body = form;
     } else {
