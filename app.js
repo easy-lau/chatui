@@ -164,6 +164,55 @@ async function clearImageDb() {
   }
 }
 
+async function deleteImageDbKeys(keys = []) {
+  const uniqueKeys = [...new Set((keys || []).filter(Boolean))];
+  if (!uniqueKeys.length) return;
+  try {
+    const db = await openImageDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IMAGE_STORE, 'readwrite');
+      const store = tx.objectStore(IMAGE_STORE);
+      uniqueKeys.forEach(key => store.delete(key));
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('delete image db keys failed', err);
+  }
+}
+
+function collectIndexedDbKeys(value, keys = new Set()) {
+  if (!value) return keys;
+  if (typeof value === 'string') {
+    const re = /indexeddb:\/\/([^"'<>`\s]+)/g;
+    let match;
+    while ((match = re.exec(value))) keys.add(match[1]);
+    return keys;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectIndexedDbKeys(item, keys));
+    return keys;
+  }
+  if (typeof value === 'object') {
+    Object.values(value).forEach(item => collectIndexedDbKeys(item, keys));
+  }
+  return keys;
+}
+
+function collectSessionImageKeys(session) {
+  const keys = new Set();
+  collectIndexedDbKeys(session?.display, keys);
+  collectIndexedDbKeys(session?.messages, keys);
+  collectIndexedDbKeys(session?.lastGeneratedImage, keys);
+  try { collectIndexedDbKeys(localStorage.getItem(sessionStorageKey(LAST_IMAGE_KEY, session?.id)), keys); }
+  catch {}
+  return [...keys];
+}
+
+async function deleteSessionImageBlobs(session) {
+  await deleteImageDbKeys(collectSessionImageKeys(session));
+}
+
 async function dataUrlToBlob(dataUrl) {
   const res = await fetch(dataUrl);
   return res.blob();
@@ -2876,9 +2925,10 @@ function sessionTitleHtml(session) {
 }
 
 
-function deleteSession(sessionId) {
+async function deleteSession(sessionId) {
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session) return;
+  await deleteSessionImageBlobs(session);
   clearChatJob(sessionId);
   clearImageJob(sessionId);
   setSessionBusy(sessionId, false);
@@ -4604,6 +4654,7 @@ async function clearChat() {
 
   // 只清理会话/图片/临时数据，保留 CONFIG_KEY 接口配置。
   const session = getActiveSession();
+  const imageKeys = collectSessionImageKeys(session);
   session.messages = [];
   session.display = [];
   session.lastGeneratedImage = null;
@@ -4613,7 +4664,7 @@ async function clearChat() {
   localStorage.removeItem(sessionStorageKey(UI_KEY));
   localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
   saveSessionsMeta();
-  await clearImageDb();
+  await deleteImageDbKeys(imageKeys);
   clearAttachments();
 
   $('messages').innerHTML = '';
