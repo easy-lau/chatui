@@ -38,6 +38,28 @@ jobs:
         with:
           ref: ${{ steps.version.outputs.version }}
 
+      - name: Validate package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const expected = process.env.EXPECTED_SEMVER;
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.version !== expected) {
+            throw new Error(`package.json version mismatch: expected ${expected}, got ${pkg.version}`);
+          }
+          if (fs.existsSync('package-lock.json')) {
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+            const rootVersion = lock.packages?.['']?.version;
+            if (lock.version !== expected || rootVersion !== expected) {
+              throw new Error(`package-lock.json version mismatch: expected ${expected}, got version=${lock.version}, root=${rootVersion}`);
+            }
+          }
+          NODE
+        env:
+          EXPECTED_SEMVER: ${{ steps.version.outputs.semver }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
