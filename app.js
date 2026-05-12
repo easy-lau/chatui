@@ -181,6 +181,21 @@ async function deleteImageDbKeys(keys = []) {
   }
 }
 
+async function getImageDbKeys() {
+  try {
+    const db = await openImageDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IMAGE_STORE, 'readonly');
+      const req = tx.objectStore(IMAGE_STORE).getAllKeys();
+      req.onsuccess = () => resolve([...req.result]);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('list image db keys failed', err);
+    return [];
+  }
+}
+
 function collectIndexedDbKeys(value, keys = new Set()) {
   if (!value) return keys;
   if (typeof value === 'string') {
@@ -206,11 +221,27 @@ function collectSessionImageKeys(session) {
   collectIndexedDbKeys(session?.lastGeneratedImage, keys);
   try { collectIndexedDbKeys(localStorage.getItem(sessionStorageKey(LAST_IMAGE_KEY, session?.id)), keys); }
   catch {}
+  try { collectIndexedDbKeys(localStorage.getItem(sessionImageJobKey(session?.id)), keys); }
+  catch {}
   return [...keys];
 }
 
-async function deleteSessionImageBlobs(session) {
+function collectAllSessionImageKeys(sessions = state.sessions) {
+  const keys = new Set();
+  (sessions || []).forEach(session => collectSessionImageKeys(session).forEach(key => keys.add(key)));
+  return keys;
+}
+
+async function deleteOrphanImageBlobs(sessions = state.sessions) {
+  const usedKeys = collectAllSessionImageKeys(sessions);
+  const allKeys = await getImageDbKeys();
+  const orphanKeys = allKeys.filter(key => !usedKeys.has(key));
+  await deleteImageDbKeys(orphanKeys);
+}
+
+async function deleteSessionImageBlobs(session, remainingSessions = null) {
   await deleteImageDbKeys(collectSessionImageKeys(session));
+  if (remainingSessions) await deleteOrphanImageBlobs(remainingSessions);
 }
 
 async function dataUrlToBlob(dataUrl) {
@@ -2941,7 +2972,8 @@ function sessionTitleHtml(session) {
 async function deleteSession(sessionId) {
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session) return;
-  await deleteSessionImageBlobs(session);
+  const remainingSessions = state.sessions.filter(item => item.id !== sessionId);
+  await deleteSessionImageBlobs(session, remainingSessions);
   clearChatJob(sessionId);
   clearImageJob(sessionId);
   setSessionBusy(sessionId, false);
@@ -2949,7 +2981,7 @@ async function deleteSession(sessionId) {
   localStorage.removeItem(sessionStorageKey(UI_KEY, sessionId));
   localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY, sessionId));
   state.busySessions.delete(sessionId);
-  state.sessions = state.sessions.filter(item => item.id !== sessionId);
+  state.sessions = remainingSessions;
   if (!state.sessions.length) state.sessions = [createSession()];
   if (state.activeSessionId === sessionId) {
     state.activeSessionId = state.sessions[0].id;
@@ -4680,6 +4712,7 @@ async function clearChat() {
   localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
   saveSessionsMeta();
   await deleteImageDbKeys(imageKeys);
+  await deleteOrphanImageBlobs(state.sessions);
   clearAttachments();
 
   $('messages').innerHTML = '';
