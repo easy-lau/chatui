@@ -2466,7 +2466,7 @@ function findImageDisplayItemForMessage(session, index, msg) {
 function renderMessageFromCanonical(session, msg, index) {
   const displayItem = findUserAttachmentDisplayItemForMessage(session, index, msg) || findImageDisplayItemForMessage(session, index, msg) || findDisplayItemForMessage(session, index, msg);
   const canonicalHasRichMedia = msg?.html && displayItemHasRichMedia(msg);
-  if (msg?.html && canonicalHasRichMedia && !displayItem) {
+  if (msg?.html && canonicalHasRichMedia && (!displayItem || displayItem.id === msg.displayItemId || displayItem.jobId === msg.imageJobId)) {
     const node = addMessage(msg.role === 'assistant' ? 'assistant' : msg.role === 'error' ? 'error' : 'user', msg.html, {
       html: true,
       rawText: msg.rawText || msg.content,
@@ -2477,6 +2477,8 @@ function renderMessageFromCanonical(session, msg, index) {
     node.dataset.rawText = msg.rawText || msg.content;
     if (msg.role === 'user') node.dataset.messageIndex = String(msg.messageIndex !== undefined ? msg.messageIndex : index);
     if (msg.responseIndex !== undefined && msg.responseIndex !== '') node.dataset.responseIndex = String(msg.responseIndex);
+    if (msg.displayItemId) node.dataset.displayItemId = String(msg.displayItemId);
+    if (msg.imageJobId) node.dataset.imageJobId = String(msg.imageJobId);
     if (msg.imageContext) node.dataset.imageContext = msg.imageContext;
     return node;
   }
@@ -2645,6 +2647,90 @@ function loadImageJob(sessionId = state.activeSessionId) {
 
 function clearImageJob(sessionId = state.activeSessionId) {
   localStorage.removeItem(sessionImageJobKey(sessionId));
+}
+
+
+function findImageDisplayItemByJob(session, job) {
+  if (!session || !job) return null;
+  const items = session.display || [];
+  if (job.displayItemId) {
+    const byId = items.find(item => item.id === job.displayItemId);
+    if (byId) return byId;
+  }
+  if (job.id) {
+    const byJob = items.find(item => item.jobId === job.id);
+    if (byJob) return byJob;
+  }
+  return null;
+}
+
+function findImageMessageIndexForJob(session, job, liveItem = null) {
+  if (!session || !job) return -1;
+  const messages = session.messages || [];
+  const displayId = job.displayItemId || liveItem?.id || '';
+  if (displayId) {
+    const idx = messages.findIndex(msg => msg?.role === 'assistant' && msg.displayItemId === displayId);
+    if (idx >= 0) return idx;
+  }
+  if (job.id) {
+    const idx = messages.findIndex(msg => msg?.role === 'assistant' && msg.imageJobId === job.id);
+    if (idx >= 0) return idx;
+  }
+  const responseIndex = liveItem?.responseIndex !== '' && liveItem?.responseIndex !== undefined
+    ? Number(liveItem.responseIndex)
+    : NaN;
+  if (Number.isFinite(responseIndex) && messages[responseIndex]?.role === 'assistant') return responseIndex;
+  const promptText = String(job.prompt || '').trim();
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg?.role !== 'assistant') continue;
+    if (!/^\[图片(生成|编辑|修改)完成\]/.test(String(msg.content || ''))) continue;
+    if (!promptText || String(msg.content || '').includes(promptText)) return i;
+  }
+  return -1;
+}
+
+function upsertImageAssistantMessage(sessionId, message, job = null, liveItem = null) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session || !message) return -1;
+  session.messages ||= [];
+  const out = normalizeMessageForStorage(message);
+  if (!out) return -1;
+  if (job?.id) out.imageJobId = job.id;
+  const displayId = job?.displayItemId || liveItem?.id || '';
+  if (displayId) out.displayItemId = displayId;
+  const existing = findImageMessageIndexForJob(session, job, liveItem);
+  let index = existing;
+  if (index >= 0) {
+    session.messages[index] = { ...session.messages[index], ...out };
+  } else {
+    index = Number.isFinite(Number(out.responseIndex)) ? Number(out.responseIndex) : session.messages.length;
+    if (session.messages[index]?.role === 'assistant') session.messages[index] = { ...session.messages[index], ...out };
+    else if (index >= 0 && index < session.messages.length) session.messages.splice(index, 0, out);
+    else {
+      index = session.messages.length;
+      session.messages.push(out);
+    }
+  }
+  if (!out.responseIndex) session.messages[index].responseIndex = String(index);
+  saveSessionMessages(sessionId, session.messages);
+  if (sessionId === state.activeSessionId) state.messages = cloneMessageList(session.messages);
+  return index;
+}
+
+function removeStaleImageDisplayDuplicates(sessionId, keepItem = null, job = null, messageIndex = -1) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session?.display?.length) return;
+  const keepId = keepItem?.id || job?.displayItemId || '';
+  const jobId = job?.id || '';
+  session.display = session.display.filter(item => {
+    if (!item || item.role !== 'assistant' || !displayItemHasRichMedia(item)) return true;
+    if (keepId && item.id === keepId) return true;
+    if (jobId && item.jobId === jobId) return false;
+    if (messageIndex >= 0 && item.responseIndex !== '' && Number(item.responseIndex) === messageIndex) return false;
+    return true;
+  });
+  persistSessionDisplay(sessionId);
 }
 
 function sessionChatJobKey(sessionId = state.activeSessionId) {
@@ -3297,7 +3383,7 @@ function normalizeMessageForStorage(msg) {
     content = String(msg.content || '');
   }
   const out = { role: msg.role, content };
-  ['rawText', 'imageContext', 'messageIndex', 'responseIndex', 'kind'].forEach(key => {
+  ['rawText', 'imageContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId'].forEach(key => {
     if (msg[key] !== undefined && msg[key] !== null && msg[key] !== '') out[key] = String(msg[key]);
   });
   if (msg.html !== undefined && msg.html !== null && msg.html !== '') {
@@ -3792,6 +3878,7 @@ async function sendImage(prompt, options = {}) {
   if (cfg.imageSize && cfg.imageSize !== 'auto') payload.size = cfg.imageSize;
 
   try {
+    let completedImageJobId = '';
     let imageRefs = attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
     if (!imageRefs.length && options.usePreviousImage) {
@@ -3834,6 +3921,7 @@ async function sendImage(prompt, options = {}) {
       saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       const job = await startImageGenerationJob(payload, cfg, jobId, { mode: 'edit_image', files: jobFiles });
       saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      completedImageJobId = job.id;
       data = await waitImageGenerationJob(job.id);
       clearImageJob(sessionId);
     } else {
@@ -3841,6 +3929,7 @@ async function sendImage(prompt, options = {}) {
       saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       const job = await startImageGenerationJob(payload, cfg, jobId);
       saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
+      completedImageJobId = job.id;
       data = await waitImageGenerationJob(job.id);
       clearImageJob(sessionId);
     }
@@ -3863,11 +3952,11 @@ async function sendImage(prompt, options = {}) {
 耗时：${elapsedText}`, pending: false, responseIndex: finalResponseIndex, imageContext: imageContextRaw });
       if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt, rawText: prompt, messageIndex: state.messages.length });
       if (Number.isFinite(options.replaceAssistantIndex) && state.messages[options.replaceAssistantIndex]?.role === 'assistant') {
-        state.messages[options.replaceAssistantIndex] = { ...state.messages[options.replaceAssistantIndex], role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: options.replaceAssistantIndex, imageContext: imageContextRaw, kind: imageContext.mode };
+        state.messages[options.replaceAssistantIndex] = { ...state.messages[options.replaceAssistantIndex], role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: options.replaceAssistantIndex, imageContext: imageContextRaw, kind: imageContext.mode, imageJobId: completedImageJobId || '', displayItemId: liveItem?.id || '' };
       } else if (Number.isFinite(options.replaceAssistantIndex)) {
-        state.messages.splice(options.replaceAssistantIndex, 0, { role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: options.replaceAssistantIndex, imageContext: imageContextRaw, kind: imageContext.mode });
+        state.messages.splice(options.replaceAssistantIndex, 0, { role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: options.replaceAssistantIndex, imageContext: imageContextRaw, kind: imageContext.mode, imageJobId: completedImageJobId || '', displayItemId: liveItem?.id || '' });
       } else {
-        state.messages.push({ role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : state.messages.length, imageContext: imageContextRaw, kind: imageContext.mode });
+        state.messages.push({ role: 'assistant', content: assistantText, html: result.html, rawText: `${result.raw}\n耗时：${elapsedText}`, responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : state.messages.length, imageContext: imageContextRaw, kind: imageContext.mode, imageJobId: completedImageJobId || '', displayItemId: liveItem?.id || '' });
       }
       session.messages = cloneMessageList(state.messages);
       saveChatHistory();
@@ -3941,8 +4030,23 @@ async function resumeImageJob(sessionId = state.activeSessionId) {
       }
     }
     const assistantText = `${isEditJob ? '[图片编辑完成]' : '[图片生成完成]'} ${saved.prompt || ''}`;
-    const baseMessages = trimAssistantTailDuplicate([...(session.messages || []), { role: 'assistant', content: assistantText }], assistantText);
-    saveSessionMessages(sessionId, baseMessages);
+    const messageIndex = upsertImageAssistantMessage(sessionId, {
+      role: 'assistant',
+      content: assistantText,
+      html: result.html,
+      rawText: `${result.raw}\n耗时：${elapsedText}`,
+      responseIndex: liveItem?.responseIndex !== '' && liveItem?.responseIndex !== undefined ? liveItem.responseIndex : undefined,
+      imageContext: saved.imageContext ? JSON.stringify(normalizeImageContextForStorage(saved.imageContext)) : '',
+      kind: isEditJob ? 'edit_image' : 'image',
+    }, saved, liveItem);
+    if (messageIndex >= 0 && liveItem) {
+      liveItem.responseIndex = String(messageIndex);
+      liveItem.jobId = saved.id || liveItem.jobId || '';
+      persistSessionDisplay(sessionId);
+      const node = findMessageNodeByDisplayItem(liveItem);
+      if (node) node.dataset.responseIndex = String(messageIndex);
+    }
+    removeStaleImageDisplayDuplicates(sessionId, liveItem, saved, messageIndex);
     clearImageJob(sessionId);
     playDoneSound();
   } catch (err) {
