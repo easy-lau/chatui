@@ -4407,6 +4407,15 @@ function normalizeExtendedMarkdown(md) {
   let inFence = false;
   let fenceChar = '';
   let fenceLen = 0;
+  let currentFootnote = null;
+
+  const pushFootnote = () => {
+    if (!currentFootnote) return;
+    const rawLines = currentFootnote.lines || [];
+    const text = rawLines.join('\n').trim();
+    footnotes.push({ id: currentFootnote.id, text });
+    currentFootnote = null;
+  };
 
   for (const line of lines) {
     const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
@@ -4424,15 +4433,28 @@ function normalizeExtendedMarkdown(md) {
         fenceChar = '';
         fenceLen = 0;
       }
-      out.push(line);
+      if (currentFootnote) currentFootnote.lines.push(line.replace(/^ {4}/, ''));
+      else out.push(line);
       continue;
     }
 
     if (!inFence) {
       const footnote = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
       if (footnote) {
-        footnotes.push({ id: footnote[1], text: footnote[2] });
+        pushFootnote();
+        currentFootnote = { id: footnote[1], lines: [footnote[2]] };
         continue;
+      }
+      if (currentFootnote) {
+        if (/^(?: {2,}|\t)/.test(line)) {
+          currentFootnote.lines.push(line.replace(/^(?: {2,}|\t)/, ''));
+          continue;
+        }
+        if (/^\s*$/.test(line)) {
+          currentFootnote.lines.push('');
+          continue;
+        }
+        pushFootnote();
       }
       const ref = line.match(/^\[([^\]]+)\]:\s*(\S+)(?:\s+["']([^"']+)["'])?\s*$/);
       if (ref && !ref[1].startsWith('^')) {
@@ -4442,8 +4464,10 @@ function normalizeExtendedMarkdown(md) {
       }
     }
 
-    out.push(line);
+    if (currentFootnote) currentFootnote.lines.push(line);
+    else out.push(line);
   }
+  pushFootnote();
 
   let text = replaceGfmEmojiShortcodes(out.join('\n'));
   text = text.replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (m, alt, id) => {
@@ -4465,7 +4489,8 @@ function normalizeExtendedMarkdown(md) {
 
   if (footnotes.length) {
     text += '\n\n<section class="footnotes">\n<ol>\n' + footnotes.map(item => {
-      return `<li id="fn-${escapeAttr(item.id)}">${escapeHtml(item.text)} <a href="#fnref-${escapeAttr(item.id)}" class="footnote-backref">↩</a></li>`;
+      const rendered = renderMarkdown(String(item.text || '')).replace(/^<p>|<\/p>$/g, '');
+      return `<li id="fn-${escapeAttr(item.id)}">${rendered} <a href="#fnref-${escapeAttr(item.id)}" class="footnote-backref">↩</a></li>`;
     }).join('\n') + '\n</ol>\n</section>';
   }
   return text;
