@@ -4315,6 +4315,90 @@ function addHeadingAnchors(html) {
   return tpl.innerHTML;
 }
 
+
+const GFM_EMOJI_SHORTCODES = {
+  smile: '😄',
+  rocket: '🚀',
+  heart: '❤️',
+  thumbs_up: '👍',
+  '+1': '👍',
+  thumbs_down: '👎',
+  '-1': '👎',
+  white_check_mark: '✅',
+  checkered_flag: '🏁',
+  warning: '⚠️',
+  fire: '🔥',
+  tada: '🎉',
+  star: '⭐',
+  sparkles: '✨',
+  bug: '🐛',
+  memo: '📝',
+  bulb: '💡',
+  eyes: '👀',
+  x: '❌',
+  heavy_check_mark: '✔️',
+  information_source: 'ℹ️',
+};
+
+function replaceGfmEmojiShortcodes(md) {
+  const input = String(md || '');
+  let out = '';
+  let i = 0;
+  let lineStart = true;
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+  while (i < input.length) {
+    if (lineStart) {
+      const lineEnd = input.indexOf('\n', i);
+      const line = input.slice(i, lineEnd === -1 ? input.length : lineEnd);
+      const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+      if (fence) {
+        const marker = fence[1];
+        const rest = fence[2] || '';
+        const char = marker[0];
+        const isClosing = /^\s*$/.test(rest);
+        if (!inFence) {
+          inFence = true;
+          fenceChar = char;
+          fenceLen = marker.length;
+        } else if (char === fenceChar && marker.length >= fenceLen && isClosing) {
+          inFence = false;
+          fenceChar = '';
+          fenceLen = 0;
+        }
+      }
+    }
+    if (!inFence && input[i] === '`') {
+      const marker = input.slice(i).match(/^`+/)?.[0] || '`';
+      const end = input.indexOf(marker, i + marker.length);
+      if (end !== -1) {
+        const chunk = input.slice(i, end + marker.length);
+        out += chunk;
+        lineStart = chunk.endsWith('\n');
+        i = end + marker.length;
+        continue;
+      }
+    }
+    if (!inFence && input[i] === ':') {
+      const match = input.slice(i).match(/^:([a-zA-Z0-9_+\-]+):/);
+      if (match) {
+        const emoji = GFM_EMOJI_SHORTCODES[match[1]];
+        if (emoji) {
+          out += emoji;
+          i += match[0].length;
+          lineStart = false;
+          continue;
+        }
+      }
+    }
+    out += input[i];
+    lineStart = input[i] === '\n';
+    i += 1;
+  }
+  return out;
+}
+
 function normalizeExtendedMarkdown(md) {
   const lines = String(md || '').split('\n');
   const footnotes = [];
@@ -4361,7 +4445,7 @@ function normalizeExtendedMarkdown(md) {
     out.push(line);
   }
 
-  let text = out.join('\n');
+  let text = replaceGfmEmojiShortcodes(out.join('\n'));
   text = text.replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (m, alt, id) => {
     const def = referenceDefs.get(String(id).toLowerCase());
     if (!def) return m;
