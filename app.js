@@ -7,7 +7,9 @@ const state = {
   activeSessionId: '',
   busy: false,
   busySessions: new Set(),
+  activeRuns: new Map(),
   liveRuns: new Map(),
+  stoppedSessions: new Map(),
   models: [],
   modelMeta: {},
   editingIndex: null,
@@ -687,6 +689,7 @@ function bindInlineCopyButtons(node) {
 
 
 function updateMessageContentLight(node, content, options = {}) {
+  if (shouldSuppressRunUi(options.sessionId || state.activeSessionId, options.runToken)) return;
   const box = node?.querySelector('.content');
   if (!box) return;
   const text = String(options.rawText ?? content ?? '');
@@ -848,7 +851,23 @@ function isChatStatusText(text = '') {
   return /正在处理|正在思考|正在恢复聊天任务|已收到|请稍等|已等待/.test(String(text || ''));
 }
 
+function isSessionStopTokenActive(sessionId = state.activeSessionId, token = null) {
+  const stoppedToken = state.stoppedSessions.get(sessionId);
+  return !!stoppedToken && (token === null || stoppedToken === token);
+}
+
+function clearSessionStopToken(sessionId = state.activeSessionId) {
+  state.stoppedSessions.delete(sessionId);
+}
+
+function shouldSuppressRunUi(sessionId = state.activeSessionId, token = null) {
+  const run = getActiveRun(sessionId);
+  return !!run?.stopped || isSessionStopTokenActive(sessionId, token);
+}
+
 function setPendingFeedback(node, text, options = {}) {
+  const sessionId = options.sessionId || state.activeSessionId;
+  if (shouldSuppressRunUi(sessionId, options.runToken)) return;
   if (!node) return;
   node.dataset.pendingFeedback = '1';
   updateMessage(node, pendingFeedbackHtml(text), {
@@ -867,6 +886,133 @@ function clearPendingFeedback(node) {
 
 function clearReasoning(node) {
   updateReasoning(node, '');
+}
+
+function forceRemoveReasoning(node) {
+  if (!node) return;
+  node.querySelectorAll('.reasoning-panel').forEach(panel => panel.remove());
+  delete node.dataset.reasoningText;
+  delete node.dataset.keepReasoning;
+}
+
+function isEmptyReasoningPanel(node) {
+  const panel = node?.querySelector('.reasoning-panel');
+  if (!panel) return false;
+  const content = String(panel.querySelector('.reasoning-content')?.innerText || '').trim();
+  return !content;
+}
+
+function getAssistantOutputText(node) {
+  if (!node) return '';
+  const clone = node.cloneNode(true);
+  clone.querySelectorAll('.avatar, .msg-actions, .reasoning-panel, .pending-feedback, .pending-orb, .pending-dots').forEach(el => el.remove());
+  return String(clone.innerText || clone.textContent || node.dataset.rawText || '').trim();
+}
+
+function hasMeaningfulAssistantOutput(node) {
+  const text = getAssistantOutputText(node);
+  return !!text && !isChatStatusText(text);
+}
+
+function removeStoppedPlaceholderDuplicates(sessionId = state.activeSessionId) {
+  const nodes = [...document.querySelectorAll('.message.assistant')];
+  let replacedPending = false;
+  nodes.forEach(node => {
+    const text = getAssistantOutputText(node);
+    const hasPendingShell = !!(node.querySelector('.pending-feedback') || node.querySelector('.reasoning-panel') || node.dataset.pendingFeedback === '1' || node.dataset.jobId);
+    if (!hasPendingShell && text !== '用户停止' && !isChatStatusText(text)) return;
+    if (text === '用户停止') {
+      forceRemoveReasoning(node);
+      node.querySelector('.pending-feedback')?.remove();
+      delete node.dataset.pendingFeedback;
+      delete node.dataset.jobId;
+      if (replacedPending) node.remove();
+      else replacedPending = true;
+      return;
+    }
+    if (isChatStatusText(text) || !hasMeaningfulAssistantOutput(node)) {
+      if (replacedPending) node.remove();
+      else {
+        markMessageStopped(node, sessionId);
+        replacedPending = true;
+      }
+    }
+  });
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (session?.display?.length) {
+    let seenStopped = false;
+    session.display = session.display.filter(item => {
+      const raw = String(item.rawText || '').trim();
+      const isPendingStatus = item.pending === '1' || raw === '用户停止' || isChatStatusText(raw);
+      if (!isPendingStatus) return true;
+      if (seenStopped) return false;
+      item.role = 'assistant';
+      item.rawText = '用户停止';
+      item.html = renderMarkdown('用户停止');
+      item.pending = '';
+      seenStopped = true;
+      return true;
+    });
+    persistSessionDisplay(sessionId);
+  }
+}
+
+function syncStoppedAssistantNodeToCache(sessionId, node, rawText, { pending = false } = {}) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session || !node) return;
+  const text = String(rawText || '').trim();
+  if (!text) return;
+  const responseIndexRaw = node.dataset.responseIndex || node.__displayItem?.responseIndex || '';
+  const responseIndex = responseIndexRaw !== '' ? Number(responseIndexRaw) : NaN;
+  let item = node.__displayItem || null;
+  if (!item) {
+    const displayId = node.dataset.displayItemId || '';
+    item = displayId ? (session.display || []).find(entry => entry.id === displayId) : null;
+  }
+  if (!item && Number.isFinite(responseIndex)) {
+    item = (session.display || []).find(entry => entry.role === 'assistant' && String(entry.responseIndex || '') === String(responseIndex)) || null;
+  }
+  if (!item) {
+    item = appendSessionDisplayMessage(sessionId, 'assistant', text, { rawText: text, pending, responseIndex: Number.isFinite(responseIndex) ? responseIndex : null });
+    node.__displayItem = item;
+    if (item?.id) node.dataset.displayItemId = item.id;
+  } else {
+    updateSessionDisplayItem(sessionId, item, 'assistant', text, { rawText: text, pending, responseIndex: Number.isFinite(responseIndex) ? responseIndex : item.responseIndex });
+  }
+  const messages = sessionId === state.activeSessionId ? state.messages : (session.messages || []);
+  if (Number.isFinite(responseIndex)) {
+    const canReplaceExisting = messages?.[responseIndex]?.role === 'assistant';
+    const canInsertAfterUser = messages?.[responseIndex - 1]?.role === 'user' && (!messages[responseIndex] || messages[responseIndex]?.role === 'assistant');
+    if (canReplaceExisting || canInsertAfterUser) {
+      replaceAssistantMessageAt(sessionId, responseIndex, text, { rawText: text });
+    } else {
+      persistSessionDisplay(sessionId);
+    }
+  } else {
+    persistSessionDisplay(sessionId);
+  }
+}
+
+function markMessageStopped(node, sessionId = state.activeSessionId) {
+  if (!node) return;
+  const hasOutput = hasMeaningfulAssistantOutput(node);
+  const outputText = getAssistantOutputText(node);
+  try { clearPendingFeedback(node); } catch {}
+  node.querySelector('.pending-feedback')?.remove();
+  delete node.dataset.pendingFeedback;
+  delete node.dataset.jobId;
+  if (hasOutput) {
+    node.dataset.rawText = outputText;
+    syncStoppedAssistantNodeToCache(sessionId, node, outputText, { pending: false });
+    const reasoningText = String(node.dataset.reasoningText || node.querySelector('.reasoning-content')?.innerText || '').trim();
+    if (reasoningText) updateReasoning(node, reasoningText, { done: true, keepReasoning: true, persistSave: false });
+    else forceRemoveReasoning(node);
+    return;
+  }
+  forceRemoveReasoning(node);
+  updateMessage(node, '用户停止', { rawText: '用户停止', skipSave: true, forceScroll: true, followActive: true });
+  syncStoppedAssistantNodeToCache(sessionId, node, '用户停止', { pending: false });
+  forceRemoveReasoning(node);
 }
 
 function moveImageActionsToMessageActions(node) {
@@ -1091,15 +1237,37 @@ function removeAssistantHistoryAt(sessionId, index) {
   else saveSessionMessages(sessionId, messages);
 }
 
+function ensureAssistantHistorySlot(sessionId, index, content, options = {}) {
+  if (!Number.isFinite(index)) return false;
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return false;
+  const messages = sessionId === state.activeSessionId ? state.messages : (session.messages ||= []);
+  if (!Array.isArray(messages)) return false;
+  const msg = {
+    ...(messages[index]?.role === 'assistant' ? messages[index] : {}),
+    role: 'assistant',
+    content,
+    rawText: options.rawText ?? content,
+    responseIndex: String(index),
+  };
+  if (options.html) msg.html = options.html;
+  if (messages[index]?.role === 'assistant') messages[index] = msg;
+  else messages.splice(index, 0, msg);
+  session.messages = cloneMessageList(messages);
+  if (sessionId === state.activeSessionId) state.messages = cloneMessageList(session.messages);
+  saveSessionMessages(sessionId, session.messages);
+  return true;
+}
+
 function prepareRegeneratedResponse(userNode, oldNode, sessionId, responseIndex, text = '已收到，马上处理') {
   const html = pendingFeedbackHtml(text);
   removeSessionDisplayItemForNode(sessionId, oldNode);
-  removeAssistantHistoryAt(sessionId, responseIndex);
   oldNode?.remove();
 
   const node = addMessage('assistant', html, { html: true, rawText: text, skipSave: true });
   userNode?.after(node);
   const liveItem = appendSessionDisplayMessage(sessionId, 'assistant', html, { html: true, rawText: text, pending: true, responseIndex });
+  ensureAssistantHistorySlot(sessionId, responseIndex, text, { rawText: text, html });
   node.__displayItem = liveItem;
   if (liveItem?.id) node.dataset.displayItemId = liveItem.id;
   if (Number.isFinite(responseIndex)) node.dataset.responseIndex = String(responseIndex);
@@ -1179,6 +1347,7 @@ async function regenerateAssistantMessage(node) {
   const hadImageContext = !!(imageContext && Array.isArray(imageContext.attachments) && imageContext.attachments.length);
 
   const runSessionId = state.activeSessionId;
+  const activeRun = ensureActiveRun(runSessionId);
   setSessionBusy(runSessionId, true);
   const replacement = prepareRegeneratedResponse(userNode, node, runSessionId, responseIndex);
   node = replacement.node;
@@ -1201,6 +1370,7 @@ async function regenerateAssistantMessage(node) {
       node.remove();
       return;
     }
+    if (activeRun.stopped || activeRun.abortController?.signal?.aborted) return;
     if (mode === 'chat') await sendChat(prompt, [], node, { sessionId: runSessionId, userAlreadyAdded: true, liveItem, replaceAssistantIndex: responseIndex, requestBaseMessages: state.messages.slice(0, userIndex) });
     else await sendImage(prompt, {
       loadingNode: node,
@@ -1215,9 +1385,10 @@ async function regenerateAssistantMessage(node) {
       replaceAssistantIndex: responseIndex,
     });
   } catch (err) {
-    showRunError(runSessionId, err, liveItem, node);
+    if (!activeRun.stopped && err?.name !== 'AbortError') showRunError(runSessionId, err, liveItem, node);
   } finally {
     setSessionBusy(runSessionId, false);
+    clearActiveRun(runSessionId, activeRun);
     $('prompt').focus();
   }
 }
@@ -1254,17 +1425,20 @@ async function parseResponseJson(res) {
 async function requestJson(url, payload, apiKey, method = 'POST') {
   const cfg = getConfig();
   const direct = cfg.directMode;
+  const signal = method && typeof method === 'object' ? method.signal : null;
+  const actualMethod = method && typeof method === 'object' ? (method.method || 'POST') : method;
   const finalUrl = direct ? url : toProxyUrl(url, cfg.baseUrl);
-  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload, method };
+  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload, method: actualMethod };
   let res;
   try {
     res = await fetch(finalUrl, {
-      method,
+      method: actualMethod,
+      signal,
       headers: {
         'Content-Type': 'application/json',
         ...(direct && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
-      ...(method === 'GET' ? {} : { body: JSON.stringify(finalPayload) }),
+      ...(actualMethod === 'GET' ? {} : { body: JSON.stringify(finalPayload) }),
     });
   } catch (err) {
     throw new Error(`连接接口失败：${err?.message || '网络请求失败'}`);
@@ -1272,6 +1446,77 @@ async function requestJson(url, payload, apiKey, method = 'POST') {
   const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
+}
+
+function getActiveRun(sessionId = state.activeSessionId) {
+  return state.activeRuns.get(sessionId) || null;
+}
+
+function ensureActiveRun(sessionId = state.activeSessionId) {
+  let run = getActiveRun(sessionId);
+  if (!run) {
+    run = { sessionId, token: `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, abortController: new AbortController(), jobIds: new Set(), stopped: false };
+    state.activeRuns.set(sessionId, run);
+    clearSessionStopToken(sessionId);
+  } else if (!run.stopped) {
+    clearSessionStopToken(sessionId);
+  }
+  return run;
+}
+
+function clearActiveRun(sessionId = state.activeSessionId, run = null) {
+  const current = getActiveRun(sessionId);
+  if (!run || current === run) state.activeRuns.delete(sessionId);
+}
+
+function isRunStopped(sessionId = state.activeSessionId) {
+  return !!getActiveRun(sessionId)?.stopped;
+}
+
+function addActiveRunJob(sessionId, type, jobId) {
+  if (!jobId) return;
+  const run = getActiveRun(sessionId);
+  if (run) run.jobIds.add(`${type}:${jobId}`);
+}
+
+async function abortManagedJob(type, jobId) {
+  if (!jobId) return;
+  const path = type === 'image' ? 'image-jobs' : 'chat-jobs';
+  try {
+    await fetch(`/api/${path}/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
+  } catch {}
+}
+
+async function stopActiveRun(sessionId = state.activeSessionId) {
+  const run = getActiveRun(sessionId) || ensureActiveRun(sessionId);
+  run.stopped = true;
+  state.stoppedSessions.set(sessionId, run.token);
+  try { run.abortController?.abort(); } catch {}
+  const savedChat = loadLatestChatJob(sessionId);
+  const savedImage = loadImageJob(sessionId);
+  if (savedChat?.id) run.jobIds.add(`chat:${savedChat.id}`);
+  if (savedImage?.id) run.jobIds.add(`image:${savedImage.id}`);
+  if (sessionId === state.activeSessionId) {
+    document.querySelectorAll('.message.assistant[data-pending-feedback="1"], .message.assistant[data-job-id], .message.assistant:has(.pending-feedback), .message.assistant:has(.reasoning-panel)').forEach(node => {
+      markMessageStopped(node, sessionId);
+    });
+    removeStoppedPlaceholderDuplicates(sessionId);
+  }
+  setSessionBusy(sessionId, false);
+  await Promise.all([...run.jobIds].map(entry => {
+    const [type, ...rest] = String(entry).split(':');
+    return abortManagedJob(type, rest.join(':'));
+  }));
+  clearChatJob(sessionId);
+  clearImageJob(sessionId);
+  const session = state.sessions.find(item => item.id === sessionId);
+  const pendingItems = (session?.display || []).filter(item => item?.pending === '1');
+  pendingItems.forEach(item => {
+    const hasOutput = !!String(item.rawText || '').trim() && !isChatStatusText(item.rawText || '');
+    updateSessionDisplayItem(sessionId, item, 'assistant', hasOutput ? item.rawText : '用户停止', { rawText: hasOutput ? item.rawText : '用户停止', pending: false });
+  });
+  if (sessionId === state.activeSessionId) removeStoppedPlaceholderDuplicates(sessionId);
+  setSessionBusy(sessionId, false);
 }
 
 async function requestModels() {
@@ -2100,6 +2345,7 @@ async function startChatJob(payload, cfg, jobId) {
 async function registerChatStreamJob(payload, cfg, jobId, options = {}) {
   const res = await fetch('/api/chat-stream-jobs', {
     method: 'POST',
+    signal: options.signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload, start: options.start === true }),
   });
@@ -2115,12 +2361,22 @@ async function getChatJob(jobId) {
   return data;
 }
 
-function waitJobEvent(url, onTick = () => {}) {
-  return new Promise((resolve, reject) => {
+function waitJobEvent(url, onTick = () => {}, options = {}) {
+  let abortHandler = null;
+  const signal = options.signal;
+  const promise = new Promise((resolve, reject) => {
     let source = null;
     let settled = false;
     let retries = 0;
     let opened = false;
+    abortHandler = () => {
+      if (settled) return;
+      settled = true;
+      try { source?.close(); } catch {}
+      reject(new DOMException('已停止', 'AbortError'));
+    };
+    if (signal?.aborted) return abortHandler();
+    signal?.addEventListener('abort', abortHandler, { once: true });
     const connect = () => {
       if (settled) return;
       source = new EventSource(url);
@@ -2160,6 +2416,9 @@ function waitJobEvent(url, onTick = () => {}) {
     };
     connect();
   });
+  return promise.finally(() => {
+    if (signal && abortHandler) signal.removeEventListener('abort', abortHandler);
+  });
 }
 
 function extractChatJobText(data) {
@@ -2170,18 +2429,18 @@ function extractChatJobText(data) {
   };
 }
 
-async function waitChatJob(jobId, onTick = () => {}) {
-  return waitJobEvent(`/api/chat-jobs/${encodeURIComponent(jobId)}/events`, onTick);
+async function waitChatJob(jobId, onTick = () => {}, options = {}) {
+  return waitJobEvent(`/api/chat-jobs/${encodeURIComponent(jobId)}/events`, onTick, options);
 }
 
-async function streamManagedChatCompletions(payload, cfg, jobId, onDelta) {
+async function streamManagedChatCompletions(payload, cfg, jobId, onDelta, options = {}) {
   if (jobId) state.followingChatJobs.add(jobId);
   try {
-    await registerChatStreamJob(payload, cfg, jobId, { start: true });
+    await registerChatStreamJob(payload, cfg, jobId, { start: true, signal: options.signal });
     const data = await waitChatJob(jobId, (job) => {
       const partial = extractChatJobText(job.data);
       if (partial.content || partial.reasoning) onDelta(partial);
-    });
+    }, options);
     return extractChatJobText(data);
   } finally {
     if (jobId) state.followingChatJobs.delete(jobId);
@@ -2213,6 +2472,7 @@ async function imageFilesToJobPayload(files = []) {
 async function startImageGenerationJob(payload, cfg, jobId, options = {}) {
   const res = await fetch('/api/image-jobs', {
     method: 'POST',
+    signal: options.signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       jobId,
@@ -2235,8 +2495,8 @@ async function getImageGenerationJob(jobId) {
   return data;
 }
 
-async function waitImageGenerationJob(jobId, onTick = () => {}) {
-  return waitJobEvent(`/api/image-jobs/${encodeURIComponent(jobId)}/events`, onTick);
+async function waitImageGenerationJob(jobId, onTick = () => {}, options = {}) {
+  return waitJobEvent(`/api/image-jobs/${encodeURIComponent(jobId)}/events`, onTick, options);
 }
 
 
@@ -2325,7 +2585,13 @@ function updateSendAvailability() {
   const busy = isSessionBusy(state.activeSessionId);
   state.busy = busy;
   const btn = $('sendBtn');
-  if (btn) btn.disabled = busy;
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.toggle('stop-mode', busy);
+    btn.type = 'submit';
+    btn.title = busy ? '停止' : '发送';
+    btn.setAttribute('aria-label', busy ? '停止' : '发送');
+  }
 }
 
 
@@ -2492,7 +2758,7 @@ function renderMessageFromCanonical(session, msg, index) {
       });
   node.dataset.rawText = msg.content;
   if (msg.role === 'user') node.dataset.messageIndex = String(msg.messageIndex !== undefined ? msg.messageIndex : index);
-  if (msg.role === 'assistant' && displayItem?.responseIndex !== '') node.dataset.responseIndex = displayItem.responseIndex;
+  if (msg.role === 'assistant') node.dataset.responseIndex = String(displayItem?.responseIndex !== undefined && displayItem.responseIndex !== '' ? displayItem.responseIndex : (msg.responseIndex !== undefined ? msg.responseIndex : index));
   return node;
 }
 
@@ -2742,15 +3008,27 @@ function saveChatJob(sessionId, job) {
   localStorage.setItem(sessionChatJobKey(sessionId), JSON.stringify(job));
 }
 
-function replaceAssistantMessageAt(sessionId, index, content) {
+function replaceAssistantMessageAt(sessionId, index, content, options = {}) {
   if (!Number.isFinite(index)) return false;
   const session = state.sessions.find(item => item.id === sessionId);
-  const messages = sessionId === state.activeSessionId ? state.messages : session?.messages;
+  if (!session) return false;
+  const messages = sessionId === state.activeSessionId ? state.messages : (session.messages ||= []);
   if (!Array.isArray(messages)) return false;
-  if (messages[index]?.role === 'assistant') messages[index].content = content;
-  else messages.splice(index, 0, { role: 'assistant', content });
-  if (sessionId === state.activeSessionId) saveChatHistory();
-  else saveSessionMessages(sessionId, messages);
+  const next = {
+    ...(messages[index]?.role === 'assistant' ? messages[index] : {}),
+    role: 'assistant',
+    content,
+    rawText: options.rawText ?? content,
+    responseIndex: String(index),
+  };
+  if (options.html) next.html = options.html;
+  else delete next.html;
+  if (options.reasoning !== undefined) next.reasoning_content = options.reasoning || '';
+  if (messages[index]?.role === 'assistant') messages[index] = next;
+  else messages.splice(index, 0, next);
+  session.messages = cloneMessageList(messages);
+  if (sessionId === state.activeSessionId) state.messages = cloneMessageList(session.messages);
+  saveSessionMessages(sessionId, session.messages);
   return true;
 }
 
@@ -2808,6 +3086,13 @@ function updateSessionDisplayItem(sessionId, item, role, content, options = {}) 
   if (options.messageIndex !== undefined && options.messageIndex !== null) item.messageIndex = String(options.messageIndex);
   if (options.responseIndex !== undefined && options.responseIndex !== null) item.responseIndex = String(options.responseIndex);
   if (options.jobId !== undefined) item.jobId = options.jobId || '';
+  if (options.pending === false) {
+    item.jobId = '';
+    if (!options.keepReasoning) {
+      delete item.reasoningText;
+      item.keepReasoning = false;
+    }
+  }
   persistSessionDisplay(sessionId);
 }
 
@@ -2922,11 +3207,20 @@ function takeChatJobLiveItem(sessionId, saved, fallbackText, matcher = null) {
 }
 
 function updateLiveDisplay(sessionId, item, role, content, options = {}) {
+  if (shouldSuppressRunUi(sessionId, options.runToken) && options.pending !== false) return;
   updateSessionDisplayItem(sessionId, item, role, content, { ...options, pending: options.pending ?? true });
+  if (options.pending === false && item?.responseIndex !== undefined && item.responseIndex !== '') {
+    replaceAssistantMessageAt(sessionId, Number(item.responseIndex), options.rawText ?? content, { html: options.html ? String(content || '') : '', rawText: options.rawText ?? content, reasoning: options.reasoning });
+  }
   if (sessionId !== state.activeSessionId) return;
   let node = findMessageNodeByDisplayItem(item);
   if (!node) node = addDisplayItemNode(item);
-  if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: true, forceScroll: options.forceScroll ?? false, followActive: options.followActive === true });
+  if (options.pending === false) {
+    delete node.dataset.pendingFeedback;
+    delete node.dataset.jobId;
+    if (!options.keepReasoning && options.reasoning === undefined) clearReasoning(node);
+  }
+  if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: options.pending !== false, done: options.pending === false && !!options.reasoning, forceScroll: options.forceScroll ?? false, followActive: options.followActive === true, keepReasoning: options.pending === false && !!options.reasoning });
   const light = options.pending !== false && !options.html;
   if (light) updateMessageContentLight(node, content, { ...options, skipSave: true, forceScroll: options.forceScroll ?? false });
   else updateMessage(node, content, { ...options, skipSave: options.pending !== false, noScroll: options.noScroll === true });
@@ -2935,6 +3229,7 @@ function updateLiveDisplay(sessionId, item, role, content, options = {}) {
 function isAbortLikeError(err) {
   const text = String(err?.message || err || '').toLowerCase();
   return err?.name === 'AbortError'
+    || text.includes('已停止')
     || text.includes('failed to fetch')
     || text.includes('fetch failed')
     || text.includes('networkerror')
@@ -3439,6 +3734,8 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   if (!cfg.baseUrl || !cfg.chatModel) throw new Error('请先配置 Endpoint Base URL 和聊天模型');
 
   const sessionId = options.sessionId || state.activeSessionId;
+  const activeRun = ensureActiveRun(sessionId);
+  if (activeRun.stopped || activeRun.abortController?.signal?.aborted) throw new DOMException('已停止', 'AbortError');
   const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
   const baseMessages = sessionId === state.activeSessionId ? state.messages : [...(session.messages || [])];
   const requestBaseMessages = Array.isArray(options.requestBaseMessages)
@@ -3478,6 +3775,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
 
   const payload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true });
   let backgroundJobId = makeClientChatJobId();
+  addActiveRunJob(sessionId, 'chat', backgroundJobId);
   if (backgroundJobId && liveItem) {
     liveItem.jobId = backgroundJobId;
     liveItem.responseIndex = String(Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : inferredResponseIndex);
@@ -3510,14 +3808,16 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       reasoningCompleteTimer = setTimeout(markReasoningDone, 900);
     };
     const renderer = createRealtimeRenderer((visible) => {
+      if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
       const text = visible || '正在处理…';
       if (loading?.isConnected) {
         clearPendingFeedback(loading);
-        updateMessageContentLight(loading, text, { rawText: text, skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
+        updateMessageContentLight(loading, text, { sessionId, runToken: activeRun.token, rawText: text, skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
       }
-      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, forceScroll: false });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, forceScroll: false, runToken: activeRun.token });
     });
     const reasoningRenderer = createRealtimeRenderer((visible) => {
+      if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
       if (!state.reasoningMode) {
         if (loading?.isConnected) clearReasoning(loading);
         if (liveItem) {
@@ -3534,28 +3834,28 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       }
       if (nextText && loading?.isConnected && loading.dataset.pendingFeedback === '1') {
         clearPendingFeedback(loading);
-        updateMessageContentLight(loading, '正在思考…', { rawText: '正在思考…', skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
+        updateMessageContentLight(loading, '正在思考…', { sessionId, runToken: activeRun.token, rawText: '正在思考…', skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
       }
       if (loading?.isConnected) updateReasoning(loading, nextText, { done: reasoningDone, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex), keepEmpty: !!nextText });
       if (liveItem) {
         liveItem.reasoningText = nextText;
         liveItem.keepReasoning = !!nextText;
         if (nextText && isChatStatusText(liveItem.rawText || '')) {
-          updateLiveDisplay(sessionId, liveItem, 'assistant', '正在思考…', { rawText: '正在思考…', pending: true, reasoning: state.reasoningMode ? nextText : undefined, forceScroll: true, followActive: true });
+          updateLiveDisplay(sessionId, liveItem, 'assistant', '正在思考…', { rawText: '正在思考…', pending: true, reasoning: state.reasoningMode ? nextText : undefined, forceScroll: true, followActive: true, runToken: activeRun.token });
         }
       }
     });
     if (loading?.isConnected) {
       if (state.reasoningMode) updateReasoning(loading, '', { keepEmpty: true });
       else clearReasoning(loading);
-      setPendingFeedback(loading, '正在处理，请稍等', { followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
+      setPendingFeedback(loading, '正在处理，请稍等', { sessionId, runToken: activeRun.token, followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
     }
     let result;
     try {
       result = await streamManagedChatCompletions(payload, cfg, backgroundJobId, (partial) => {
         renderer.set(partial.content || '');
         reasoningRenderer.set(partial.reasoning || '');
-      });
+      }, { signal: activeRun.abortController.signal });
     } catch (streamErr) {
       if (!state.reasoningMode || !isUnsupportedReasoningError(streamErr)) throw streamErr;
       const retryPayload = isUnsupportedXhighError(streamErr)
@@ -3563,6 +3863,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
         : buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
       if (backgroundJobId) {
         backgroundJobId = makeClientChatJobId();
+        addActiveRunJob(sessionId, 'chat', backgroundJobId);
         if (liveItem) {
           liveItem.jobId = backgroundJobId;
           persistSessionDisplay(sessionId);
@@ -3580,7 +3881,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       result = await streamManagedChatCompletions(retryPayload, cfg, backgroundJobId, (partial) => {
         renderer.set(partial.content || '');
         reasoningRenderer.set(partial.reasoning || '');
-      });
+      }, { signal: activeRun.abortController.signal });
     }
     clearTimeout(reasoningCompleteTimer);
     markReasoningDone();
@@ -3613,10 +3914,11 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     }
     playDoneSound();
   } catch (err) {
+    if (isRunStopped(sessionId) || err?.name === 'AbortError') return;
     if (state.pageUnloading && isAbortLikeError(err)) return;
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求；刷新/返回导致的 Safari Load failed 不降级、不落错误气泡。
     let fallbackPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: false });
-    if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试', { followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
+    if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试', { sessionId, runToken: activeRun.token, followActive: Number.isFinite(options.replaceAssistantIndex), forceScroll: Number.isFinite(options.replaceAssistantIndex) });
     let data;
     try {
       data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
@@ -3844,6 +4146,8 @@ async function sendImage(prompt, options = {}) {
   if (!cfg.baseUrl || !cfg.imageModel) throw new Error('请先配置 Endpoint Base URL 和生图模型');
 
   const sessionId = options.sessionId || state.activeSessionId;
+  const activeRun = ensureActiveRun(sessionId);
+  if (activeRun.stopped || activeRun.abortController?.signal?.aborted) throw new DOMException('已停止', 'AbortError');
   const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
   const baseMessages = sessionId === state.activeSessionId ? state.messages : [...(session.messages || [])];
   let requestStart = 0;
@@ -3859,16 +4163,18 @@ async function sendImage(prompt, options = {}) {
 
   const startImageTimer = (label = '正在生成图片') => {
     requestStart = performance.now();
+    if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
     if (loading?.isConnected) {
       clearPendingFeedback(loading);
       updateMessage(loading, `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, skipSave: true });
     }
-    updateLiveDisplay(sessionId, liveItem, 'assistant', `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, pending: true });
+    updateLiveDisplay(sessionId, liveItem, 'assistant', `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, pending: true, runToken: activeRun.token });
     timer = setInterval(() => {
+      if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
       const seconds = Math.floor((performance.now() - requestStart) / 1000);
       const text = `${label}… 已等待 ${seconds} 秒`;
       if (loading?.isConnected) updateMessage(loading, text, { rawText: text, skipSave: true });
-      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, runToken: activeRun.token });
     }, 1000);
   };
 
@@ -3886,13 +4192,15 @@ async function sendImage(prompt, options = {}) {
       if (!previous) throw new Error('没有可编辑的上一张图片');
       imageRefs = [previous];
       usedPreviousImage = true;
+      if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
       if (loading?.isConnected) updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
-      updateLiveDisplay(sessionId, liveItem, 'assistant', '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', pending: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', pending: true, runToken: activeRun.token });
     } else if (!imageRefs.length && options.editMode && options.editTarget === 'uploaded') {
       imageRefs = await restoreImageAttachmentsFromContext(options.imageContext || getLatestUploadedImageContext(sessionId) || {});
       if (!imageRefs.length) throw new Error('上一张上传图片的缓存已丢失，请重新上传图片后再修改');
+      if (shouldSuppressRunUi(sessionId, activeRun.token)) return;
       if (loading?.isConnected) updateMessage(loading, '已准备上一张上传图片，正在发送修改请求…', { rawText: '已准备上一张上传图片，正在发送修改请求…', skipSave: true });
-      updateLiveDisplay(sessionId, liveItem, 'assistant', '已准备上一张上传图片，正在发送修改请求…', { rawText: '已准备上一张上传图片，正在发送修改请求…', pending: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', '已准备上一张上传图片，正在发送修改请求…', { rawText: '已准备上一张上传图片，正在发送修改请求…', pending: true, runToken: activeRun.token });
     } else if (!imageRefs.length && options.editMode) {
       throw new Error('没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改');
     }
@@ -3909,28 +4217,32 @@ async function sendImage(prompt, options = {}) {
       liveItem.imageContext = imageContextRaw;
       persistSessionDisplay(sessionId);
     }
-    if (loading?.isConnected) {
+    if (loading?.isConnected && !shouldSuppressRunUi(sessionId, activeRun.token)) {
       setImageContext(loading, imageContext);
-      setPendingFeedback(loading, '正在处理，请稍等');
+      setPendingFeedback(loading, '正在处理，请稍等', { sessionId, runToken: activeRun.token });
     }
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
     let data;
     if (imageRefs.length) {
       const jobId = makeClientImageJobId();
+      addActiveRunJob(sessionId, 'image', jobId);
       const jobFiles = await imageFilesToJobPayload(imageRefs);
       saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
-      const job = await startImageGenerationJob(payload, cfg, jobId, { mode: 'edit_image', files: jobFiles });
+      const job = await startImageGenerationJob(payload, cfg, jobId, { mode: 'edit_image', files: jobFiles, signal: activeRun.abortController.signal });
       saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'edit_image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       completedImageJobId = job.id;
-      data = await waitImageGenerationJob(job.id);
+      addActiveRunJob(sessionId, 'image', job.id);
+      data = await waitImageGenerationJob(job.id, () => {}, { signal: activeRun.abortController.signal });
       clearImageJob(sessionId);
     } else {
       const jobId = makeClientImageJobId();
+      addActiveRunJob(sessionId, 'image', jobId);
       saveImageJob(sessionId, { id: jobId, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
-      const job = await startImageGenerationJob(payload, cfg, jobId);
+      const job = await startImageGenerationJob(payload, cfg, jobId, { signal: activeRun.abortController.signal });
       saveImageJob(sessionId, { id: job.id, prompt: requestPrompt, payload, mode: 'image', imageContext, startedAt: job.createdAt || Date.now(), displayItemId: liveItem?.id || '', liveItemRawText: liveItem?.rawText || '' });
       completedImageJobId = job.id;
-      data = await waitImageGenerationJob(job.id);
+      addActiveRunJob(sessionId, 'image', job.id);
+      data = await waitImageGenerationJob(job.id, () => {}, { signal: activeRun.abortController.signal });
       clearImageJob(sessionId);
     }
     const elapsedText = formatElapsed(performance.now() - requestStart);
@@ -4855,13 +5167,17 @@ function updateModeUi(mode, auto = state.autoMode) {
 
 async function onSubmit(e) {
   e.preventDefault();
-  if (isSessionBusy(state.activeSessionId)) return;
+  if (isSessionBusy(state.activeSessionId)) {
+    await stopActiveRun(state.activeSessionId);
+    return;
+  }
   const prompt = $('prompt').value.trim();
   if (!prompt && !state.attachments.length) return;
   unlockDoneSound();
   saveConfig(true);
 
   const runSessionId = state.activeSessionId;
+  const activeRun = ensureActiveRun(runSessionId);
   const submittedAttachments = [...state.attachments];
   await prepareUserAttachmentPreviews(submittedAttachments);
   const displayIndex = state.mode === 'chat' ? state.messages.length : null;
@@ -4919,6 +5235,7 @@ async function onSubmit(e) {
       effectiveRoute = normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0 });
       console.warn('route failed, fallback to chat:', routeErr);
     }
+    if (activeRun.stopped || activeRun.abortController?.signal?.aborted) return;
     if (runSessionId === state.activeSessionId) updateModeUi(effectiveMode, state.autoMode);
     if (runSessionId === state.activeSessionId && warnMissingModel(effectiveMode, true)) {
       immediateFeedback.remove();
@@ -4940,9 +5257,10 @@ async function onSubmit(e) {
     state.editingIndex = null;
     state.editingNode = null;
   } catch (err) {
-    showRunError(runSessionId, err, liveItem, immediateFeedback);
+    if (!activeRun.stopped && err?.name !== 'AbortError') showRunError(runSessionId, err, liveItem, immediateFeedback);
   } finally {
     setSessionBusy(runSessionId, false);
+    clearActiveRun(runSessionId, activeRun);
     $('prompt').focus();
   }
 }
@@ -5228,6 +5546,11 @@ $('composer').addEventListener('paste', async (e) => {
   if (files.length) await addFiles(files);
 });
 $('composer').addEventListener('submit', onSubmit);
+$('sendBtn').addEventListener('click', async (event) => {
+  if (!isSessionBusy(state.activeSessionId)) return;
+  event.preventDefault();
+  await stopActiveRun(state.activeSessionId);
+});
 $('prompt').addEventListener('input', scheduleAutoResize);
 $('prompt').addEventListener('keyup', scheduleAutoResize);
 $('prompt').addEventListener('paste', scheduleAutoResize);

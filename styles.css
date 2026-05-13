@@ -4709,6 +4709,23 @@ body.session-sidebar-collapsed .composer {
   display: block !important;
   margin: 0 !important;
 }
+.composer-actions button.stop-mode {
+  position: relative !important;
+  background: #ef4444 !important;
+  color: #fff !important;
+}
+.composer-actions button .stop-icon { display: none !important; }
+.composer-actions button.stop-mode .send-icon { display: none !important; }
+.composer-actions button.stop-mode .stop-icon {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+}
+.composer-actions button.stop-mode .stop-icon rect {
+  fill: currentColor !important;
+  stroke: none !important;
+}
+.composer-actions button.stop-mode:hover { background: #dc2626 !important; }
 
 /* composer centering hard override: beat old sidebar-specific rules */
 @media (min-width: 841px) {
@@ -6133,4 +6150,31 @@ body.session-sidebar-collapsed .composer {
   color: #24292f;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .9em;
+}
+
+/* stop button state: override all earlier submit-button styles */
+.composer-actions #sendBtn.stop-mode,
+.composer-actions button#sendBtn.stop-mode,
+#sendBtn.stop-mode {
+  background: #ef4444 !important;
+  background-image: none !important;
+  color: #fff !important;
+  border-color: rgba(239,68,68,.45) !important;
+  box-shadow: 0 14px 30px rgba(239,68,68,.26), 0 0 18px rgba(239,68,68,.16) !important;
+}
+.composer-actions #sendBtn.stop-mode:hover,
+#sendBtn.stop-mode:hover {
+  background: #dc2626 !important;
+  background-image: none !important;
+}
+#sendBtn .stop-icon { display: none !important; }
+#sendBtn.stop-mode .send-icon { display: none !important; }
+#sendBtn.stop-mode .stop-icon {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+}
+#sendBtn.stop-mode .stop-icon rect {
+  fill: currentColor !important;
+  stroke: none !important;
 }

@@ -887,6 +887,18 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true } = {}) {
   };
 }
 
+function abortJob(store, id, message = '任务已停止') {
+  const job = store.get(id);
+  if (!job) return null;
+  if (job.status === 'done' || job.status === 'error') return job;
+  job.status = 'error';
+  job.error = message;
+  job.updatedAt = Date.now();
+  try { job.controller?.abort(); } catch {}
+  notifyJob(job);
+  return job;
+}
+
 function publicJob(job) {
   return {
     id: job.id,
@@ -934,6 +946,7 @@ function subscribeJob(req, res, store) {
 
 async function runImageJob(job) {
   const controller = new AbortController();
+  job.controller = controller;
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
     const headers = { ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
@@ -970,6 +983,7 @@ async function runImageJob(job) {
     job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
   } finally {
     clearTimeout(timer);
+    delete job.controller;
     job.updatedAt = Date.now();
     notifyJob(job);
   }
@@ -1023,6 +1037,7 @@ function getImageJob(req, res) {
 
 async function runChatJob(job) {
   const controller = new AbortController();
+  job.controller = controller;
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
     const upstream = await fetch(job.targetUrl, {
@@ -1046,6 +1061,7 @@ async function runChatJob(job) {
     job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
   } finally {
     clearTimeout(timer);
+    delete job.controller;
     job.updatedAt = Date.now();
     notifyJob(job);
   }
@@ -1055,6 +1071,7 @@ async function runChatStreamJob(job) {
   if (job.streamStarted) return;
   job.streamStarted = true;
   const controller = new AbortController();
+  job.controller = controller;
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
     const upstream = await fetch(job.targetUrl, {
@@ -1097,6 +1114,7 @@ async function runChatStreamJob(job) {
     job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
   } finally {
     clearTimeout(timer);
+    delete job.controller;
     job.updatedAt = Date.now();
     notifyJob(job);
   }
@@ -1220,12 +1238,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url.startsWith('/api/chat-jobs/')) {
+    if (req.method === 'POST' && req.url.endsWith('/abort')) {
+      const id = decodeURIComponent(req.url.split('?')[0].split('/').filter(Boolean).at(-2) || '');
+      const job = abortJob(chatJobs, id);
+      if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+      return sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+    }
     if (req.method !== 'GET') return sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
     if (req.url.endsWith('/events')) return subscribeJob(req, res, chatJobs);
     return getChatJob(req, res);
   }
 
   if (req.url.startsWith('/api/image-jobs/')) {
+    if (req.method === 'POST' && req.url.endsWith('/abort')) {
+      const id = decodeURIComponent(req.url.split('?')[0].split('/').filter(Boolean).at(-2) || '');
+      const job = abortJob(imageJobs, id);
+      if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+      return sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+    }
     if (req.method !== 'GET') return sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
     if (req.url.endsWith('/events')) return subscribeJob(req, res, imageJobs);
     return getImageJob(req, res);
