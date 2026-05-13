@@ -618,6 +618,7 @@ function addMessage(role, content, options = {}) {
   }
 
   bindInlineCopyButtons(node);
+  enhanceRenderedMarkdown(node);
   hydrateMessageMedia(node, { save: !options.skipSave });
 
   $('messages').appendChild(node);
@@ -695,6 +696,7 @@ function updateMessageContentLight(node, content, options = {}) {
   if (box.innerHTML !== html) {
     box.innerHTML = html;
     bindInlineCopyButtons(node);
+    enhanceRenderedMarkdown(node);
   }
   // 流式阶段只做 Markdown 渲染，不做图片 IndexedDB 恢复、媒体按钮搬运、历史保存等重操作。
   // 自动滚动锚定正在输出的消息底部，而不是无脑贴到整个消息列表底部。
@@ -713,6 +715,7 @@ function updateMessage(node, content, options = {}) {
   if (options.html) box.innerHTML = content;
   else box.innerHTML = renderMarkdown(String(content || ''));
   bindInlineCopyButtons(node);
+  enhanceRenderedMarkdown(node);
   hydrateMessageMedia(node, { save: options.skipSave !== true });
   if (options.noScroll) {
     state.scrollVersion += 1;
@@ -2461,7 +2464,9 @@ function findImageDisplayItemForMessage(session, index, msg) {
 }
 
 function renderMessageFromCanonical(session, msg, index) {
-  if (msg?.html) {
+  const displayItem = findUserAttachmentDisplayItemForMessage(session, index, msg) || findImageDisplayItemForMessage(session, index, msg) || findDisplayItemForMessage(session, index, msg);
+  const canonicalHasRichMedia = msg?.html && displayItemHasRichMedia(msg);
+  if (msg?.html && canonicalHasRichMedia && !displayItem) {
     const node = addMessage(msg.role === 'assistant' ? 'assistant' : msg.role === 'error' ? 'error' : 'user', msg.html, {
       html: true,
       rawText: msg.rawText || msg.content,
@@ -2475,7 +2480,6 @@ function renderMessageFromCanonical(session, msg, index) {
     if (msg.imageContext) node.dataset.imageContext = msg.imageContext;
     return node;
   }
-  const displayItem = findUserAttachmentDisplayItemForMessage(session, index, msg) || findImageDisplayItemForMessage(session, index, msg) || findDisplayItemForMessage(session, index, msg);
   const node = displayItem
     ? addDisplayItemNode({ ...displayItem, pending: '' })
     : addMessage(msg.role === 'assistant' ? 'assistant' : 'user', msg.content, {
@@ -3293,9 +3297,13 @@ function normalizeMessageForStorage(msg) {
     content = String(msg.content || '');
   }
   const out = { role: msg.role, content };
-  ['html', 'rawText', 'imageContext', 'messageIndex', 'responseIndex', 'kind'].forEach(key => {
+  ['rawText', 'imageContext', 'messageIndex', 'responseIndex', 'kind'].forEach(key => {
     if (msg[key] !== undefined && msg[key] !== null && msg[key] !== '') out[key] = String(msg[key]);
   });
+  if (msg.html !== undefined && msg.html !== null && msg.html !== '') {
+    const htmlCandidate = String(msg.html);
+    if (displayItemHasRichMedia({ html: htmlCandidate })) out.html = htmlCandidate;
+  }
   return out;
 }
 
@@ -4180,9 +4188,137 @@ function restoreMathSegments(html, math) {
   });
 }
 
-function enhanceCodeBlocks(html) {
+function slugifyHeading(text = '') {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[`~!@#$%^&*()+=[\]{};:'",.<>/?\\|]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+function addHeadingAnchors(html) {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
+  const seen = new Map();
+  tpl.content.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(heading => {
+    const base = slugifyHeading(heading.textContent || '');
+    if (!base || heading.id) return;
+    const count = seen.get(base) || 0;
+    seen.set(base, count + 1);
+    heading.id = count ? `${base}-${count}` : base;
+  });
+  return tpl.innerHTML;
+}
+
+function normalizeExtendedMarkdown(md) {
+  const lines = String(md || '').split('\n');
+  const footnotes = [];
+  const referenceDefs = new Map();
+  const out = [];
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+
+  for (const line of lines) {
+    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[1];
+      const rest = fence[2] || '';
+      const char = marker[0];
+      const isClosing = /^\s*$/.test(rest);
+      if (!inFence) {
+        inFence = true;
+        fenceChar = char;
+        fenceLen = marker.length;
+      } else if (char === fenceChar && marker.length >= fenceLen && isClosing) {
+        inFence = false;
+        fenceChar = '';
+        fenceLen = 0;
+      }
+      out.push(line);
+      continue;
+    }
+
+    if (!inFence) {
+      const footnote = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
+      if (footnote) {
+        footnotes.push({ id: footnote[1], text: footnote[2] });
+        continue;
+      }
+      const ref = line.match(/^\[([^\]]+)\]:\s*(\S+)(?:\s+["']([^"']+)["'])?\s*$/);
+      if (ref && !ref[1].startsWith('^')) {
+        referenceDefs.set(ref[1].toLowerCase(), { url: ref[2], title: ref[3] || '' });
+        out.push(line);
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  let text = out.join('\n');
+  text = text.replace(/!\[([^\]]*)\]\[([^\]]+)\]/g, (m, alt, id) => {
+    const def = referenceDefs.get(String(id).toLowerCase());
+    if (!def) return m;
+    const title = def.title ? ` "${def.title.replace(/"/g, '&quot;')}"` : '';
+    return `![${alt}](${def.url}${title})`;
+  });
+  text = text.replace(/(?<!!)\[([^\]]+)\]\[([^\]]+)\]/g, (m, label, id) => {
+    const def = referenceDefs.get(String(id).toLowerCase());
+    if (!def) return m;
+    const title = def.title ? ` "${def.title.replace(/"/g, '&quot;')}"` : '';
+    return `[${label}](${def.url}${title})`;
+  });
+  text = text.replace(/==([^=\n][\s\S]*?[^=\n])==/g, '<mark>$1</mark>');
+  text = text.replace(/~([^~\n]+)~/g, '<sub>$1</sub>');
+  text = text.replace(/\^([^\^\n]+)\^/g, '<sup>$1</sup>');
+  text = text.replace(/\[\^([^\]]+)\]/g, '<sup class="footnote-ref"><a href="#fn-$1" id="fnref-$1">[$1]</a></sup>');
+
+  if (footnotes.length) {
+    text += '\n\n<section class="footnotes">\n<ol>\n' + footnotes.map(item => {
+      return `<li id="fn-${escapeAttr(item.id)}">${escapeHtml(item.text)} <a href="#fnref-${escapeAttr(item.id)}" class="footnote-backref">↩</a></li>`;
+    }).join('\n') + '\n</ol>\n</section>';
+  }
+  return text;
+}
+
+function renderMermaidBlocks(scope) {
+  if (!window.mermaid || !scope) return;
+  const blocks = [...scope.querySelectorAll('pre code.language-mermaid')];
+  if (!blocks.length) return;
+  const render = () => {
+    try {
+      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' });
+      blocks.forEach((code, index) => {
+        const pre = code.closest('pre');
+        const wrapper = pre?.closest('.code-block') || pre;
+        if (!wrapper || wrapper.dataset.mermaidRendered === '1') return;
+        const source = code.textContent || '';
+        const container = document.createElement('div');
+        container.className = 'mermaid';
+        container.textContent = source;
+        container.id = `mermaid-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+        wrapper.replaceWith(container);
+        container.dataset.mermaidRendered = '1';
+      });
+      const nodes = scope.querySelectorAll('.mermaid');
+      if (nodes.length) window.mermaid.run({ nodes });
+    } catch (err) {
+      console.warn('mermaid render failed', err);
+    }
+  };
+  requestAnimationFrame(() => setTimeout(render, 0));
+}
+
+function enhanceRenderedMarkdown(scope) {
+  if (!scope) return;
+  renderMermaidBlocks(scope);
+}
+
+function enhanceCodeBlocks(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = addHeadingAnchors(html);
   tpl.content.querySelectorAll('table').forEach(table => {
     if (table.parentElement?.classList.contains('table-wrap')) return;
     const wrapper = document.createElement('div');
@@ -4191,9 +4327,13 @@ function enhanceCodeBlocks(html) {
     wrapper.appendChild(table);
   });
   tpl.content.querySelectorAll('pre').forEach(pre => {
-    if (pre.parentElement?.classList.contains('code-block')) return;
     const code = pre.querySelector('code');
     const raw = code?.textContent || pre.textContent || '';
+    if (!raw.trim()) {
+      pre.parentElement?.classList.contains('code-block') ? pre.parentElement.remove() : pre.remove();
+      return;
+    }
+    if (pre.parentElement?.classList.contains('code-block')) return;
     const langClass = [...(code?.classList || [])].find(c => c.startsWith('language-')) || '';
     const lang = langClass ? langClass.replace(/^language-/, '') : '';
     const wrapper = document.createElement('div');
@@ -4219,127 +4359,36 @@ function enhanceCodeBlocks(html) {
 }
 
 
-function stripTrailingOrphanFence(source) {
-  const lines = String(source || '').split('\n');
-  let last = lines.length - 1;
-  while (last >= 0 && !lines[last].trim()) last -= 1;
-  if (last < 0) return source;
-  const closing = lines[last].match(/^\s*(`{3,}|~{3,})\s*$/);
-  if (!closing) return source;
-
-  let inFence = false;
-  let markerChar = '';
-  let markerLen = 0;
-  for (let i = 0; i < last; i += 1) {
-    const match = lines[i].match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
-    if (!match) continue;
-    const fence = match[1];
-    const char = fence[0];
-    const rest = match[2] || '';
-    const isClosing = /^\s*$/.test(rest);
-    if (!inFence) {
-      inFence = true;
-      markerChar = char;
-      markerLen = fence.length;
-    } else if (char === markerChar && fence.length >= markerLen && isClosing) {
-      inFence = false;
-      markerChar = '';
-      markerLen = 0;
-    }
-  }
-  // 如果到末尾这行之前并不处于代码块中，这个末尾 fence 只是孤立多余内容，直接移除。
-  if (!inFence) {
-    lines.splice(last, 1);
-    return lines.join('\n').replace(/\n+$/, '');
-  }
-  return source;
-}
-
-function repairUnclosedCodeFences(source) {
-  const lines = String(source || '').split('\n');
-  const out = [];
-  let inFence = false;
-  let markerChar = '';
-  let markerLen = 0;
-  let openedAt = -1;
-
-  const closeFence = () => `${markerChar.repeat(Math.max(3, markerLen))}`;
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
-    if (fence) {
-      const marker = fence[1];
-      const rest = fence[2] || '';
-      const char = marker[0];
-      const isClosing = /^\s*$/.test(rest);
-      if (!inFence) {
-        inFence = true;
-        markerChar = char;
-        markerLen = marker.length;
-        openedAt = i;
-        out.push(line);
-        continue;
-      }
-      if (char === markerChar && marker.length >= markerLen && isClosing) {
-        inFence = false;
-        markerChar = '';
-        markerLen = 0;
-        openedAt = -1;
-        out.push(line);
-        continue;
-      }
-      // 常见粘贴错误：上一个代码块漏了结束 fence，下一段又开始了新的 ```lang。
-      if (char === markerChar && marker.length >= markerLen && /\S/.test(rest)) {
-        out.push(closeFence());
-        inFence = true;
-        markerChar = char;
-        markerLen = marker.length;
-        openedAt = i;
-        out.push(line);
-        continue;
-      }
-    }
-
-    if (inFence) {
-      const prevBlank = i > openedAt + 1 && !String(lines[i - 1] || '').trim();
-      const nextNonBlank = lines.slice(i + 1).find(nextLine => String(nextLine || '').trim());
-      const isMarkdownHeading = /^\s{0,3}#{1,6}\s+\S/.test(line);
-      const isMarkdownDivider = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line);
-      if (prevBlank && (isMarkdownHeading || (isMarkdownDivider && nextNonBlank))) {
-        out.push(closeFence());
-        inFence = false;
-        markerChar = '';
-        markerLen = 0;
-        openedAt = -1;
-      }
-    }
-    out.push(line);
-  }
-
-  if (inFence) out.push(closeFence());
-  return out.join('\n');
-}
 
 function prepareMarkdownSource(md) {
-  return repairUnclosedCodeFences(stripTrailingOrphanFence(String(md || '')));
+  return normalizeExtendedMarkdown(md);
+}
+
+function getMarkdownItRenderer() {
+  if (!window.markdownit) return null;
+  if (!getMarkdownItRenderer.instance) {
+    getMarkdownItRenderer.instance = window.markdownit({
+      html: true,
+      xhtmlOut: false,
+      breaks: true,
+      linkify: true,
+      typographer: false,
+    })
+      .enable(['table', 'strikethrough']);
+  }
+  return getMarkdownItRenderer.instance;
 }
 
 function renderMarkdown(md) {
   const source = prepareMarkdownSource(md);
   const { text, math } = extractMathSegments(source);
 
-  if (window.marked?.parse) {
+  const mdRenderer = getMarkdownItRenderer();
+  if (mdRenderer) {
     try {
-      marked.setOptions({
-        gfm: true,
-        breaks: true,
-        mangle: false,
-        headerIds: false,
-      });
-      return enhanceCodeBlocks(restoreMathSegments(marked.parse(text), math));
+      return enhanceCodeBlocks(restoreMathSegments(mdRenderer.render(text), math));
     } catch (err) {
-      console.warn('marked render failed, fallback to legacy renderer', err);
+      console.warn('markdown-it render failed, fallback to legacy renderer', err);
     }
   }
 
@@ -4351,6 +4400,7 @@ function renderMarkdownLegacy(md) {
   const codeBlocks = [];
   let text = String(md || '').replace(/```([\w-]*)?\n?([\s\S]*?)```/g, (_, lang, code) => {
     const raw = code.replace(/\n$/, '');
+    if (!raw.trim()) return '';
     const token = `@@CODE${codeBlocks.length}@@`;
     codeBlocks.push({ lang: lang || '', raw });
     return token;

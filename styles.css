@@ -6072,3 +6072,65 @@ body.session-sidebar-collapsed .composer {
   color: #059669 !important;
   stroke: #059669 !important;
 }
+
+/* extended markdown rendering */
+.markdown-body mark {
+  background: #fff3a3;
+  color: inherit;
+  padding: .05em .22em;
+  border-radius: 4px;
+}
+.markdown-body sub,
+.markdown-body sup {
+  line-height: 0;
+}
+.markdown-body .footnotes {
+  margin-top: 1em;
+  padding-top: .75em;
+  border-top: 1px solid #d0d7de;
+  color: #57606a;
+  font-size: .92em;
+}
+.markdown-body .footnotes ol {
+  margin: .35em 0 0;
+  padding-left: 1.4em;
+}
+.markdown-body .footnote-ref a,
+.markdown-body .footnote-backref {
+  text-decoration: none;
+}
+.markdown-body dl {
+  margin: .45em 0 .8em;
+}
+.markdown-body dt {
+  font-weight: 700;
+  margin-top: .45em;
+}
+.markdown-body dd {
+  margin: .18em 0 .45em 1.4em;
+  color: #4b5563;
+}
+.markdown-body .mermaid {
+  margin: .75em 0;
+  padding: 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+  overflow: auto;
+  text-align: center;
+}
+.markdown-body .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.markdown-body kbd {
+  display: inline-block;
+  padding: .12em .45em;
+  border: 1px solid #b8c0cc;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #f6f8fa;
+  color: #24292f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .9em;
+}
