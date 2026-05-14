@@ -709,8 +709,19 @@ function pickCompressedStaticFile(req, filePath) {
   const encoding = String(req.headers['accept-encoding'] || '');
   const ext = path.extname(filePath);
   if (!['.js', '.css'].includes(ext)) return { filePath, encoding: '' };
-  if (/\bbr\b/.test(encoding) && fs.existsSync(`${filePath}.br`)) return { filePath: `${filePath}.br`, encoding: 'br' };
-  if (/\bgzip\b/.test(encoding) && fs.existsSync(`${filePath}.gz`)) return { filePath: `${filePath}.gz`, encoding: 'gzip' };
+  const sourceMtime = fs.statSync(filePath).mtimeMs;
+  const freshVariant = (suffix) => {
+    const variantPath = `${filePath}${suffix}`;
+    try {
+      return fs.statSync(variantPath).mtimeMs >= sourceMtime ? variantPath : '';
+    } catch {
+      return '';
+    }
+  };
+  const brPath = /\bbr\b/.test(encoding) ? freshVariant('.br') : '';
+  if (brPath) return { filePath: brPath, encoding: 'br' };
+  const gzipPath = /\bgzip\b/.test(encoding) ? freshVariant('.gz') : '';
+  if (gzipPath) return { filePath: gzipPath, encoding: 'gzip' };
   return { filePath, encoding: '' };
 }
 
@@ -1114,6 +1125,9 @@ async function runChatStreamJob(job) {
       for await (const chunk of upstream.body) {
         updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'));
       }
+      if (job.buffer) {
+        updateChatJobFromStreamChunk(job, '\n');
+      }
     }
     job.status = 'done';
     delete job.buffer;
@@ -1186,13 +1200,17 @@ function getChatJob(req, res) {
 
 function updateChatJobFromStreamChunk(job, text) {
   job.buffer = (job.buffer || '') + text;
-  const lines = job.buffer.split(/\r?\n/);
-  job.buffer = lines.pop() || '';
+  const events = job.buffer.split(/\r?\n\r?\n/);
+  job.buffer = events.pop() || '';
   const message = job.data.choices[0].message;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) continue;
-    const dataText = trimmed.slice(5).trim();
+  for (const eventText of events) {
+    const dataText = eventText
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trim())
+      .join('\n')
+      .trim();
     if (!dataText || dataText === '[DONE]') continue;
     try {
       const data = JSON.parse(dataText);
