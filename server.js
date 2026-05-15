@@ -738,6 +738,36 @@ function normalizeBaseUrl(value) {
   }
 }
 
+function withQueryParams(rawUrl, params) {
+  const url = new URL(rawUrl);
+  if (params && typeof params === 'object' && !Array.isArray(params)) {
+    for (const [key, value] of Object.entries(params)) {
+      if (!key || value === undefined || value === null || value === '') continue;
+      if (Array.isArray(value)) {
+        value.forEach(item => item !== undefined && item !== null && url.searchParams.append(key, String(item)));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+  return url.toString();
+}
+
+function normalizeExtraHeaders(headers) {
+  const out = {};
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return out;
+  const blocked = new Set(['authorization', 'content-type', 'content-length', 'host', 'connection', 'accept-encoding']);
+  for (const [rawName, rawValue] of Object.entries(headers)) {
+    const name = String(rawName || '').trim();
+    if (!name || blocked.has(name.toLowerCase())) continue;
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+    if (rawValue === undefined || rawValue === null) continue;
+    const value = Array.isArray(rawValue) ? rawValue.map(v => String(v)).join(', ') : String(rawValue);
+    out[name] = value;
+  }
+  return out;
+}
+
 async function proxy(req, res) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
@@ -752,13 +782,15 @@ async function proxy(req, res) {
     const baseUrl = normalizeBaseUrl(body.baseUrl);
     const apiKey = String(body.apiKey || '').trim();
     const payload = body.payload || {};
+    const query = body.query || {};
+    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     const method = String(body.method || 'POST').toUpperCase();
     const proxyJobId = String(body.jobId || '').trim();
 
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
     if (!ALLOWED_PROXY_METHODS.has(method)) return sendJson(res, 405, { error: { message: '不支持的代理方法' } });
 
-    const targetUrl = `${baseUrl}${targetPath}`;
+    const targetUrl = withQueryParams(`${baseUrl}${targetPath}`, query);
     const wantsStream = method !== 'GET' && payload && payload.stream === true;
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
       proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, payload, { stream: true });
@@ -770,12 +802,13 @@ async function proxy(req, res) {
         notifyJob(proxyChatJob);
       }
     }
-    const upstream = await fetch(targetUrl, {
+    const upstream = await fetch(targetUrl.toString(), {
       method,
       signal: controller.signal,
       headers: {
         ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
         ...(wantsStream ? { Accept: 'text/event-stream' } : {}),
+        ...extraHeaders,
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       ...(method === 'GET' ? {} : { body: JSON.stringify(payload) }),
@@ -849,6 +882,7 @@ async function proxyImage(req, res) {
     const baseUrl = normalizeBaseUrl(body.baseUrl);
     const apiKey = String(body.apiKey || '').trim();
     const imageUrl = new URL(String(body.url || '').trim());
+    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     const base = new URL(baseUrl);
 
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
@@ -858,7 +892,7 @@ async function proxyImage(req, res) {
     const upstream = await fetch(imageUrl.toString(), {
       method: 'GET',
       signal: controller.signal,
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
     });
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
@@ -891,7 +925,7 @@ function makeJobId(value = '') {
 }
 
 
-function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true } = {}) {
+function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
   return {
     id: jobId,
     status: 'running',
@@ -899,6 +933,7 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true } = {}) {
     updatedAt: Date.now(),
     targetUrl: `${baseUrl}/chat/completions`,
     apiKey,
+    extraHeaders: normalizeExtraHeaders(extraHeaders),
     payload: stream ? { ...payload, stream: true } : { ...payload, stream: false },
     data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
     error: '',
@@ -969,7 +1004,7 @@ async function runImageJob(job) {
   job.controller = controller;
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
-    const headers = { ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
+    const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
     let body;
     if (job.mode === 'edit_image') {
       const form = new FormData();
@@ -1015,6 +1050,7 @@ async function startImageJob(req, res) {
     const baseUrl = normalizeBaseUrl(body.baseUrl);
     const apiKey = String(body.apiKey || '').trim();
     const payload = body.payload || {};
+    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
     const jobId = makeJobId(body.jobId);
     if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
@@ -1029,6 +1065,7 @@ async function startImageJob(req, res) {
       updatedAt: Date.now(),
       targetUrl: `${baseUrl}/images/${mode === 'edit_image' ? 'edits' : 'generations'}`,
       apiKey,
+      extraHeaders: normalizeExtraHeaders(body.headers || body.extraHeaders),
       payload,
       files,
       data: null,
@@ -1065,6 +1102,7 @@ async function runChatJob(job) {
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(job.extraHeaders || {}),
         ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
       },
       body: JSON.stringify(job.payload),
@@ -1100,6 +1138,7 @@ async function runChatStreamJob(job) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
+        ...(job.extraHeaders || {}),
         ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
       },
       body: JSON.stringify({ ...job.payload, stream: true }),
@@ -1149,11 +1188,12 @@ async function registerChatStreamJob(req, res) {
     const baseUrl = normalizeBaseUrl(body.baseUrl);
     const apiKey = String(body.apiKey || '').trim();
     const payload = body.payload || {};
+    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
     const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
     let job = chatJobs.get(jobId);
     if (!job) {
-      job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true });
+      job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders });
       chatJobs.set(jobId, job);
     }
     if (body.start === true && !job.streamStarted && job.status === 'running') runChatStreamJob(job);
@@ -1169,6 +1209,7 @@ async function startChatJob(req, res) {
     const baseUrl = normalizeBaseUrl(body.baseUrl);
     const apiKey = String(body.apiKey || '').trim();
     const payload = body.payload || {};
+    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
     const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
     if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
@@ -1179,6 +1220,7 @@ async function startChatJob(req, res) {
       updatedAt: Date.now(),
       targetUrl: `${baseUrl}/chat/completions`,
       apiKey,
+      extraHeaders,
       payload: { ...payload, stream: false },
       data: null,
       error: '',
