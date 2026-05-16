@@ -56,6 +56,24 @@ async function json(res) {
     assert.ok(html.includes('./vendor/markdown-it.min.js'), 'uses local markdown vendor');
     assert.ok(!html.includes('registry.npmmirror.com'), 'no CDN in index');
 
+    res = await fetch(`${base}/app.js`);
+    assert.strictEqual(res.status, 200, 'app js status');
+    const appJs = await res.text();
+    assert.ok(appJs.includes('function beginRenameSession'), 'inline session rename function exists');
+    assert.ok(appJs.includes('customTitle'), 'custom session title is persisted');
+    assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');
+    assert.ok(appJs.includes('session-title-input'), 'session rename uses inline input');
+    assert.ok(appJs.includes('保存会话名称'), 'rename button becomes save button');
+    assert.ok(!appJs.includes('会话名称已保存'), 'rename save does not show toast');
+    assert.ok(!appJs.includes('prompt("重命名会话"'), 'session rename does not use prompt dialog');
+
+    res = await fetch(`${base}/styles.css`);
+    assert.strictEqual(res.status, 200, 'styles status');
+    const css = await res.text();
+    assert.ok(css.includes('.session-rename-btn'), 'session rename button styles exist');
+    assert.ok(css.includes('.session-title-input'), 'inline session rename input styles exist');
+    assert.ok(css.includes('.session-rename-btn.saving'), 'save-state rename button styles exist');
+
     for (const file of ['markdown-it.min.js', 'katex.min.js', 'katex.min.css', 'mermaid.min.js', 'fonts/KaTeX_Main-Regular.woff2', 'fonts/KaTeX_Math-Italic.woff2', 'fonts/KaTeX_Size2-Regular.woff2']) {
       res = await fetch(`${base}/vendor/${file}`);
       assert.strictEqual(res.status, 200, `vendor ${file}`);
