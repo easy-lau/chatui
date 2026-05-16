@@ -1,0 +1,43 @@
+const DEFAULT_TTL_MS = Number(process.env.JOB_TTL_MS || 60 * 60 * 1000);
+const DEFAULT_MAX_JOBS = Number(process.env.MAX_JOBS_PER_STORE || 200);
+
+class JobStore {
+  constructor(name, { ttlMs = DEFAULT_TTL_MS, maxJobs = DEFAULT_MAX_JOBS } = {}) {
+    this.name = name;
+    this.ttlMs = ttlMs;
+    this.maxJobs = maxJobs;
+    this.jobs = new Map();
+  }
+
+  get size() { return this.jobs.size; }
+  get(id) { this.sweep(); return this.jobs.get(id); }
+  has(id) { this.sweep(); return this.jobs.has(id); }
+  set(id, job) { this.jobs.set(id, job); this.sweep(); return this; }
+  delete(id) { return this.jobs.delete(id); }
+  values() { this.sweep(); return this.jobs.values(); }
+
+  sweep(now = Date.now()) {
+    for (const [id, job] of this.jobs) {
+      const age = now - Number(job.updatedAt || job.createdAt || now);
+      if ((job.status === 'done' || job.status === 'error') && age > this.ttlMs) this.jobs.delete(id);
+    }
+    while (this.jobs.size > this.maxJobs) {
+      let oldestId = null;
+      let oldestAt = Infinity;
+      for (const [id, job] of this.jobs) {
+        const at = Number(job.updatedAt || job.createdAt || 0);
+        if (at < oldestAt && job.status !== 'running') { oldestAt = at; oldestId = id; }
+      }
+      if (!oldestId) break;
+      this.jobs.delete(oldestId);
+    }
+  }
+}
+
+function startJobSweeper(stores, intervalMs = Number(process.env.JOB_SWEEP_INTERVAL_MS || 5 * 60 * 1000)) {
+  const timer = setInterval(() => stores.forEach(store => store.sweep()), intervalMs);
+  timer.unref?.();
+  return timer;
+}
+
+module.exports = { JobStore, startJobSweeper, DEFAULT_TTL_MS, DEFAULT_MAX_JOBS };

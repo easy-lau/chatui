@@ -24,6 +24,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts \
     && npm cache clean --force
 COPY server.js index.html app.js styles.css favicon.svg ./
+COPY server ./server
+COPY vendor ./vendor
 
 USER node
 EXPOSE 8765

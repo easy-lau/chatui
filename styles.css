@@ -455,3 +455,60 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 #headerParamsPanel .header-param-close-btn{
   border:1px solid rgba(203,213,225,.72)!important;
 }
+
+/* Floating resume button for streaming output, similar to ChatGPT's jump-to-latest affordance. */
+.resume-stream-btn{
+  position:fixed!important;
+  left:var(--resume-stream-left,50%)!important;
+  bottom:calc(var(--composer-safe-bottom,168px) - 10px)!important;
+  z-index:45!important;
+  display:none!important;
+  align-items:center!important;
+  gap:7px!important;
+  height:38px!important;
+  padding:0 14px!important;
+  border:1px solid rgba(37,99,235,.22)!important;
+  border-radius:999px!important;
+  background:rgba(255,255,255,.9)!important;
+  color:#1d4ed8!important;
+  box-shadow:0 16px 44px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.82)!important;
+  backdrop-filter:blur(18px) saturate(150%)!important;
+  -webkit-backdrop-filter:blur(18px) saturate(150%)!important;
+  font-size:13px!important;
+  font-weight:750!important;
+  line-height:1!important;
+  cursor:pointer!important;
+  transform:translate(-50%,10px)!important;
+  opacity:0!important;
+  pointer-events:none!important;
+  transition:opacity .16s ease,transform .16s ease,background .16s ease!important;
+}
+.resume-stream-btn.show{
+  display:inline-flex!important;
+  opacity:1!important;
+  transform:translate(-50%,0)!important;
+  pointer-events:auto!important;
+}
+.resume-stream-btn:hover{background:rgba(239,246,255,.96)!important;transform:translate(-50%,-1px)!important}
+.resume-stream-btn svg{width:16px!important;height:16px!important;stroke:currentColor!important;stroke-width:2.2!important;fill:none!important;stroke-linecap:round!important;stroke-linejoin:round!important}
+@media (max-width:640px){.resume-stream-btn{bottom:calc(var(--composer-safe-bottom,168px) - 8px)!important;height:36px!important;padding:0 12px!important;font-size:12px!important}.resume-stream-btn span{display:none!important}}
+
+/* Reasoning controls state: disabled while off, locked while a response is streaming. */
+.composer-actions .reasoning-toggle.locked,
+.composer-actions .reasoning-menu-btn.disabled,
+.composer-actions .reasoning-menu-item.disabled,
+.composer-actions .reasoning-toggle:disabled,
+.composer-actions .reasoning-menu-btn:disabled,
+.composer-actions .reasoning-menu-item:disabled{
+  cursor:not-allowed!important;
+  opacity:.52!important;
+  filter:grayscale(.18)!important;
+  transform:none!important;
+}
+.composer-actions .reasoning-menu-btn:disabled,
+.composer-actions .reasoning-menu-item:disabled{
+  pointer-events:none!important;
+}
+.composer-actions .reasoning-menu-btn.disabled:not(.show){
+  display:none!important;
+}

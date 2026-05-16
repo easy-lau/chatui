@@ -1,0 +1,26 @@
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' https://registry.npmmirror.com 'unsafe-inline'",
+    "style-src 'self' https://registry.npmmirror.com 'unsafe-inline'",
+    "font-src 'self' https://registry.npmmirror.com data:",
+    "img-src 'self' data: blob: http: https:",
+    "connect-src 'self' http: https: data: blob:",
+    "media-src 'self' data: blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+  ].join('; '),
+};
+
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { ...SECURITY_HEADERS, ...headers });
+  res.end(body);
+}
+
+function sendJson(res, status, data, headers = {}) {
+  send(res, status, JSON.stringify(data), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+}
+
+module.exports = { SECURITY_HEADERS, send, sendJson };
