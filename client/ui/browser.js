@@ -66,7 +66,8 @@
     const focusBottom = (Number.isFinite(composerTop) ? composerTop : viewportHeight) - margin;
     const viewportTop = messagesRect?.top || 0;
     const viewportBottom = messagesRect?.bottom ? Math.min(messagesRect.bottom, focusBottom) : focusBottom;
-    return nodeRect.bottom > viewportBottom + 40 || nodeRect.bottom < viewportTop + 80 || nodeRect.top > viewportBottom || nodeRect.bottom < viewportTop;
+    const lowerTolerance = Math.max(48, Math.min(140, margin));
+    return nodeRect.bottom > viewportBottom + lowerTolerance || nodeRect.bottom < viewportTop + 80 || nodeRect.top > viewportBottom || nodeRect.bottom < viewportTop;
   }
 
 
