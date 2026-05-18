@@ -1,12 +1,25 @@
-function extractImageResult(result) {
-  const item = result?.data?.[0] || null;
-  if (!item) return { kind: 'empty', url: '', b64: '', raw: JSON.stringify(result, null, 2) };
-  const url = item.url || '';
-  const b64 = item.b64_json || item.image_base64 || '';
+function imageItemToResult(item) {
+  const url = item?.url || '';
+  const b64 = item?.b64_json || item?.image_base64 || '';
   const src = url || (b64 ? `data:image/png;base64,${b64}` : '');
-  return src
-    ? { kind: 'image', src, url, b64, raw: url || '[base64 image]' }
-    : { kind: 'raw', url: '', b64: '', raw: JSON.stringify(result, null, 2) };
+  return src ? { src, url, b64, raw: url || '[base64 image]' } : null;
+}
+
+function extractImageResult(result) {
+  const items = Array.isArray(result?.data) ? result.data.map(imageItemToResult).filter(Boolean) : [];
+  if (!items.length) {
+    const raw = JSON.stringify(result, null, 2);
+    return result?.data?.length ? { kind: 'raw', url: '', b64: '', raw } : { kind: 'empty', url: '', b64: '', raw };
+  }
+  const first = items[0];
+  return {
+    kind: 'image',
+    src: first.src,
+    url: first.url,
+    b64: first.b64,
+    raw: items.map(item => item.raw).join('\n'),
+    images: items,
+  };
 }
 
 function buildImageCompletionMessage({ prompt = '', mode = 'image' } = {}) {

@@ -3,8 +3,9 @@ const assert = require('assert');
 const { extractImageResult, buildImageCompletionMessage, imageFileToJobPayload, imageFilesToJobPayload } = require('../../client/services/image-service');
 
 (async () => {
-  assert.deepStrictEqual(extractImageResult({ data: [{ url: 'https://x/img.png' }] }), { kind: 'image', src: 'https://x/img.png', url: 'https://x/img.png', b64: '', raw: 'https://x/img.png' });
-  assert.deepStrictEqual(extractImageResult({ data: [{ b64_json: 'abc' }] }), { kind: 'image', src: 'data:image/png;base64,abc', url: '', b64: 'abc', raw: '[base64 image]' });
+  assert.deepStrictEqual(extractImageResult({ data: [{ url: 'https://x/img.png' }] }), { kind: 'image', src: 'https://x/img.png', url: 'https://x/img.png', b64: '', raw: 'https://x/img.png', images: [{ src: 'https://x/img.png', url: 'https://x/img.png', b64: '', raw: 'https://x/img.png' }] });
+  assert.deepStrictEqual(extractImageResult({ data: [{ b64_json: 'abc' }] }), { kind: 'image', src: 'data:image/png;base64,abc', url: '', b64: 'abc', raw: '[base64 image]', images: [{ src: 'data:image/png;base64,abc', url: '', b64: 'abc', raw: '[base64 image]' }] });
+  assert.deepStrictEqual(extractImageResult({ data: [{ b64_json: 'abc' }, { url: 'https://x/b.png' }] }).images.map(item => item.src), ['data:image/png;base64,abc', 'https://x/b.png']);
   assert.strictEqual(extractImageResult({ data: [] }).kind, 'empty');
   assert.strictEqual(extractImageResult({ data: [{ revised_prompt: 'x' }] }).kind, 'raw');
   assert.strictEqual(buildImageCompletionMessage({ prompt: '猫', mode: 'image' }), '[图片生成完成] 猫');

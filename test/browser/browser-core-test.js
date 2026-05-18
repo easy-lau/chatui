@@ -111,7 +111,7 @@ async function connectCdp() {
       services: !!window.ChatUIServices?.models?.requestModels,
       jobs: !!window.ChatUIServices?.jobs?.startChatJob && /^chatjob-/.test(window.ChatUIServices.jobs.makeClientChatJobId()),
       chat: window.ChatUIServices?.chat?.extractChatJobText({ output_text: 'ok' }).content,
-      image: window.ChatUIServices?.images?.extractImageResult({ data: [{ b64_json: 'abc' }] }).src,
+      image: window.ChatUIServices?.images?.extractImageResult({ data: [{ b64_json: 'abc' }, { url: 'https://x/b.png' }] }).images?.length,
       ui: window.ChatUI?.fileActions?.safeFilenamePart('a/b'),
       realtime: !!window.ChatUI?.realtime?.createRealtimeRenderer,
       scroll: window.ChatUI?.scroll?.activeOutputBottomTarget({ composerTop: 500, viewportHeight: 800, margin: 24 }),
@@ -124,7 +124,7 @@ async function connectCdp() {
       displayItems: window.ChatUIApp?.displayItems?.displayItemHasRichMedia({ html: '<img class="generated-thumb" />' }),
       appReady: !!document.querySelector('#prompt')
     }))()`);
-    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, services: true, jobs: true, chat: 'ok', image: 'data:image/png;base64,abc', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
+    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, services: true, jobs: true, chat: 'ok', image: 2, ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
     console.log('browser core ok');
   } finally {
     cdp?.ws?.close?.();
