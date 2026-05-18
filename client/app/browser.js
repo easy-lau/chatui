@@ -146,14 +146,54 @@
     for (let limit = Math.min(Number(maxItems) || 80, items.length || 1); limit >= 0; limit = Math.floor(limit / 2)) {
       const candidate = Array.isArray(value) ? items.slice(-limit) : value;
       try { storage.setItem(key, JSON.stringify(candidate)); return candidate; }
-      catch (err) { if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err; }
+      catch (err) { if (!/quota|exceed/i.test(`${err?.name || ''} ${err?.message || ''} ${err || ''}`)) throw err; }
       if (limit <= 1) break;
     }
     try { storage.removeItem(key); } catch {}
     return Array.isArray(value) ? [] : null;
   }
 
+  function stripLargePayloadData(value) {
+    if (typeof value === 'string') return stripLargeDataUrlsFromText(value);
+    if (Array.isArray(value)) return value.map(stripLargePayloadData);
+    if (value && typeof value === 'object') {
+      const copy = { ...value };
+      if (Array.isArray(copy.messages)) copy.messages = copy.messages.slice(-20);
+      Object.keys(copy).forEach(key => { copy[key] = stripLargePayloadData(copy[key]); });
+      return copy;
+    }
+    return value;
+  }
 
+  function compactJobForStorage(job, keepPayload = true) {
+    if (!job || typeof job !== 'object') return job;
+    const copy = { ...job };
+    if (copy.payload) copy.payload = keepPayload ? stripLargePayloadData(copy.payload) : null;
+    return copy;
+  }
+
+  function safeSetJobStorage(key, job, storage = localStorage) {
+    if (!job?.id) return;
+    const fallbacks = [
+      compactJobForStorage(job, true),
+      compactJobForStorage(job, false),
+      {
+        id: job.id,
+        prompt: job.prompt || '',
+        startedAt: job.startedAt || Date.now(),
+        displayItemId: job.displayItemId || '',
+        responseIndex: job.responseIndex ?? null,
+        mode: job.mode || '',
+        imageContext: job.imageContext || null,
+        liveItemRawText: job.liveItemRawText || '',
+      },
+    ];
+    for (const candidate of fallbacks) {
+      try { storage.setItem(key, JSON.stringify(candidate)); return; }
+      catch (err) { if (!/quota|exceed/i.test(`${err?.name || ''} ${err?.message || ''} ${err || ''}`)) throw err; }
+    }
+    try { storage.removeItem(key); } catch {}
+  }
 
   function compactDisplayItems(items = []) {
     const result = [];
@@ -179,7 +219,7 @@
     state: Object.freeze({ createSession, ensureActiveSession, isSessionBusy }),
     runs: Object.freeze({ makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped }),
     sessions: Object.freeze({ sessionStorageKey, deriveSessionTitle, getSessionReturnCount }),
-    persistence: Object.freeze({ stripLargeDataUrlsFromText, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage }),
+    persistence: Object.freeze({ stripLargeDataUrlsFromText, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage }),
     displayItems: Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia }),
   });
 })();
