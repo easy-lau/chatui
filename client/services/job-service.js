@@ -81,58 +81,66 @@ async function getJob({ fetchImpl = fetch, url, parseResponseJson, normalizeErro
   return payload;
 }
 
-function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, EventSourceImpl = EventSource }) {
+function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, EventSourceImpl = EventSource, pollJob = null, pollIntervalMs = 2500 }) {
   let abort = null;
+  let pollTimer = null;
   return new Promise((resolve, reject) => {
     let source = null;
     let finished = false;
     let reconnects = 0;
     let opened = false;
-    abort = () => {
+    const finish = (fn, value) => {
       if (finished) return;
       finished = true;
+      clearTimeout(pollTimer);
       try { source?.close(); } catch {}
-      reject(new DOMException('已停止', 'AbortError'));
+      fn(value);
+    };
+    const handleJob = job => {
+      onUpdate(job);
+      if (job.status === 'done') finish(resolve, job.data);
+      else if (job.status === 'error') finish(reject, new Error(job.error?.message || '任务失败'));
+    };
+    const poll = async () => {
+      if (finished || !pollJob || pageUnloading()) return;
+      try { handleJob(await pollJob()); } catch {}
+      if (!finished) pollTimer = setTimeout(poll, pollIntervalMs);
+    };
+    abort = () => {
+      if (finished) return;
+      finish(reject, new DOMException('已停止', 'AbortError'));
     };
     if (signal?.aborted) return abort();
     signal?.addEventListener('abort', abort, { once: true });
+    poll();
     const connect = () => {
       if (finished) return;
       source = new EventSourceImpl(url);
       source.onopen = () => { opened = true; reconnects = 0; };
       source.addEventListener('update', event => {
         opened = true;
-        const job = JSON.parse(event.data || '{}');
-        onUpdate(job);
-        if (job.status === 'done') {
-          finished = true;
-          source.close();
-          resolve(job.data);
-        } else if (job.status === 'error') {
-          finished = true;
-          source.close();
-          reject(new Error(job.error?.message || '任务失败'));
-        }
+        handleJob(JSON.parse(event.data || '{}'));
       });
       source.onerror = () => {
         source.close();
         if (finished || pageUnloading()) return;
-        if (!opened) {
-          finished = true;
-          reject(new Error('任务不存在或服务已重启，请重新发送'));
+        if (!opened && !pollJob) {
+          finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
           return;
         }
         reconnects += 1;
-        if (reconnects > 60) {
-          finished = true;
-          reject(new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送'));
+        if (reconnects > 60 && !pollJob) {
+          finish(reject, new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送'));
           return;
         }
         setTimeout(connect, Math.min(1000 + 250 * reconnects, 5000));
       };
     };
     connect();
-  }).finally(() => { if (signal && abort) signal.removeEventListener('abort', abort); });
+  }).finally(() => {
+    clearTimeout(pollTimer);
+    if (signal && abort) signal.removeEventListener('abort', abort);
+  });
 }
 
 async function startImageGenerationJob({ payload, config, jobId, mode = 'image', files = [], headers = {}, signal, onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {

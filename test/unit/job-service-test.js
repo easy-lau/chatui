@@ -6,6 +6,7 @@ const {
   startChatJob,
   registerChatStreamJob,
   getJob,
+  waitJobEvent,
   startImageGenerationJob,
 } = require('../../client/services/job-service');
 
@@ -42,6 +43,21 @@ const {
     parseResponseJson,
     normalizeError,
   }), /nope/);
+
+  let closed = false;
+  class QuietEventSource {
+    constructor() {}
+    addEventListener() {}
+    close() { closed = true; }
+  }
+  const done = await waitJobEvent({
+    url: '/api/image-jobs/imgjob-x/events',
+    EventSourceImpl: QuietEventSource,
+    pollIntervalMs: 5,
+    pollJob: async () => ({ status: 'done', data: { ok: true } }),
+  });
+  assert.deepStrictEqual(done, { ok: true });
+  assert.strictEqual(closed, true);
 
   console.log('job service ok');
 })().catch(err => {
