@@ -20,8 +20,10 @@ function formatBytes(bytes = 0) {
 function normalizeImageContextForStorage(context = {}) {
   return {
     mode: context.mode || '',
+    target: context.target || '',
     prompt: context.prompt || '',
     usePreviousImage: !!context.usePreviousImage,
+    updatedAt: context.updatedAt || context.updated_at || null,
     attachments: Array.isArray(context.attachments)
       ? context.attachments.map(item => ({
         name: item.name || '',
@@ -47,6 +49,49 @@ function looksLikeImageEditInstruction(text = '') {
   return /修改|改成|换成|去掉|删除|加上|添加|替换|修复|调整|编辑|edit|change|remove|replace|add/i.test(String(text || ''));
 }
 
+function getLatestImageReferenceTarget({ display = [], messages = [], lastGeneratedImage = null, latestUploadedImage = null } = {}) {
+  const generatedCount = Array.isArray(lastGeneratedImage && lastGeneratedImage.images)
+    ? lastGeneratedImage.images.length
+    : lastGeneratedImage && lastGeneratedImage.src ? 1 : 0;
+  const hasGenerated = generatedCount > 0;
+  const uploadCountFromItem = item => {
+    const context = parseImageContext(item && item.imageContext);
+    return context && context.attachments && context.attachments.length && (context.target === 'uploaded' || context.mode === 'edit_image')
+      ? context.attachments.length
+      : 0;
+  };
+  const isGeneratedItem = item => !!(item && /generated-thumb|image-result-head|图片(生成|编辑|修改)完成/.test(`${item.html || ''} ${item.rawText || ''} ${item.content || ''}`));
+  for (const item of [...display].reverse()) {
+    if (isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all' };
+    const uploadCount = item && item.role === 'user' ? uploadCountFromItem(item) : 0;
+    if (uploadCount) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-user-upload', count: uploadCount, selection: 'all' };
+  }
+  for (const item of [...messages].reverse()) {
+    if (item && item.role === 'assistant' && isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all' };
+    const uploadCount = item && item.role === 'user' ? uploadCountFromItem(item) : 0;
+    if (uploadCount) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-user-upload', count: uploadCount, selection: 'all' };
+  }
+  if (hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'last-generated-image', count: generatedCount, selection: 'all' };
+  if (latestUploadedImage) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-uploaded-image', count: latestUploadedImage.attachments && latestUploadedImage.attachments.length || 1, selection: 'all' };
+  return { target: 'none', usePreviousImage: false, reason: 'no-image-reference', count: 0, selection: 'none' };
+}
+
+function resolveExplicitImageReferenceTarget(text = '') {
+  const value = String(text || '');
+  if (/(原图|上传的图|上传图片|我发的图|我传的图|用户上传)/i.test(value)) return 'uploaded';
+  if (/(最近返回|返回的图|生成的图|结果图|上一张|上张|刚才那张|继续改|接着改)/i.test(value)) return 'previous';
+  return '';
+}
+
+function buildRouteAttachmentMetadata(attachments = []) {
+  return (attachments || []).map(item => ({
+    name: item.name || (item.file && item.file.name) || 'attachment',
+    type: item.type || (item.file && item.file.type) || '',
+    size: Number(item.size || (item.file && item.file.size)) || 0,
+    is_image: isImageFile(item),
+  }));
+}
+
 module.exports = {
   isImageFile,
   isCompressibleRasterImage,
@@ -54,4 +99,7 @@ module.exports = {
   normalizeImageContextForStorage,
   parseImageContext,
   looksLikeImageEditInstruction,
+  getLatestImageReferenceTarget,
+  resolveExplicitImageReferenceTarget,
+  buildRouteAttachmentMetadata,
 };
