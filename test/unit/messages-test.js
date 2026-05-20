@@ -20,6 +20,11 @@ assert.deepStrictEqual(sortCanonicalMessages([
   { role: 'user', messageIndex: 0, content: 'u0' },
   { role: 'assistant', responseIndex: 0, content: 'a0' },
 ]).map(m => m.content), ['u0', 'a0', 'a1']);
+assert.deepStrictEqual(sortCanonicalMessages([
+  { role: 'assistant', responseIndex: 0, content: 'a0' },
+  { role: 'user', messageIndex: 0, content: 'u0' },
+  { role: 'assistant', responseIndex: 1, content: 'a1' },
+]).map(m => m.content), ['u0', 'a0', 'a1'], 'same index keeps user before assistant');
 assert.deepStrictEqual(compactAdjacentDuplicateMessages([
   { role: 'user', rawText: 'x' },
   { role: 'user', rawText: 'x' },

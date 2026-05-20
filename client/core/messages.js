@@ -12,16 +12,32 @@ function normalizeMessageOrderFields(message, index = 0) {
   return next;
 }
 
+function messageSortIndex(message, fallback) {
+  const raw = message?.role === 'assistant' ? message.responseIndex : message?.messageIndex;
+  const index = Number(raw);
+  return Number.isFinite(index) ? index : fallback;
+}
+
+function roleSortWeight(role) {
+  if (role === 'system') return 0;
+  if (role === 'user') return 1;
+  if (role === 'assistant') return 2;
+  return 3;
+}
+
 function sortCanonicalMessages(messages = []) {
-  return [...messages].sort((a, b) => {
-    const ai = Number(a.role === 'assistant' ? a.responseIndex : a.messageIndex);
-    const bi = Number(b.role === 'assistant' ? b.responseIndex : b.messageIndex);
-    const ao = Number.isFinite(ai) ? ai : Number.MAX_SAFE_INTEGER;
-    const bo = Number.isFinite(bi) ? bi : Number.MAX_SAFE_INTEGER;
-    if (ao !== bo) return ao - bo;
-    if (a.role === b.role) return 0;
-    return a.role === 'user' ? -1 : 1;
-  });
+  return [...messages]
+    .map((message, fallback) => ({
+      message: normalizeMessageOrderFields(message, fallback),
+      fallback,
+    }))
+    .sort((a, b) => {
+      const diff = messageSortIndex(a.message, a.fallback) - messageSortIndex(b.message, b.fallback);
+      if (diff) return diff;
+      const roleDiff = roleSortWeight(a.message?.role) - roleSortWeight(b.message?.role);
+      return roleDiff || a.fallback - b.fallback;
+    })
+    .map(item => item.message);
 }
 
 function compactAdjacentDuplicateMessages(messages = []) {
