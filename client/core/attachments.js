@@ -1,3 +1,5 @@
+const imageReferences = require('./image-references');
+
 function isImageFile(file = {}) {
   const type = String(file.type || '').toLowerCase();
   const name = String(file.name || '').toLowerCase();
@@ -17,6 +19,18 @@ function formatBytes(bytes = 0) {
   return `${(value / 1024 / 1024).toFixed(value < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+const {
+  IMAGE_REFERENCE_PREFIX,
+  IMAGE_ITEM_PREFIX,
+  sanitizeImageReferencePart,
+  makeImageReferenceId,
+  parseImageReferenceId,
+  makeImageItemId,
+  normalizeSelectedImageIds,
+  resolveImageSelectionFromIds,
+  normalizeImageSelection,
+} = imageReferences;
+
 function normalizeImageContextForStorage(context = {}) {
   return {
     mode: context.mode || '',
@@ -24,12 +38,20 @@ function normalizeImageContextForStorage(context = {}) {
     prompt: context.prompt || '',
     usePreviousImage: !!context.usePreviousImage,
     updatedAt: context.updatedAt || context.updated_at || null,
+    imageCount: Number(context.imageCount || context.image_count) || (Array.isArray(context.attachments) ? context.attachments.length : 0),
+    referenceId: context.referenceId || context.reference_id || '',
+    selectedReferenceId: context.selectedReferenceId || context.selected_reference_id || '',
+    selectedIndexes: normalizeImageSelection(context.selectedIndexes || context.selected_indexes || []) || [],
+    selectedImageIds: normalizeSelectedImageIds(context.selectedImageIds || context.selected_image_ids || []),
     attachments: Array.isArray(context.attachments)
       ? context.attachments.map(item => ({
         name: item.name || '',
         type: item.type || '',
         size: Number(item.size) || 0,
         src: item.persistedSrc || item.src || '',
+        imageId: item.imageId || item.image_id || '',
+        referenceId: item.referenceId || item.reference_id || '',
+        sourceIndex: Number(item.sourceIndex || item.source_index) || 0,
       })).filter(item => item.src || item.name)
       : [],
   };
@@ -58,16 +80,16 @@ function getLatestImageReferenceTarget({ display = [], messages = [], lastGenera
   };
   const isGeneratedItem = item => !!(item && /generated-thumb|image-result-head|图片(生成|编辑|修改)完成/.test(`${item.html || ''} ${item.rawText || ''} ${item.content || ''}`));
   for (const item of [...display].reverse()) {
-    if (isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all' };
+    if (isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all', reference_id: makeImageReferenceId('latest') };
     const uploadCount = item && item.role === 'user' ? uploadCountFromItem(item) : 0;
     if (uploadCount) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-user-upload', count: uploadCount, selection: 'all' };
   }
   for (const item of [...messages].reverse()) {
-    if (item && item.role === 'assistant' && isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all' };
+    if (item && item.role === 'assistant' && isGeneratedItem(item) && hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'latest-assistant-image', count: generatedCount, selection: 'all', reference_id: makeImageReferenceId('latest') };
     const uploadCount = item && item.role === 'user' ? uploadCountFromItem(item) : 0;
     if (uploadCount) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-user-upload', count: uploadCount, selection: 'all' };
   }
-  if (hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'last-generated-image', count: generatedCount, selection: 'all' };
+  if (hasGenerated) return { target: 'previous', usePreviousImage: true, reason: 'last-generated-image', count: generatedCount, selection: 'all', reference_id: makeImageReferenceId('latest') };
   if (latestUploadedImage) return { target: 'uploaded', usePreviousImage: false, reason: 'latest-uploaded-image', count: latestUploadedImage.attachments && latestUploadedImage.attachments.length || 1, selection: 'all' };
   return { target: 'none', usePreviousImage: false, reason: 'no-image-reference', count: 0, selection: 'none' };
 }
@@ -85,6 +107,15 @@ module.exports = {
   isImageFile,
   isCompressibleRasterImage,
   formatBytes,
+  IMAGE_REFERENCE_PREFIX,
+  IMAGE_ITEM_PREFIX,
+  sanitizeImageReferencePart,
+  makeImageReferenceId,
+  parseImageReferenceId,
+  makeImageItemId,
+  normalizeSelectedImageIds,
+  resolveImageSelectionFromIds,
+  normalizeImageSelection,
   normalizeImageContextForStorage,
   parseImageContext,
   getLatestImageReferenceTarget,

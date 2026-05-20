@@ -116,10 +116,192 @@
     try { return JSON.parse(value); } catch { return null; }
   }
 
+  const IMAGE_REFERENCE_PREFIX = 'imgref_';
+  const IMAGE_ITEM_PREFIX = 'img_';
+
+  function sanitizeImageReferencePart(value) {
+    return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96) || 'latest';
+  }
+
+  function makeImageReferenceId(value) {
+    const text = String(value || 'latest');
+    return text.startsWith(IMAGE_REFERENCE_PREFIX) ? text : `${IMAGE_REFERENCE_PREFIX}${sanitizeImageReferencePart(text)}`;
+  }
+
+  function parseImageReferenceId(value) {
+    const text = String(value || '');
+    if (!text || text === 'latest' || text === `${IMAGE_REFERENCE_PREFIX}latest`) return 'latest';
+    return text.startsWith(IMAGE_REFERENCE_PREFIX) ? text.slice(IMAGE_REFERENCE_PREFIX.length) : text;
+  }
+
+  function makeImageItemId(reference, index) {
+    return `${IMAGE_ITEM_PREFIX}${makeImageReferenceId(reference || 'latest')}_${Number(index) || 1}`;
+  }
+
+  function normalizeSelectedImageIds(value) {
+    const ids = Array.isArray(value)
+      ? value
+      : Array.isArray(value && value.image_ids)
+        ? value.image_ids
+        : Array.isArray(value && value.imageIds)
+          ? value.imageIds
+          : [];
+    return ids.map(item => String(item || '').trim()).filter(item => item.startsWith(IMAGE_ITEM_PREFIX)).filter((item, index, list) => list.indexOf(item) === index);
+  }
+
+  function resolveImageSelectionFromIds(ids, reference, maxCount) {
+    const referenceId = makeImageReferenceId(reference || 'latest');
+    const indexes = [];
+    for (const id of ids || []) {
+      const match = String(id || '').match(/^img_(.+)_(\d+)$/);
+      if (!match || match[1] !== referenceId) continue;
+      const index = Number(match[2]);
+      if (Number.isInteger(index) && index >= 1 && (!maxCount || index <= maxCount)) indexes.push(index);
+    }
+    return indexes.filter((item, index, list) => list.indexOf(item) === index);
+  }
+
+  function normalizeImageSelection(value, maxCount) {
+    if (!value) return null;
+    let indexes = [];
+    if (Array.isArray(value)) indexes = value;
+    else if (Array.isArray(value.indexes)) indexes = value.indexes;
+    else if (Array.isArray(value.indices)) indexes = value.indices;
+    else if (Number.isFinite(Number(value.index))) indexes = [value.index];
+    else if (Number.isFinite(Number(value.image_index))) indexes = [value.image_index];
+    else if (Number.isFinite(Number(value.imageIndex))) indexes = [value.imageIndex];
+    return indexes.map(Number).filter(item => Number.isInteger(item) && item >= 1 && (!maxCount || item <= maxCount)).filter((item, index, list) => list.indexOf(item) === index);
+  }
+
+
+  function routeImageCandidateLabels(text) {
+    const value = String(text || '').toLowerCase();
+    const patterns = [
+      ['dog', /狗|犬|dog|puppy/],
+      ['cat', /猫|cat|kitten/],
+      ['cow', /牛|cow|bull|calf/],
+      ['chicken', /鸡|chicken|hen|rooster/],
+      ['duck', /鸭|duck|duckling/],
+      ['bird', /鸟|bird/],
+      ['person', /人|人物|person|human/],
+    ];
+    const labels = [];
+    patterns.forEach(([label, pattern]) => { if (pattern.test(value)) labels.push(label); });
+    return labels;
+  }
+
+  function routeSplitPromptSubjects(text, count) {
+    const parts = String(text || '').split(/(?:，|,|、|和|与|及|\band\b|\n|；|;)/i).map(item => item.trim()).filter(Boolean);
+    const subjects = [];
+    parts.forEach(part => {
+      const labels = routeImageCandidateLabels(part);
+      if (labels.length) subjects.push(labels);
+    });
+    if (subjects.length >= count) return subjects.slice(0, count);
+    const labels = routeImageCandidateLabels(text);
+    while (subjects.length < count) subjects.push(labels);
+    return subjects;
+  }
+
+  function routeNormalizeLastGeneratedImage(value) {
+    if (!value) return null;
+    const normalizeItem = item => ({ ...item, labels: Array.isArray(item.labels) ? item.labels : routeImageCandidateLabels(`${item.prompt || ''} ${item.filename || ''} ${item.raw || ''} ${item.label || ''} ${item.subject || ''}`) });
+    return Array.isArray(value.images) ? { ...value, images: (value.images || []).map(normalizeItem) } : { ...value, images: value.src ? [normalizeItem({ src: value.src, filename: value.filename || 'generated-image.png', prompt: value.prompt || '', updatedAt: value.updatedAt || null, width: value.width || 0, height: value.height || 0 })] : [] };
+  }
+
+  function routeExtractPersistedImageRefs(html) {
+    const refs = [];
+    const pattern = /data-persisted-src="([^"]+)"[^>]*data-filename="([^"]*)"|data-filename="([^"]*)"[^>]*data-persisted-src="([^"]+)"/g;
+    let match;
+    while ((match = pattern.exec(String(html || '')))) {
+      const src = match[1] || match[4];
+      const filename = match[2] || match[3] || 'generated-image.png';
+      if (src) refs.push({ src, filename });
+    }
+    return refs;
+  }
+
+  function routeLatestImageReferenceMeta({ lastGeneratedImage = null, latestUploadedImage = null } = {}) {
+    const generated = routeNormalizeLastGeneratedImage(lastGeneratedImage);
+    const generatedCount = Array.isArray(generated && generated.images) ? generated.images.length : generated && generated.src ? 1 : 0;
+    const uploadCount = latestUploadedImage && latestUploadedImage.attachments ? latestUploadedImage.attachments.length || 0 : 0;
+    if (generatedCount && uploadCount) return Number(generated.updatedAt || 0) >= Number(latestUploadedImage.updatedAt || 0) ? { target: 'previous', usePreviousImage: true, count: generatedCount, selection: 'all', reason: 'latest-generated-image', reference_id: makeImageReferenceId('latest') } : { target: 'uploaded', usePreviousImage: false, count: uploadCount, selection: 'all', reason: 'latest-uploaded-image' };
+    if (generatedCount) return { target: 'previous', usePreviousImage: true, count: generatedCount, selection: 'all', reason: 'last-generated-image', reference_id: makeImageReferenceId('latest') };
+    if (uploadCount) return { target: 'uploaded', usePreviousImage: false, count: uploadCount, selection: 'all', reason: 'latest-uploaded-image' };
+    return { target: 'none', usePreviousImage: false, count: 0, selection: 'none', reason: 'no-image-reference' };
+  }
+
+  function routeCollectRecentImageReferences({ display = [], lastGeneratedImage = null, limit = 6 } = {}) {
+    const references = [];
+    const generated = routeNormalizeLastGeneratedImage(lastGeneratedImage);
+    if (generated && generated.images && generated.images.length) {
+      const referenceId = makeImageReferenceId('latest');
+      references.push({ reference_id: referenceId, target: 'previous', prompt: String(generated.prompt || '').slice(0, 300), updated_at: generated.updatedAt || null, count: generated.images.length, candidates: generated.images.map((item, index) => ({ index: index + 1, image_id: makeImageItemId(referenceId, index + 1), filename: item.filename || '', prompt: String(item.prompt || generated.prompt || '').slice(0, 160), labels: item.labels || [] })) });
+    }
+    for (const item of [...display].reverse()) {
+      if (references.length >= limit) break;
+      if (item && item.role !== 'assistant') continue;
+      const refs = routeExtractPersistedImageRefs(item && item.html || '');
+      if (!refs.length) continue;
+      const rawId = item.id || `display-${references.length + 1}`;
+      const referenceId = makeImageReferenceId(rawId);
+      if (references.some(ref => ref.reference_id === referenceId)) continue;
+      const prompt = String(item.rawText || '').replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').slice(0, 300);
+      const subjects = routeSplitPromptSubjects(prompt, refs.length);
+      references.push({ reference_id: referenceId, target: 'previous', prompt, updated_at: item.updatedAt || null, count: refs.length, candidates: refs.map((ref, index) => ({ index: index + 1, image_id: makeImageItemId(referenceId, index + 1), filename: ref.filename || '', prompt, labels: subjects[index] || routeImageCandidateLabels(`${prompt} ${ref.filename || ''}`) })) });
+    }
+    return references;
+  }
+
+  function routeFindImageReferenceById({ display = [], referenceId = '' } = {}) {
+    const rawId = parseImageReferenceId(referenceId);
+    if (!rawId || rawId === 'latest') return null;
+    const item = (display || []).find(entry => entry && entry.id === rawId);
+    if (!item) return null;
+    const refs = routeExtractPersistedImageRefs(item.html || '');
+    if (!refs.length) return null;
+    const resolvedReferenceId = makeImageReferenceId(rawId);
+    return { images: refs.map((ref, index) => ({ ...ref, prompt: item.rawText || '', imageId: makeImageItemId(resolvedReferenceId, index + 1), labels: routeSplitPromptSubjects(item.rawText || '', refs.length)[index] || [] })), prompt: item.rawText || '', updatedAt: item.updatedAt || null };
+  }
+
+  function routeNormalizeRoute(route, fallbackMode) {
+    const mode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : fallbackMode || 'chat';
+    const target = ['none', 'new', 'uploaded', 'previous'].includes(route && route.target) ? route.target : mode === 'image' ? 'new' : 'none';
+    const confidence = Number.isFinite(Number(route && route.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
+    const evidence = String(route && route.evidence || '').trim();
+    return { mode, target, evidence, usePreviousImage: mode === 'edit_image' && target === 'previous' && !!(route && (route.use_previous_image || route.usePreviousImage)) && confidence >= 0.75 && evidence.length > 0, selectedIndexes: normalizeImageSelection(route && (route.selected_indexes || route.selectedIndexes || route.image_indexes || route.imageIndexes)) || [], selectedReferenceId: makeImageReferenceId(route && (route.selected_reference_id || route.selectedReferenceId) || ''), selectedImageIds: normalizeSelectedImageIds(route && (route.selected_image_ids || route.selectedImageIds) || route), confidence };
+  }
+
+
+  const imageReferences = Object.freeze({
+    IMAGE_REFERENCE_PREFIX,
+    IMAGE_ITEM_PREFIX,
+    sanitizeImageReferencePart,
+    makeImageReferenceId,
+    parseImageReferenceId,
+    makeImageItemId,
+    normalizeSelectedImageIds,
+    resolveImageSelectionFromIds,
+    normalizeImageSelection,
+  });
+
+  const imageRouteContext = Object.freeze({
+    imageCandidateLabels: routeImageCandidateLabels,
+    splitPromptSubjects: routeSplitPromptSubjects,
+    normalizeLastGeneratedImage: routeNormalizeLastGeneratedImage,
+    extractPersistedImageRefs: routeExtractPersistedImageRefs,
+    latestImageReferenceMeta: routeLatestImageReferenceMeta,
+    collectRecentImageReferences: routeCollectRecentImageReferences,
+    findImageReferenceById: routeFindImageReferenceById,
+    normalizeRoute: routeNormalizeRoute,
+  });
+
   window.ChatUICore = Object.freeze({
     http: Object.freeze({ normalizeError, toProxyUrl, parseResponseJson }),
     reasoning: Object.freeze({ normalizeReasoningText, extractStreamDelta, reasoningBudgetTokens }),
     models: Object.freeze({ normalizeModelType, inferModelType, extractModels, isModelAllowedFor }),
-    attachments: Object.freeze({ isImageFile, isCompressibleRasterImage, formatBytes, looksLikeImageEditInstruction, parseImageContext }),
+    imageReferences,
+    imageRouteContext,
+    attachments: Object.freeze({ isImageFile, isCompressibleRasterImage, formatBytes, looksLikeImageEditInstruction, parseImageContext, IMAGE_REFERENCE_PREFIX, IMAGE_ITEM_PREFIX, sanitizeImageReferencePart, makeImageReferenceId, parseImageReferenceId, makeImageItemId, normalizeSelectedImageIds, resolveImageSelectionFromIds, normalizeImageSelection }),
   });
 })();

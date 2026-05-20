@@ -108,10 +108,14 @@ async function connectCdp() {
       reasoning: window.ChatUICore?.reasoning?.extractStreamDelta({ choices: [{ delta: { content: 'hi', reasoning_content: 'why' } }] }).reasoning,
       modelType: window.ChatUICore?.models?.normalizeModelType('gpt-image'),
       imageFile: window.ChatUICore?.attachments?.isImageFile({ name: 'a.png', type: '' }),
+      imageReferenceId: window.ChatUICore?.imageReferences?.makeImageReferenceId('display 1'),
+      routeReferenceCount: window.ChatUICore?.imageRouteContext?.collectRecentImageReferences({ display: [{ id: 'd1', role: 'assistant', html: '<img data-persisted-src=\"indexeddb://x\" data-filename=\"x.png\" />' }] }).length,
       services: !!window.ChatUIServices?.models?.requestModels,
       jobs: !!window.ChatUIServices?.jobs?.startChatJob && /^chatjob-/.test(window.ChatUIServices.jobs.makeClientChatJobId()),
       chat: window.ChatUIServices?.chat?.extractChatJobText({ output_text: 'ok' }).content,
+      route: window.ChatUIServices?.route?.parseRouteResult('image')?.target,
       image: window.ChatUIServices?.images?.extractImageResult({ data: [{ b64_json: 'abc' }, { url: 'https://x/b.png' }] }).images?.length,
+      imagePrompt: window.ChatUIServices?.images?.buildImagePromptWithStylePrompt('猫', '水彩'),
       ui: window.ChatUI?.fileActions?.safeFilenamePart('a/b'),
       realtime: !!window.ChatUI?.realtime?.createRealtimeRenderer,
       scroll: window.ChatUI?.scroll?.activeOutputBottomTarget({ composerTop: 500, viewportHeight: 800, margin: 24 }),
@@ -124,7 +128,7 @@ async function connectCdp() {
       displayItems: window.ChatUIApp?.displayItems?.displayItemHasRichMedia({ html: '<img class="generated-thumb" />' }),
       appReady: !!document.querySelector('#prompt')
     }))()`);
-    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, services: true, jobs: true, chat: 'ok', image: 2, ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
+    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, imageReferenceId: 'imgref_display_1', routeReferenceCount: 1, services: true, jobs: true, chat: 'ok', route: 'new', image: 2, imagePrompt: '猫\n\n图片样式要求：\n水彩', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
     console.log('browser core ok');
   } finally {
     cdp?.ws?.close?.();

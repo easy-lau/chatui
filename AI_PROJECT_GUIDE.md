@@ -52,6 +52,8 @@ ChatUI 是一个轻量的 OpenAI 兼容 Web 工具，核心能力包括：
 | 文件 | 关注点 |
 | --- | --- |
 | `attachments.js` | 附件类型判断、图片上下文归一化、图片编辑意图辅助、路由附件元数据 |
+| `image-references.js` | 图片组/单图唯一编号、`imgref_` / `img_` 前缀、图片选择范围归一化 |
+| `image-route-context.js` | 图片路由上下文构建辅助、历史图片引用收集、路由结果归一化 |
 | `messages.js` | 消息内容、排序、去重、展示文本等纯逻辑 |
 | `models.js` | 模型分类、模型元数据 |
 | `reasoning.js` | reasoning 字段提取与展示逻辑辅助 |
@@ -65,7 +67,9 @@ ChatUI 是一个轻量的 OpenAI 兼容 Web 工具，核心能力包括：
 | 文件 | 关注点 |
 | --- | --- |
 | `chat-service.js` | 聊天响应解析、聊天 payload 辅助 |
+| `route-service.js` | 意图识别系统提示词、路由请求 payload、路由响应解析 |
 | `image-service.js` | 图片接口结果解析、图片 Job 文件 payload |
+| `image-generation-service.js` | 生图/修图 prompt 组装、图片请求 payload、图片上下文创建 |
 | `job-service.js` | Job id、Job 请求封装、SSE/轮询辅助 |
 | `model-service.js` | 模型列表加载与归一化 |
 
@@ -234,7 +238,11 @@ UI 片段或交互辅助，目标是让纯 UI 逻辑可测试：
 
 1. **先定位链路**：UI 问题看 `app.js` 和 `client/ui`；纯逻辑问题优先看 `client/core` / `client/services`；服务端 API 看 `server/api` + `server/jobs`。
 2. **优先补测试**：纯函数改动优先补 `test/unit/*`；服务端路由改动补 `test/api/*`；端到端行为至少跑 `npm test`。
-3. **避免大面积格式化 `app.js`**：该文件体积大、压缩风格明显，尽量小范围替换，避免制造噪音 diff。
+3. **图片引用先走核心模块**：新增图片选择、图片组编号、单图编号、引用解析逻辑时，优先放入 `client/core/image-references.js`，不要继续堆到 `app.js`。
+4. **图片路由上下文先走核心模块**：新增历史图片引用收集、路由结果归一化、图片候选元数据逻辑时，优先放入 `client/core/image-route-context.js`。
+5. **意图识别服务先走 service 模块**：新增路由提示词、路由请求 payload、路由响应解析时，优先放入 `client/services/route-service.js`。
+6. **图片生成服务先走 service 模块**：新增生图/修图 prompt 组装、图片请求 payload、图片上下文创建时，优先放入 `client/services/image-generation-service.js`。
+7. **避免大面积格式化 `app.js`**：该文件体积大、压缩风格明显，尽量小范围替换，避免制造噪音 diff。
 4. **图片链路要同时考虑**：`messages`、`display`、Job 记录、`lastGeneratedImage`、IndexedDB 引用、刷新恢复。
 5. **路由模型不要接触附件内容**：新增路由上下文时只加文字和元数据，不能传图片/base64/附件正文。
 
