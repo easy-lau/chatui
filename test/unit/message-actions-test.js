@@ -6,7 +6,8 @@ const { copySuccessState, copyText, normalizeRenderedCopyText, messageCopyText }
   assert.deepStrictEqual(copySuccessState('<ok>', '<old>'), { className: 'copied', html: '<ok>', restoreHtml: '<old>', timeoutMs: 900 });
   assert.strictEqual(normalizeRenderedCopyText('第一行\n\n第二行\n\n第三行'), '第一行\n第二行\n第三行');
   assert.strictEqual(normalizeRenderedCopyText('第一段\n\n第二段\n\n\n第三段'), '第一段\n\n第二段\n\n第三段');
-  assert.strictEqual(messageCopyText('**原始**\n文本', '原始\n\n文本'), '**原始**\n文本');
+  assert.strictEqual(messageCopyText('**原始**\n文本', '原始\n\n文本'), '原始\n文本');
+  assert.strictEqual(messageCopyText('原始\n里有换行', '显示没有换行'), '显示没有换行');
   assert.strictEqual(messageCopyText('', '第一行\n\n第二行\n\n第三行'), '第一行\n第二行\n第三行');
   let copied = '';
   await copyText('hello', { writeText: async text => { copied = text; } });

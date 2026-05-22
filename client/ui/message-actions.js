@@ -10,13 +10,13 @@ function normalizeRenderedCopyText(text = '') {
   const lines = normalized.split('\n');
   const nonEmpty = lines.filter(line => line.trim()).length;
   const blank = lines.length - nonEmpty;
-  const mostlyInterleavedBlanks = nonEmpty >= 3 && blank >= nonEmpty - 1 && lines.every((line, index) => line.trim() || index % 2 === 1);
+  const mostlyInterleavedBlanks = nonEmpty >= 2 && blank >= nonEmpty - 1 && lines.every((line, index) => line.trim() || index % 2 === 1);
   return mostlyInterleavedBlanks ? lines.filter(line => line.trim()).join('\n') : normalized.replace(/\n{3,}/g, '\n\n');
 }
 
 function messageCopyText(rawText = '', renderedText = '') {
-  const raw = String(rawText || '');
-  return raw ? raw : normalizeRenderedCopyText(renderedText);
+  const rendered = normalizeRenderedCopyText(renderedText);
+  return rendered || String(rawText || '').trim();
 }
 
 async function copyText(text, clipboard, documentRef) {
