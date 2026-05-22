@@ -11,11 +11,40 @@ function normalizeRenderedCopyText(text = '') {
   const nonEmpty = lines.filter(line => line.trim()).length;
   const blank = lines.length - nonEmpty;
   const mostlyInterleavedBlanks = nonEmpty >= 2 && blank >= nonEmpty - 1 && lines.every((line, index) => line.trim() || index % 2 === 1);
-  return mostlyInterleavedBlanks ? lines.filter(line => line.trim()).join('\n') : normalized.replace(/\n{3,}/g, '\n\n');
+  return mostlyInterleavedBlanks ? lines.filter(line => line.trim()).join('\n') : normalized.replace(/\n{2,}/g, '\n');
 }
 
-function messageCopyText(rawText = '', renderedText = '') {
-  const rendered = normalizeRenderedCopyText(renderedText);
+const BLOCK_TAGS = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'DL', 'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TR', 'UL']);
+
+function normalizeVisibleLines(text = '') {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+$/g, ''))
+    .filter(line => line.trim())
+    .join('\n')
+    .trim();
+}
+
+function visibleTextFromNode(node) {
+  if (!node) return '';
+  if (node.nodeType === 3) return node.nodeValue || '';
+  if (node.nodeType !== 1) return '';
+  const tag = node.tagName || '';
+  if (tag === 'BR') return '\n';
+  if (tag === 'IMG') return node.alt || '';
+  if (tag === 'PRE') return normalizeVisibleLines(node.innerText || node.textContent || '');
+  const text = Array.from(node.childNodes || []).map(visibleTextFromNode).join('');
+  return BLOCK_TAGS.has(tag) ? `\n${text.trim()}\n` : text;
+}
+
+function visibleCopyTextFromElement(element) {
+  return normalizeVisibleLines(visibleTextFromNode(element));
+}
+
+function messageCopyText(rawText = '', renderedText = '', element = null) {
+  const visible = visibleCopyTextFromElement(element);
+  const rendered = visible || normalizeRenderedCopyText(renderedText);
   return rendered || String(rawText || '').trim();
 }
 
@@ -29,4 +58,4 @@ async function copyText(text, clipboard, documentRef) {
   textarea.remove();
 }
 
-module.exports = { copySuccessState, copyText, normalizeRenderedCopyText, messageCopyText };
+module.exports = { copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText };
