@@ -100,6 +100,23 @@
     return { className: 'copied', html: successIconSvg, restoreHtml: previousHtml, timeoutMs: 900 };
   }
 
+  function normalizeRenderedCopyText(text = '') {
+    const normalized = String(text || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .trim();
+    const lines = normalized.split('\n');
+    const nonEmpty = lines.filter(line => line.trim()).length;
+    const blank = lines.length - nonEmpty;
+    const mostlyInterleavedBlanks = nonEmpty >= 3 && blank >= nonEmpty - 1 && lines.every((line, index) => line.trim() || index % 2 === 1);
+    return mostlyInterleavedBlanks ? lines.filter(line => line.trim()).join('\n') : normalized.replace(/\n{3,}/g, '\n\n');
+  }
+
+  function messageCopyText(rawText = '', renderedText = '') {
+    const raw = String(rawText || '');
+    return raw ? raw : normalizeRenderedCopyText(renderedText);
+  }
+
   async function copyText(text, clipboard = navigator.clipboard, documentRef = document) {
     if (clipboard?.writeText) return clipboard.writeText(text);
     const textarea = documentRef.createElement('textarea');
@@ -130,7 +147,7 @@
     realtime: Object.freeze({ createRealtimeRenderer }),
     scroll: Object.freeze({ composerSafeBottom, activeOutputBottomTarget, isNodeAwayFromOutputFocus }),
     messages: Object.freeze({ attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderUserMessageParts }),
-    actions: Object.freeze({ copySuccessState, copyText }),
+    actions: Object.freeze({ copySuccessState, copyText, normalizeRenderedCopyText, messageCopyText }),
     imageActions: Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, imageActionButtonsHtml }),
   });
 })();
