@@ -53,12 +53,16 @@ async function json(res) {
     res = await fetch(`${base}/`);
     assert.strictEqual(res.status, 200, 'index status');
     const html = await res.text();
-    assert.ok(html.includes('./vendor/markdown-it.min.js'), 'uses local markdown vendor');
+    assert.ok(html.includes('registry.npmmirror.com/markdown-it/13.0.2'), 'uses npmmirror markdown CDN');
+    assert.ok(html.includes("this.src='./vendor/markdown-it.min.js'"), 'markdown CDN has local fallback');
     assert.ok(html.includes('./client/core/browser.js'), 'loads browser core adapter before app');
     assert.ok(html.includes('./client/services/browser.js'), 'loads browser services adapter before app');
     assert.ok(html.includes('./client/ui/browser.js'), 'loads browser ui adapter before app');
     assert.ok(html.includes('./client/app/browser.js'), 'loads browser app adapter before app');
-    assert.ok(!html.includes('registry.npmmirror.com'), 'no CDN in index');
+    assert.ok(html.includes('registry.npmmirror.com/katex/0.16.9'), 'uses npmmirror katex CDN');
+    assert.ok(html.includes('registry.npmmirror.com/mermaid/11.15.0'), 'uses npmmirror mermaid CDN');
+    assert.ok(html.includes("this.src='./vendor/katex.min.js'"), 'katex CDN has local fallback');
+    assert.ok(html.includes("this.src='./vendor/mermaid.min.js'"), 'mermaid CDN has local fallback');
 
     res = await fetch(`${base}/app.js`);
     assert.strictEqual(res.status, 200, 'app js status');
