@@ -3,6 +3,7 @@ function extractChatJobText(data) {
   return {
     content: message.content || data?.output_text || '',
     reasoning: message.reasoning_content || message.reasoning || data?.reasoning_content || data?.reasoning || '',
+    firstTokenMs: Number.isFinite(data?.metrics?.firstTokenMs) ? data.metrics.firstTokenMs : null,
   };
 }
 

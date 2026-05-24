@@ -54,9 +54,9 @@ const {
     url: '/api/image-jobs/imgjob-x/events',
     EventSourceImpl: QuietEventSource,
     pollIntervalMs: 5,
-    pollJob: async () => ({ status: 'done', data: { ok: true } }),
+    pollJob: async () => ({ status: 'done', data: { ok: true }, metrics: { durationMs: 456 } }),
   });
-  assert.deepStrictEqual(done, { ok: true });
+  assert.deepStrictEqual(done, { ok: true, metrics: { durationMs: 456 } });
   assert.strictEqual(closed, true);
 
   console.log('job service ok');

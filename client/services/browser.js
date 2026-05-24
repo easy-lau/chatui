@@ -105,6 +105,7 @@
     return {
       content: message.content || data && data.output_text || '',
       reasoning: message.reasoning_content || message.reasoning || data && data.reasoning_content || data && data.reasoning || '',
+      firstTokenMs: Number.isFinite(data && data.metrics && data.metrics.firstTokenMs) ? data.metrics.firstTokenMs : null,
     };
   }
 

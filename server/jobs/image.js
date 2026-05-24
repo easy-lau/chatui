@@ -10,6 +10,7 @@ const controller = new AbortController();
 job.controller = controller;
 const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
 try {
+  job.serverStartAt = Date.now();
   const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
   let body;
   if (job.mode === 'edit_image') {
@@ -38,6 +39,7 @@ try {
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   job.status = 'done';
   job.data = data;
+  job.durationMs = Date.now() - Number(job.serverStartAt || job.createdAt || Date.now());
 } catch (err) {
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
@@ -76,6 +78,7 @@ try {
     files,
     data: null,
     error: '',
+    durationMs: null,
   };
   imageJobs.set(job.id, job);
   runImageJob(job);

@@ -98,8 +98,10 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
     };
     const handleJob = job => {
       onUpdate(job);
-      if (job.status === 'done') finish(resolve, job.data);
-      else if (job.status === 'error') finish(reject, new Error(job.error?.message || '任务失败'));
+      if (job.status === 'done') {
+        const data = job.data && typeof job.data === 'object' ? { ...job.data, metrics: job.metrics || job.data.metrics || {} } : job.data;
+        finish(resolve, data);
+      } else if (job.status === 'error') finish(reject, new Error(job.error?.message || '任务失败'));
     };
     const poll = async () => {
       if (finished || !pollJob || pageUnloading()) return;

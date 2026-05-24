@@ -19,6 +19,7 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
     error: '',
     buffer: '',
     streamStarted: false,
+    firstTokenMs: null,
   };
 }
 
@@ -59,6 +60,8 @@ try {
 async function runChatStreamJob(job) {
 if (job.streamStarted) return;
 job.streamStarted = true;
+job.serverStartAt = Date.now();
+job.firstTokenMs = null;
 const controller = new AbortController();
 job.controller = controller;
 const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
@@ -90,6 +93,7 @@ try {
     const msg = data?.choices?.[0]?.message || {};
     const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) : '';
     const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || outputReasoning || '');
+    if (content || reasoning) markFirstToken(job);
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
@@ -178,6 +182,12 @@ function notifyChatStreamJob(job) {
   notifyJob(job);
 }
 
+function markFirstToken(job) {
+  if (job.firstTokenMs === null || job.firstTokenMs === undefined) {
+    job.firstTokenMs = Date.now() - Number(job.serverStartAt || job.createdAt || Date.now());
+  }
+}
+
 function updateChatJobFromStreamChunk(job, text, { notify = true } = {}) {
 job.buffer = (job.buffer || '') + text;
 const events = job.buffer.split(/\r?\n\r?\n/);
@@ -197,6 +207,7 @@ for (const eventText of events) {
     const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
     const content = delta.content || (typeof data?.content === 'string' ? data.content : '');
     const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
+    if (content || reasoning) markFirstToken(job);
     if (content) message.content += content;
     if (reasoning) message.reasoning_content += reasoning;
     job.updatedAt = Date.now();

@@ -19,6 +19,10 @@ function publicJob(job) {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     data: job.data || null,
+    metrics: {
+      firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
+      durationMs: Number.isFinite(job.durationMs) ? job.durationMs : null,
+    },
     error: job.error ? { message: job.error } : null,
   };
 }
