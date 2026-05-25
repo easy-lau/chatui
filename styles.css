@@ -716,3 +716,51 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 @keyframes actionSpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.icon-action-btn.downloading svg,.image-icon-btn.downloading svg{animation:none!important}}
+
+
+/* Timing meta: show above message bubble, left aligned. */
+.message.has-meta .bubble-wrap,
+.bubble-wrap:has(.message-meta){
+  padding-bottom:0!important;
+}
+.message-meta,
+.message.assistant .message-meta,
+.message.error .message-meta,
+.message.user .message-meta,
+.message.assistant.has-meta .message-meta,
+.message.error.has-meta .message-meta,
+.message.user.has-meta .message-meta{
+  position:static!important;
+  left:auto!important;
+  right:auto!important;
+  bottom:auto!important;
+  order:-1!important;
+  align-self:flex-start!important;
+  justify-content:flex-start!important;
+  text-align:left!important;
+  min-height:0!important;
+  max-width:100%!important;
+  margin:0 0 4px 0!important;
+  padding:0 2px!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  line-height:1.2!important;
+}
+.message.assistant.has-meta .bubble-wrap,
+.message.error.has-meta .bubble-wrap{
+  min-width:0!important;
+}
+@media (max-width:640px){
+  .message.has-meta .bubble-wrap,
+  .bubble-wrap:has(.message-meta){padding-bottom:0!important;}
+  .message-meta,
+  .message.assistant.has-meta .message-meta,
+  .message.error.has-meta .message-meta,
+  .message.user.has-meta .message-meta{
+    bottom:auto!important;
+    min-height:0!important;
+    margin-bottom:4px!important;
+  }
+  .message.assistant.has-meta .bubble-wrap,
+  .message.error.has-meta .bubble-wrap{min-width:0!important;}
+}
