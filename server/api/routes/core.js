@@ -1,26 +1,37 @@
-function createCoreRoutes({ appVersion, sendJson, sendMethodNotAllowed, proxyImage, extractFileText, registerChatStreamJob }) {
+function createCoreRoutes({ appVersion, readPublicConfig, sendJson, sendMethodNotAllowed, proxyImage, extractFileText, registerChatStreamJob }) {
+  const routes = [
+    {
+      path: '/api/version',
+      method: 'GET',
+      handler: (req, res) => sendJson(res, 200, { version: appVersion }, { 'Access-Control-Allow-Origin': '*' }),
+    },
+    {
+      path: '/api/config/public',
+      method: 'GET',
+      handler: (req, res) => sendJson(res, 200, { version: appVersion, config: readPublicConfig() }, { 'Access-Control-Allow-Origin': '*' }),
+    },
+    {
+      path: '/api/image',
+      method: 'POST',
+      handler: proxyImage,
+    },
+    {
+      path: '/api/chat-stream-jobs',
+      method: 'POST',
+      handler: registerChatStreamJob,
+    },
+    {
+      path: '/api/extract-file',
+      method: 'POST',
+      handler: extractFileText,
+    },
+  ];
+
   function routeCoreApi(req, res) {
-    if (req.url === '/api/version') {
-      if (req.method !== 'GET') return sendMethodNotAllowed(res);
-      return sendJson(res, 200, { version: appVersion }, { 'Access-Control-Allow-Origin': '*' });
-    }
-
-    if (req.url === '/api/image') {
-      if (req.method !== 'POST') return sendMethodNotAllowed(res);
-      return proxyImage(req, res);
-    }
-
-    if (req.url === '/api/chat-stream-jobs') {
-      if (req.method !== 'POST') return sendMethodNotAllowed(res);
-      return registerChatStreamJob(req, res);
-    }
-
-    if (req.url === '/api/extract-file') {
-      if (req.method !== 'POST') return sendMethodNotAllowed(res);
-      return extractFileText(req, res);
-    }
-
-    return false;
+    const route = routes.find(item => item.path === req.url);
+    if (!route) return false;
+    if (req.method !== route.method) return sendMethodNotAllowed(res);
+    return route.handler(req, res);
   }
 
   return { routeCoreApi };

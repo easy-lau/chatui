@@ -34,10 +34,17 @@ class JobStore {
   }
 }
 
+function createJobStores() {
+  return {
+    imageJobs: new JobStore('image'),
+    chatJobs: new JobStore('chat'),
+  };
+}
+
 function startJobSweeper(stores, intervalMs = Number(process.env.JOB_SWEEP_INTERVAL_MS || 5 * 60 * 1000)) {
   const timer = setInterval(() => stores.forEach(store => store.sweep()), intervalMs);
   timer.unref?.();
   return timer;
 }
 
-module.exports = { JobStore, startJobSweeper, DEFAULT_TTL_MS, DEFAULT_MAX_JOBS };
+module.exports = { JobStore, createJobStores, startJobSweeper, DEFAULT_TTL_MS, DEFAULT_MAX_JOBS };

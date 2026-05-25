@@ -1,6 +1,6 @@
 const http = require('http');
-const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS } = require('./config');
-const { JobStore, startJobSweeper } = require('./jobs/store');
+const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
+const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { extractFileText } = require('./extract');
 const { serveStatic } = require('./http/static');
 const { send, sendJson, sendMethodNotAllowed } = require('./http/response');
@@ -9,8 +9,7 @@ const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
 
 function createApp() {
-  const imageJobs = new JobStore('image');
-  const chatJobs = new JobStore('chat');
+  const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
   const sweeper = startJobSweeper([imageJobs, chatJobs]);
   const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS });
@@ -38,6 +37,7 @@ function createApp() {
   });
   const route = createRouter({
     appVersion: APP_VERSION,
+    readPublicConfig,
     send,
     sendJson,
     sendMethodNotAllowed,

@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 
 const PORT = Number(process.env.PORT || 8765);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -11,6 +12,21 @@ const ALLOWED_PROXY_PATHS = [/^\/models\/?$/, /^\/chat\/completions\/?$/, /^\/im
 const pkg = require('../../package.json');
 const APP_VERSION = String(pkg.version || '0.0.0');
 
+function readPublicConfig() {
+  const file = path.join(ROOT, 'config', 'public.json');
+  const fallback = { ui: {}, features: {} };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    return {
+      ui: parsed.ui && typeof parsed.ui === 'object' && !Array.isArray(parsed.ui) ? parsed.ui : {},
+      features: parsed.features && typeof parsed.features === 'object' && !Array.isArray(parsed.features) ? parsed.features : {},
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 module.exports = {
   PORT,
   HOST,
@@ -21,4 +37,5 @@ module.exports = {
   ALLOWED_PROXY_METHODS,
   ALLOWED_PROXY_PATHS,
   APP_VERSION,
+  readPublicConfig,
 };

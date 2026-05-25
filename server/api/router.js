@@ -4,6 +4,7 @@ const { createJobRoutes } = require('./routes/jobs');
 function createRouter(deps) {
   const {
     appVersion,
+    readPublicConfig,
     send,
     sendJson,
     sendMethodNotAllowed,
@@ -27,6 +28,7 @@ function createRouter(deps) {
 
   const { routeCoreApi } = createCoreRoutes({
     appVersion,
+    readPublicConfig,
     sendJson,
     sendMethodNotAllowed,
     proxyImage,

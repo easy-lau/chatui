@@ -29,6 +29,15 @@ async function json(res) {
     res = await fetch(`${base}/api/image-jobs/nope`);
     assert.strictEqual(res.status, 404, 'missing image job returns 404');
 
+    res = await fetch(`${base}/api/config/public`);
+    assert.strictEqual(res.status, 200, 'public config returns 200');
+    const publicConfig = await json(res);
+    assert.strictEqual(typeof publicConfig.version, 'string', 'public config includes version');
+    assert.deepStrictEqual(publicConfig.config, { ui: {}, features: {} }, 'public config exposes safe defaults');
+
+    res = await fetch(`${base}/api/config/public`, { method: 'POST' });
+    assert.strictEqual(res.status, 405, 'public config rejects POST');
+
     res = await fetch(`${base}/api/extract-file`, { method: 'GET' });
     assert.strictEqual(res.status, 405, 'extract rejects GET');
 
