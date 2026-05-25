@@ -38,6 +38,7 @@ assert.strictEqual(route.usePreviousImage, true);
 assert.strictEqual(route.selectedReferenceId, 'imgref_display_first');
 assert.deepStrictEqual(route.selectedImageIds, ['img_imgref_display_first_2']);
 assert.strictEqual(normalizeRoute({ mode: 'image', confidence: 1 }).target, 'new');
+assert.strictEqual(normalizeRoute({ mode: 'image', contextual_image_prompt: '按上文画海报', confidence: 1 }).contextualImagePrompt, '按上文画海报');
 const manyMessages = Array.from({ length: 800 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `消息${index} ${'x'.repeat(1000)}` }));
 const largeContext = buildRouteContext({
   messages: manyMessages,

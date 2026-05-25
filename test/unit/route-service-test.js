@@ -9,13 +9,18 @@ const {
 } = require('../../client/services/route-service');
 const { normalizeRoute } = require('../../client/core/image-route-context');
 
-assert.ok(ROUTE_SYSTEM_PROMPT.length < 1500);
+assert.ok(ROUTE_SYSTEM_PROMPT.length < 2200);
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('流程'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('编辑选图'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('精准选单图/多图'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('selected_reference_id'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('imgref_latest'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('selected_image_ids'));
+assert.ok(ROUTE_SYSTEM_PROMPT.includes('contextual_image_prompt'));
+assert.ok(ROUTE_SYSTEM_PROMPT.includes('引用型生图'));
+assert.ok(ROUTE_SYSTEM_PROMPT.includes('转成适合图片模型的视觉表达提示'));
+assert.ok(ROUTE_SYSTEM_PROMPT.includes('不要因为“不是视觉描述”而返回 chat'));
+assert.ok(ROUTE_SYSTEM_PROMPT.includes('忽略发版、测试、配置、闲聊'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('不能默认最新图'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('必须在对应 reference 的 candidates 中匹配具体图片'));
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('选多张就填多个'));
@@ -24,6 +29,7 @@ assert.ok(ROUTE_SYSTEM_PROMPT.includes('不要读取、分析或臆测图片内�
 assert.ok(ROUTE_SYSTEM_PROMPT.includes('confidence 表示把握'));
 assert.strictEqual(stripJsonFence('```json\n{"mode":"chat"}\n```'), '{"mode":"chat"}');
 assert.strictEqual(parseRouteResult('{"mode":"image","confidence":1}', normalizeRoute).target, 'new');
+assert.strictEqual(parseRouteResult('{"mode":"image","target":"new","contextual_image_prompt":"画一只蓝色机械猫","confidence":1}', normalizeRoute).contextualImagePrompt, '画一只蓝色机械猫');
 assert.strictEqual(parseRouteResult('chat', normalizeRoute).mode, 'chat');
 assert.strictEqual(parseRouteResult('edit_image', normalizeRoute).mode, 'edit_image');
 assert.strictEqual(parseRouteResult('', normalizeRoute), null);
