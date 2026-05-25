@@ -62,31 +62,31 @@
   .message.error.has-meta .bubble-wrap{min-width:156px!important;}
 }
 
-/* Message action buttons stay attached to the bubble edge without changing row spacing. */
+/* Message action buttons live in normal flow below the bubble; never overlay content. */
 .bubble-wrap{
   position:relative!important;
+}
+.bubble{
+  order:1!important;
 }
 .msg-actions,
 .message.assistant.has-meta .msg-actions,
 .message.error.has-meta .msg-actions,
 .message.user.has-meta .msg-actions{
-  top:calc(100% + 2px)!important;
+  position:static!important;
+  order:2!important;
+  top:auto!important;
   bottom:auto!important;
+  left:auto!important;
+  right:auto!important;
   z-index:4!important;
   transform:none!important;
-  margin:0!important;
-}
-.message.assistant .msg-actions,
-.message.error .msg-actions,
-.message.assistant.has-meta .msg-actions,
-.message.error.has-meta .msg-actions{
-  left:0!important;
-  right:auto!important;
+  margin:2px 0 0!important;
+  align-self:flex-start!important;
 }
 .message.user .msg-actions,
 .message.user.has-meta .msg-actions{
-  left:auto!important;
-  right:0!important;
+  align-self:flex-end!important;
 }
 .message:has(.msg-actions){
   margin-bottom:18px!important;
@@ -96,7 +96,7 @@
   .message.assistant.has-meta .msg-actions,
   .message.error.has-meta .msg-actions,
   .message.user.has-meta .msg-actions{
-    top:calc(100% + 1px)!important;
+    margin-top:1px!important;
   }
   .message:has(.msg-actions){
     margin-bottom:18px!important;
