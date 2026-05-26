@@ -108,6 +108,13 @@ assertContains('.image-preview-copy{right:122px!important}', 'image preview copy
 assertContains('.image-preview-action svg path,\n.image-preview-action svg rect{fill:none!important;stroke:currentColor!important;', 'image preview action icons use stroke rendering for copy/download svgs', baseCss);
 console.log('css contract ok');
 
+
+assertContains('function repairMarkdownPunctuation', 'markdown renderer normalizes full-width/broken pipe and punctuation variants before rendering', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('function repairCollapsedMarkdownBlocks', 'markdown renderer repairs collapsed table/code block boundaries before rendering', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('.table-wrap{width:100%;max-width:100%;overflow-x:auto;', 'markdown tables stay inside the message bubble scroll container', baseCss);
+assertContains('.markdown-body table{width:100%;min-width:0;max-width:100%;table-layout:auto}', 'markdown tables do not force max-content width that stretches bubbles', baseCss);
+assertContains('.markdown-body td,.markdown-body th{max-width:min(420px,70vw);white-space:normal;overflow-wrap:anywhere;word-break:break-word;vertical-align:top}', 'markdown table cells wrap long malformed content instead of making a single long row', baseCss);
+
 assertContains('id="imagePreviewCopy"', 'image preview keeps copy button in preview overlay only', template);
 assertNotContains('generated-image-actions', 'generated image cards must not add extra per-image button row', baseCss);
 assertNotContains('imageActionButtonsHtml(a,s)', 'generated image cards must not render extra per-image button row', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
