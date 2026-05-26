@@ -934,3 +934,45 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   opacity:.45!important;
   cursor:not-allowed!important;
 }
+
+/* Image preview toolbar: use the same SVG sizing/stroke and optical centering. */
+.image-preview-action,
+.image-preview-close{
+  display:inline-grid!important;
+  place-items:center!important;
+  padding:0!important;
+  line-height:0!important;
+  text-align:center!important;
+}
+.image-preview-action svg,
+.image-preview-close svg{
+  display:block!important;
+  width:22px!important;
+  height:22px!important;
+  flex:0 0 auto!important;
+  margin:0!important;
+}
+.image-preview-action svg path,
+.image-preview-action svg rect,
+.image-preview-close svg path{
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:1.9!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+
+/* Avoid visible thumbnail shimmer/flash while persisted images are restored after page refresh. */
+.content img.image-restoring[data-persisted-src],
+.markdown-body img.image-restoring[data-persisted-src]{
+  background:transparent!important;
+  border-color:transparent!important;
+  animation:none!important;
+  opacity:0!important;
+}
+.content img.generated-thumb,
+.markdown-body img.generated-thumb,
+.content img.user-attachment-image,
+.markdown-body img.user-attachment-image{
+  transition:none!important;
+}

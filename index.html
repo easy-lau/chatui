@@ -7,7 +7,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.0-action-dom-order-1" />
+  <link rel="stylesheet" href="./styles.css?v=1.2.0-strip-blob-cache-5" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.2.0-action-dom-order-1" />
   <script>
@@ -367,7 +367,9 @@
     <button id="imagePreviewCopy" class="image-preview-copy image-preview-action" type="button" data-copy-image="1" title="复制图片" aria-label="复制图片" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
     </button>
-    <button id="imagePreviewClose" class="image-preview-close" type="button">×</button>
+    <button id="imagePreviewClose" class="image-preview-close" type="button" title="关闭预览" aria-label="关闭预览">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>
+    </button>
     <img id="imagePreviewImg" alt="preview" />
   </div>
 
