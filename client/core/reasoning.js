@@ -24,6 +24,21 @@ function normalizeReasoningText(value) {
   return String(value || '');
 }
 
+function normalizeContentText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeContentText(item?.text || item?.content || item?.output_text || item))
+      .filter(Boolean)
+      .join('');
+  }
+  if (typeof value === 'object') {
+    return normalizeContentText(value.text || value.content || value.output_text || value.message || '');
+  }
+  return String(value || '');
+}
+
 function extractStreamDelta(event) {
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
@@ -46,9 +61,24 @@ function extractStreamDelta(event) {
     event?.thinking_content ||
     ''
   );
-  let content = delta.content || message.content || (typeof event?.delta === 'string' ? event.delta : '') || (typeof event?.content === 'string' ? event.content : '') || '';
+  let content = normalizeContentText(
+    delta.content ||
+    delta.text ||
+    delta.output_text ||
+    message.content ||
+    message.text ||
+    message.output_text ||
+    event?.output_text ||
+    (typeof event?.delta === 'string' ? event.delta : '') ||
+    event?.content ||
+    event?.text ||
+    ''
+  );
   if (!content && Array.isArray(event?.output)) {
-    content = event.output.map(item => item?.content?.map(part => part?.text || '').join('') || '').join('');
+    content = event.output
+      .filter(item => !/reason/i.test(String(item?.type || item?.role || '')))
+      .map(item => normalizeContentText(item?.content || item?.text || item?.output_text || ''))
+      .join('');
   }
   const outputReasoning = !reasoning && Array.isArray(event?.output)
     ? normalizeReasoningText(event.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking))
@@ -60,4 +90,4 @@ function reasoningBudgetTokens(level = 'medium') {
   return { low: 1024, medium: 4096, high: 8192, xhigh: 16384 }[level] || 4096;
 }
 
-module.exports = { normalizeReasoningText, extractStreamDelta, reasoningBudgetTokens };
+module.exports = { normalizeReasoningText, normalizeContentText, extractStreamDelta, reasoningBudgetTokens };

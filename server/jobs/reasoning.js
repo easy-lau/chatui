@@ -10,4 +10,19 @@ function normalizeReasoningText(value) {
   return String(value || '');
 }
 
-module.exports = { normalizeReasoningText };
+function normalizeContentText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeContentText(item?.text || item?.content || item?.output_text || item))
+      .filter(Boolean)
+      .join('');
+  }
+  if (typeof value === 'object') {
+    return normalizeContentText(value.text || value.content || value.output_text || value.message || '');
+  }
+  return String(value || '');
+}
+
+module.exports = { normalizeReasoningText, normalizeContentText };

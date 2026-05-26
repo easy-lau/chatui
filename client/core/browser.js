@@ -28,13 +28,21 @@
     return String(value || '');
   }
 
+  function normalizeContentText(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map(item => normalizeContentText(item && (item.text || item.content || item.output_text) || item)).filter(Boolean).join('');
+    if (typeof value === 'object') return normalizeContentText(value.text || value.content || value.output_text || value.message || '');
+    return String(value || '');
+  }
+
   function extractStreamDelta(event) {
     const choice = event && event.choices && event.choices[0];
     const delta = choice && choice.delta || {};
     const message = choice && choice.message || {};
     const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || message.reasoning_content || message.reasoning || message.thinking || message.reasoning_details || message.thinking_content || event && (event.reasoning_content || event.reasoning || event.thinking || event.reasoning_details || event.thinking_content) || '');
-    let content = delta.content || message.content || (typeof (event && event.delta) === 'string' ? event.delta : '') || (typeof (event && event.content) === 'string' ? event.content : '') || '';
-    if (!content && Array.isArray(event && event.output)) content = event.output.map(item => item && item.content && item.content.map(part => part && part.text || '').join('') || '').join('');
+    let content = normalizeContentText(delta.content || delta.text || delta.output_text || message.content || message.text || message.output_text || event && event.output_text || (typeof (event && event.delta) === 'string' ? event.delta : '') || event && (event.content || event.text) || '');
+    if (!content && Array.isArray(event && event.output)) content = event.output.filter(item => !/reason/i.test(String(item && (item.type || item.role) || ''))).map(item => normalizeContentText(item && (item.content || item.text || item.output_text) || '')).join('');
     const outputReasoning = !reasoning && Array.isArray(event && event.output) ? normalizeReasoningText(event.output.filter(item => /reason/i.test(String(item && (item.type || item.role) || '')) || item && (item.summary || item.reasoning || item.thinking))) : '';
     return { content, reasoning: reasoning || outputReasoning };
   }
@@ -333,7 +341,7 @@
 
   window.ChatUICore = Object.freeze({
     http: Object.freeze({ normalizeError, toProxyUrl, parseResponseJson }),
-    reasoning: Object.freeze({ normalizeReasoningText, extractStreamDelta, reasoningBudgetTokens }),
+    reasoning: Object.freeze({ normalizeReasoningText, normalizeContentText, extractStreamDelta, reasoningBudgetTokens }),
     models: Object.freeze({ normalizeModelType, inferModelType, extractModels, isModelAllowedFor }),
     imageReferences,
     imageRouteContext,

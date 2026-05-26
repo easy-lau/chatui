@@ -1,7 +1,15 @@
+function normalizeText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(item => normalizeText(item?.text || item?.content || item?.output_text || item)).filter(Boolean).join('');
+  if (typeof value === 'object') return normalizeText(value.text || value.content || value.output_text || value.message || '');
+  return String(value || '');
+}
+
 function extractChatJobText(data) {
   const message = data?.choices?.[0]?.message || {};
   return {
-    content: message.content || data?.output_text || '',
+    content: normalizeText(message.content || message.text || message.output_text || data?.output_text || data?.content || data?.text || ''),
     reasoning: message.reasoning_content || message.reasoning || data?.reasoning_content || data?.reasoning || '',
     firstTokenMs: Number.isFinite(data?.metrics?.firstTokenMs) ? data.metrics.firstTokenMs : null,
   };

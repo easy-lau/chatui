@@ -93,10 +93,18 @@
     return postJob('/api/image-jobs', { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, mode, files, headers }, { signal, fetchImpl });
   }
 
+  function normalizeText(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map(item => normalizeText(item && (item.text || item.content || item.output_text) || item)).filter(Boolean).join('');
+    if (typeof value === 'object') return normalizeText(value.text || value.content || value.output_text || value.message || '');
+    return String(value || '');
+  }
+
   function extractChatJobText(data) {
     const message = data && data.choices && data.choices[0] && data.choices[0].message || {};
     return {
-      content: message.content || data && data.output_text || '',
+      content: normalizeText(message.content || message.text || message.output_text || data && (data.output_text || data.content || data.text) || ''),
       reasoning: message.reasoning_content || message.reasoning || data && data.reasoning_content || data && data.reasoning || '',
       firstTokenMs: Number.isFinite(data && data.metrics && data.metrics.firstTokenMs) ? data.metrics.firstTokenMs : null,
     };
