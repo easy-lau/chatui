@@ -982,3 +982,47 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   overflow-wrap:anywhere!important;
   word-break:break-word!important;
 }
+
+
+/* Copy success icon: keep the transient checkmark centered in its own button.
+   Some earlier SVG rules force position:static/margin:auto, so this final rule wins. */
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn.copied:hover{
+  position:relative!important;
+  display:inline-grid!important;
+  place-items:center!important;
+  overflow:hidden!important;
+  padding:0!important;
+  line-height:0!important;
+  transform:none!important;
+}
+.copy-btn.icon-action-btn.copied>.copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied>.copy-success-icon,
+.reasoning-copy-btn.copied>.copy-success-icon{
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  right:auto!important;
+  bottom:auto!important;
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
+  flex:0 0 15px!important;
+  display:block!important;
+  margin:0!important;
+  padding:0!important;
+  transform:translate(-50%,-50%)!important;
+  transform-origin:center center!important;
+}
+.copy-btn.icon-action-btn.copied>.copy-success-icon path,
+.markdown-body .code-block .code-copy-icon.copied>.copy-success-icon path,
+.reasoning-copy-btn.copied>.copy-success-icon path{
+  transform:none!important;
+  transform-box:view-box!important;
+  transform-origin:center center!important;
+}
