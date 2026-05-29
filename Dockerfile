@@ -25,6 +25,12 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8765 \
     UPSTREAM_TIMEOUT_MS=600000 \
+    POSTGRES_URL= \
+    USAGE_RANKING_LIMIT=10 \
+    PG_POOL_MIN=0 \
+    PG_POOL_MAX=10 \
+    PG_IDLE_TIMEOUT_MS=30000 \
+    PG_CONNECTION_TIMEOUT_MS=5000 \
     PATH=/usr/local/bin:/usr/bin:/bin
 
 COPY package.json package-lock.json ./

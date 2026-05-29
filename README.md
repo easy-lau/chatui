@@ -1,6 +1,6 @@
 # ChatUI 极简聊天与生图工具
 
-ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单页前端 + Node.js 本地代理为核心，支持聊天、流式输出、思考内容展示、文本生图、图片编辑、多附件解析、Markdown/数学公式/Mermaid 渲染、会话管理、任务恢复、本地图片缓存和 Docker 镜像发布。
+ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单页前端 + Node.js 本地代理为核心，支持聊天、流式输出、思考内容展示、文本生图、图片编辑、多附件解析、Markdown/数学公式/Mermaid 渲染、会话管理、任务恢复、本地图片缓存、使用统计排行榜和 Docker 镜像发布。
 
 项目定位：用尽量少的依赖快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地模型代理。
 
@@ -19,6 +19,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - [附件能力](#附件能力)
 - [Markdown、公式与图表](#markdown公式与图表)
 - [会话、本地存储与任务恢复](#会话本地存储与任务恢复)
+- [使用统计与排行榜](#使用统计与排行榜)
 - [服务端 API 与代理](#服务端-api-与代理)
 - [环境变量](#环境变量)
 - [目录结构](#目录结构)
@@ -126,6 +127,17 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 正在输出离开可视焦点时显示“继续查看输出”按钮。
 - 点击“继续查看输出”可回到当前输出位置。
 - 新建/切换会话不会残留旧会话的输出焦点。
+
+### 使用统计能力
+
+- 可选 PostgreSQL 使用统计，不配置数据库时自动关闭，不影响聊天、生图和附件功能。
+- 支持今日排行、昨日排行、总排行，默认每个范围返回前 10 名。
+- 支持通过环境变量调整排行榜返回数量。
+- 支持个人使用统计，按当前浏览器配置的 API Key 查询。
+- 统计范围支持今日、昨日、总计切换。
+- 前端采用懒加载：打开弹窗只查当前范围，切换到哪个范围才查询哪个范围，已查询数据会在前端缓存。
+- 后端使用独立 PostgreSQL 连接池，连接串、连接池大小、超时和 SSL 均通过环境变量配置。
+- 统计模块与聊天、图片、附件和 OpenAI 代理解耦，独立路由为 `/api/usage/*`。
 
 ### 部署与工程能力
 
@@ -760,6 +772,41 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 - 如果服务端任务已过期或服务重启导致任务不存在，会显示明确错误并清理过期 pending 状态。
 
 ---
+## 使用统计与排行榜
+
+使用统计是可选能力，依赖外部 PostgreSQL 数据库中的使用日志表。未配置数据库连接时，前端统计入口仍可打开，但接口会返回不可用状态，核心聊天、生图、图片编辑和附件解析不受影响。
+
+#### 展示能力
+
+- 右上角使用统计按钮，点击打开独立统计弹窗。
+- 个人统计默认展示今日，并支持今日、昨日、总计切换。
+- 排行榜支持今日排行、昨日排行、总排行。
+- 排行榜默认展示前 10 名，可通过环境变量调整。
+- 前三名使用金、银、铜视觉样式，但显示文本仍为 `1 / 2 / 3`。
+- 指标包括：总用量、输入、输出、缓存输入、推理输出。
+- 百万以上使用 `M`，亿以上使用 `B`，鼠标悬停可查看完整数值。
+
+#### 查询策略
+
+- 前端采用懒加载，打开弹窗只查询当前展示范围。
+- 切换排行榜 Tab 时，只查询目标范围排行榜。
+- 切换个人统计范围时，只查询目标范围个人统计。
+- 已加载过的数据会在当前页面生命周期内缓存，重复切换不重复查询。
+- 点击刷新按钮只刷新当前展示的个人统计范围和当前排行榜范围。
+
+#### 数据库连接
+
+- 后端使用 `pg.Pool` 连接池复用数据库连接。
+- 连接串、分散连接参数、连接池最小/最大连接数、空闲超时、连接超时和 SSL 均通过环境变量配置。
+- 推荐生产环境使用单变量连接串，例如：
+
+```bash
+POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disable'
+```
+
+请不要在仓库、镜像或文档中写入真实数据库账号、密码、主机或连接串。
+
+---
 
 ## 服务端 API 与代理
 
@@ -771,6 +818,8 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
 | `/api/extract-file` | POST | 附件文本提取：PDF / Office 等 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
+| `/api/usage/rankings?range=today|yesterday|total` | GET | 查询指定范围排行榜，懒加载按需查询 |
+| `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key` 与 `range` |
 
 ### Job API
 
@@ -837,11 +886,37 @@ GET, POST
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
 | `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
 | `NODE_ENV` | Docker 中为 `production` | Node 运行环境 |
+| `POSTGRES_URL` | 未设置 | PostgreSQL 单变量连接串，推荐生产部署使用，例如 `postgres://user:password@host:5432/database?sslmode=disable` |
+| `POSTGRESQL_URL` | 未设置 | PostgreSQL 连接串别名 |
+| `PG_DATABASE_URL` | 未设置 | PostgreSQL 连接串别名 |
+| `DATABASE_URL` | 未设置 | 通用数据库连接串别名 |
+| `PGHOST` / `POSTGRES_HOST` | 未设置 | PostgreSQL 主机；未使用连接串时生效 |
+| `PGPORT` / `POSTGRES_PORT` | `5432` | PostgreSQL 端口；未使用连接串时生效 |
+| `PGDATABASE` / `POSTGRES_DATABASE` | 未设置 | PostgreSQL 数据库名；未使用连接串时生效 |
+| `PGUSER` / `POSTGRES_USER` | 未设置 | PostgreSQL 用户名；未使用连接串时生效 |
+| `PGPASSWORD` / `POSTGRES_PASSWORD` | 未设置 | PostgreSQL 密码；未使用连接串时生效 |
+| `PG_POOL_MIN` / `POSTGRES_POOL_MIN` | `0` | PostgreSQL 连接池最小连接数 |
+| `PG_POOL_MAX` / `POSTGRES_POOL_MAX` | `10` | PostgreSQL 连接池最大连接数 |
+| `PG_IDLE_TIMEOUT_MS` / `POSTGRES_IDLE_TIMEOUT_MS` | `30000` | PostgreSQL 连接池空闲连接回收时间 |
+| `PG_CONNECTION_TIMEOUT_MS` / `POSTGRES_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL 建连超时时间 |
+| `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
+| `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
+| `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
 
 示例：
 
 ```bash
 HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
+```
+
+使用统计示例：
+
+```bash
+POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disable' \
+PG_POOL_MIN=0 \
+PG_POOL_MAX=10 \
+USAGE_RANKING_LIMIT=10 \
+node server.js
 ```
 
 公开部署建议：
@@ -862,13 +937,15 @@ DISALLOW_PRIVATE_UPSTREAM=1 node server.js
 ├── server.js                      # Node HTTP 启动入口
 ├── client/                        # 前端拆分模块
 │   ├── core/                      # 纯逻辑：附件、消息、模型、reasoning、图片引用、路由上下文、存储
-│   ├── services/                  # 请求与 payload：模型、聊天、路由、生图、图片、Job
-│   ├── ui/                        # UI 辅助：消息渲染、图片操作、滚动、实时渲染、文件动作
+│   ├── services/                  # 请求与 payload：模型、聊天、路由、生图、图片、Job、使用统计
+│   ├── ui/                        # UI 辅助：消息渲染、图片操作、滚动、实时渲染、文件动作、统计弹窗
 │   └── app/                       # 应用状态：会话、持久化、运行态、图片缓存、display items
 ├── server/                        # 服务端模块
 │   ├── app.js                     # 服务装配：JobStore、代理、路由、静态服务
 │   ├── config/                    # 端口、根目录、上游超时、代理 allowlist、版本
 │   ├── api/                       # HTTP 路由分发
+│   ├── db/                        # 可选数据库连接池，例如 PostgreSQL
+│   ├── usage/                     # 使用统计查询仓库
 │   ├── http/                      # 请求 body、响应、安全头、静态文件服务
 │   ├── proxy/                     # OpenAI 兼容代理、图片代理、Header 规范化
 │   ├── extract/                   # PDF / Office / OpenXML / OCR 辅助解析

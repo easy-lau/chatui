@@ -7,8 +7,13 @@ const { send, sendJson, sendMethodNotAllowed } = require('./http/response');
 const { createJobHandlers } = require('./jobs/chat-image');
 const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
+const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
+const { createUsageStatsRepository } = require('./usage/stats-repository');
 
 function createApp() {
+  const postgresConfig = createPostgresConfig();
+  const postgresPool = createPostgresPool(postgresConfig);
+  const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
   const sweeper = startJobSweeper([imageJobs, chatJobs]);
@@ -57,9 +62,13 @@ function createApp() {
     registerChatStreamJob,
     startChatJob,
     getChatJob,
+    usageStats,
   });
   const server = http.createServer(route);
-  server.on('close', () => clearInterval(sweeper));
+  server.on('close', () => {
+    clearInterval(sweeper);
+    postgresPool?.end?.().catch(err => console.error('[postgres] failed to close pool:', err));
+  });
   return { server, stores: { imageJobs, chatJobs }, sweeper };
 }
 

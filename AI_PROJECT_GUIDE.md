@@ -13,6 +13,7 @@ ChatUI 是一个轻量的 OpenAI 兼容 Web 工具，核心能力包括：
 - 多附件上传、文本/PDF/Office 解析
 - Markdown、数学公式、Mermaid、代码复制
 - 会话、本地持久化、IndexedDB 图片缓存
+- 可选 PostgreSQL 使用统计、个人统计和排行榜
 
 ## 顶层入口
 
@@ -22,8 +23,8 @@ ChatUI 是一个轻量的 OpenAI 兼容 Web 工具，核心能力包括：
 | `styles.css` | 全局样式、响应式布局、消息/图片/配置面板样式 |
 | `app.js` | 浏览器端主逻辑；当前仍是主要运行入口和业务编排点 |
 | `server.js` | Node HTTP 启动入口，兼容部署入口 |
-| `server/` | 服务端模块化代码：路由、代理、Job、附件解析、静态资源 |
-| `client/` | 从前端主逻辑拆出的可测试模块：core / services / ui / app |
+| `server/` | 服务端模块化代码：路由、代理、Job、附件解析、静态资源、可选数据库和使用统计 |
+| `client/` | 从前端主逻辑拆出的可测试模块：core / services / ui / app；使用统计前端也拆在 services/ui 中 |
 | `test/` | Node 单元测试、API 测试、冒烟测试 |
 | `vendor/` | 本地前端第三方资源，例如 markdown-it、KaTeX、Mermaid |
 
@@ -72,6 +73,7 @@ ChatUI 是一个轻量的 OpenAI 兼容 Web 工具，核心能力包括：
 | `image-generation-service.js` | 生图/修图 prompt 组装、图片请求 payload、图片上下文创建 |
 | `job-service.js` | Job id、Job 请求封装、SSE/轮询辅助 |
 | `model-service.js` | 模型列表加载与归一化 |
+| `usage-stats.js` | 使用统计排行榜与个人统计接口请求 |
 
 ### `client/ui/`
 
@@ -85,6 +87,7 @@ UI 片段或交互辅助，目标是让纯 UI 逻辑可测试：
 | `scroll-controller.js` | 滚动、锁定、恢复按钮相关辅助 |
 | `realtime-renderer.js` | 流式更新展示辅助 |
 | `file-actions.js` | 文件下载/命名等辅助 |
+| `usage-stats.js` | 使用统计按钮、弹窗、懒加载、刷新和排行展示 |
 
 ### `client/app/`
 
@@ -112,6 +115,7 @@ UI 片段或交互辅助，目标是让纯 UI 逻辑可测试：
 - `server/api/router.js`：总路由分发。
 - `server/api/routes/core.js`：核心 API，例如版本、图片代理、附件解析、聊天流注册。
 - `server/api/routes/jobs.js`：聊天 Job 与图片 Job 的 HTTP/SSE 路由。
+- `server/api/routes/usage.js`：使用统计 API，独立挂载在 `/api/usage/*`。
 
 ### Job 与上游调用
 
@@ -129,6 +133,8 @@ UI 片段或交互辅助，目标是让纯 UI 逻辑可测试：
 - `server/extract/`：附件文本提取，包含 PDF、Office、OpenXML ZIP 等。
 - `server/security/url-policy.js`：上游 URL 安全策略，避免 SSRF 等风险。
 - `server/http/`：请求 body、响应、安全头、静态文件服务。
+- `server/db/postgres.js`：可选 PostgreSQL 连接池配置和创建，支持连接串、连接池和超时环境变量。
+- `server/usage/stats-repository.js`：使用统计 SQL 查询仓库；排行榜按范围懒查询，默认前 10 名。
 
 ## 核心请求链路
 
@@ -257,3 +263,46 @@ npm test
 ```
 
 修改单个模块时，优先跑对应单测；交付前至少跑一次 `npm test`。
+
+## 使用统计模块
+
+使用统计是可选、解耦模块，不参与聊天、生图、附件解析或 OpenAI 代理链路。
+
+### 文件边界
+
+- `server/db/postgres.js`：只负责 PostgreSQL 连接池配置和创建。
+- `server/usage/stats-repository.js`：只负责使用统计 SQL 查询。
+- `server/api/routes/usage.js`：只负责 `/api/usage/*` 路由。
+- `client/services/usage-stats.js`：只负责前端统计接口请求。
+- `client/ui/usage-stats.js`：只负责统计入口、弹窗、懒加载和展示。
+- `styles/usage-stats.css`：只负责 `.usage-*` 命名空间样式。
+
+### 环境变量
+
+推荐使用单变量连接串：
+
+```bash
+POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disable'
+```
+
+兼容别名：`POSTGRESQL_URL`、`PG_DATABASE_URL`、`DATABASE_URL`。
+
+连接池和查询数量：
+
+```bash
+PG_POOL_MIN=0
+PG_POOL_MAX=10
+PG_IDLE_TIMEOUT_MS=30000
+PG_CONNECTION_TIMEOUT_MS=5000
+USAGE_RANKING_LIMIT=10
+```
+
+也兼容 `POSTGRES_POOL_MIN`、`POSTGRES_POOL_MAX`、`POSTGRES_IDLE_TIMEOUT_MS`、`POSTGRES_CONNECTION_TIMEOUT_MS`、`USAGE_STATS_RANKING_LIMIT`。
+
+注意：文档和提交中不要写真实账号、密码、主机或连接串。
+
+### 查询策略
+
+- `/api/usage/rankings?range=today|yesterday|total`：一次只查指定范围排行榜。
+- `/api/usage/personal`：body 包含 `api_key` 和 `range`，一次只查指定个人统计范围。
+- 前端打开弹窗只加载默认今日数据；切换到哪个范围才查询哪个范围；已查过数据在当前页面生命周期内缓存。

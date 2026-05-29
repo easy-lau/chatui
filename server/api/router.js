@@ -1,5 +1,6 @@
 const { createCoreRoutes } = require('./routes/core');
 const { createJobRoutes } = require('./routes/jobs');
+const { createUsageRoutes } = require('./routes/usage');
 
 function createRouter(deps) {
   const {
@@ -24,6 +25,7 @@ function createRouter(deps) {
     registerChatStreamJob,
     startChatJob,
     getChatJob,
+    usageStats,
   } = deps;
 
   const { routeCoreApi } = createCoreRoutes({
@@ -50,6 +52,12 @@ function createRouter(deps) {
     getChatJob,
   });
 
+  const { routeUsage } = createUsageRoutes({
+    sendJson,
+    sendMethodNotAllowed,
+    usageStats,
+  });
+
   return async function route(req, res) {
     if (req.method === 'OPTIONS') {
       return send(res, 204, '', {
@@ -68,6 +76,10 @@ function createRouter(deps) {
 
     if (req.url === '/api/image-jobs' || req.url.startsWith('/api/image-jobs/')) {
       return routeImageJobs(req, res);
+    }
+
+    if (req.url === '/api/usage' || req.url.startsWith('/api/usage/')) {
+      return routeUsage(req, res);
     }
 
     if (req.url.startsWith('/api/')) {

@@ -101,7 +101,7 @@ async function connectCdp() {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Page.navigate', { url: base });
-    await new Promise(r => setTimeout(r, 1000));
+    await waitFor(async () => cdp.evalJs(`!!window.ChatUICore && !!window.ChatUIServices && !!window.ChatUI && !!window.ChatUIApp && !!document.querySelector('#prompt')`));
     const result = await cdp.evalJs(`(() => ({
       core: !!window.ChatUICore,
       http: window.ChatUICore?.http?.normalizeError(null, { error: { code: 'X' } }),
