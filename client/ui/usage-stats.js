@@ -11,7 +11,7 @@
 
   function formatTokens(value) {
     const number = Number(value) || 0;
-    if (Math.abs(number) >= 100000000) return `${trimUnit(number / 100000000)}B`;
+    if (Math.abs(number) >= 1000000000) return `${trimUnit(number / 1000000000)}B`;
     if (Math.abs(number) >= 1000000) return `${trimUnit(number / 1000000)}M`;
     return new Intl.NumberFormat('zh-CN').format(number);
   }
@@ -264,6 +264,9 @@
     });
   }
 
+  if (typeof module !== 'undefined' && module.exports) module.exports = { formatTokens, trimUnit, fullNumber };
+
+  if (typeof document === 'undefined') return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
