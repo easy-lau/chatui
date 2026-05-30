@@ -510,15 +510,71 @@
   .usage-stats-body { padding: 12px; }
   .usage-personal { grid-template-columns: 1fr; }
   .usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .usage-ranking-row { grid-template-columns: 30px minmax(0, 1fr); }
-  .usage-token-grid { grid-column: 2; }
-  .usage-token-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); overflow-x: auto; padding-bottom: 2px; }
+  .usage-ranking { padding: 8px; }
+  .usage-ranking-list { gap: 8px; }
+  .usage-ranking-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+    gap: 7px 9px;
+    min-height: 0;
+    padding: 10px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .82);
+  }
+  .usage-rank-index {
+    width: 30px;
+    height: 30px;
+    margin-top: 1px;
+  }
+  .usage-ranking-user {
+    align-self: center;
+    font-size: 14px;
+    line-height: 30px;
+  }
+  .usage-token-grid {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+  .usage-token-badge {
+    display: flex;
+    min-height: 42px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 2px;
+    border-radius: 12px;
+    padding: 7px 8px;
+  }
+  .usage-token-badge:first-child {
+    grid-column: 1 / -1;
+    min-height: 46px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+  }
+  .usage-token-badge em { font-size: 11px; }
+  .usage-token-badge strong {
+    width: 100%;
+    overflow: visible;
+    text-overflow: clip;
+    text-align: left;
+    font-size: 13px;
+  }
+  .usage-token-badge:first-child strong {
+    width: auto;
+    text-align: right;
+    font-size: 17px;
+  }
 }
 
 @media (max-width: 420px) {
   .usage-tabs { gap: 6px; }
   .usage-tabs button { font-size: 12px; }
   .usage-personal-ranges { grid-template-columns: 1fr; }
-  .usage-personal-hero { align-items: flex-start; flex-direction: column; }
   .usage-personal-total { width: 100%; text-align: left; }
+  .usage-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
