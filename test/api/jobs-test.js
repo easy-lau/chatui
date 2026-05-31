@@ -29,9 +29,22 @@ assert.match(multipart.headers['Content-Type'], /^multipart\/form-data; boundary
 assert.strictEqual(Number(multipart.headers['Content-Length']), multipart.body.length);
 assert.match(multipartText, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/);
 assert.match(multipartText, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/);
-assert.match(multipartText, /Content-Disposition: form-data; name="image"; filename="a\.png"\r\nContent-Type: image\/png\r\n\r\npng-data/);
-assert.doesNotMatch(multipartText, /name="image\[\]"/);
+assert.match(multipartText, /Content-Disposition: form-data; name="image\[\]"; filename="a\.png"\r\nContent-Type: image\/png\r\n\r\npng-data/);
+assert.doesNotMatch(multipartText, /Content-Disposition: form-data; name="image"; filename=/);
 assert.ok(multipartText.endsWith('--\r\n'));
+
+const multiImageMultipart = buildImageEditMultipartBody(
+  { model: 'gpt-image-1', prompt: '合成两张图' },
+  [
+    { name: 'a.png', type: 'image/png', data: Buffer.from('first-image').toString('base64') },
+    { name: 'b.png', type: 'image/png', data: Buffer.from('second-image').toString('base64') },
+  ]
+);
+const multiImageText = multiImageMultipart.body.toString('utf8');
+assert.strictEqual((multiImageText.match(/name="image\[\]"; filename=/g) || []).length, 2);
+assert.match(multiImageText, /filename="a\.png"\r\nContent-Type: image\/png\r\n\r\nfirst-image/);
+assert.match(multiImageText, /filename="b\.png"\r\nContent-Type: image\/png\r\n\r\nsecond-image/);
+assert.doesNotMatch(multiImageText, /Content-Disposition: form-data; name="image"; filename=/);
 
 const editBody = {
   payload: { model: 'gpt-image-1', prompt: '改图', files: [{ name: 'payload.png', data: 'bad' }] },

@@ -67,7 +67,10 @@ async function json(res) {
       body: JSON.stringify({
         baseUrl: upstreamBase,
         payload: { model: 'gpt-image-1', prompt: '改图', files: [{ name: 'payload.png', data: 'bad' }] },
-        files: [{ name: 'outer.png', type: 'image/png', data: Buffer.from('outer').toString('base64') }],
+        files: [
+          { name: 'outer.png', type: 'image/png', data: Buffer.from('outer').toString('base64') },
+          { name: 'second.png', type: 'image/png', data: Buffer.from('second').toString('base64') },
+        ],
       }),
     });
     assert.strictEqual(res.status, 200, 'image edit proxy accepts base64 files');
@@ -76,8 +79,10 @@ async function json(res) {
     const imageEditBody = upstreamRequest.body.toString('utf8');
     assert.match(imageEditBody, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/, 'image edit proxy keeps model field');
     assert.match(imageEditBody, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/, 'image edit proxy keeps prompt field');
-    assert.match(imageEditBody, /Content-Disposition: form-data; name="image"; filename="outer\.png"\r\nContent-Type: image\/png\r\n\r\nouter/, 'image edit proxy forwards image file field');
-    assert.doesNotMatch(imageEditBody, /name="image\[\]"/, 'image edit proxy does not use image[] field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="image\[\]"; filename="outer\.png"\r\nContent-Type: image\/png\r\n\r\nouter/, 'image edit proxy forwards first OpenAI-compatible image[] file field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="image\[\]"; filename="second\.png"\r\nContent-Type: image\/png\r\n\r\nsecond/, 'image edit proxy forwards second OpenAI-compatible image[] file field');
+    assert.strictEqual((imageEditBody.match(/name="image\[\]"; filename=/g) || []).length, 2, 'image edit proxy forwards multiple image[] files');
+    assert.doesNotMatch(imageEditBody, /Content-Disposition: form-data; name="image"; filename=/, 'image edit proxy does not use singular image file field');
     assert.doesNotMatch(imageEditBody, /payload\.png|name="files"/, 'image edit proxy strips json file fields');
 
     for (let i = 0; i < 4; i += 1) {

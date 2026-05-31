@@ -30,7 +30,7 @@ function buildImageEditMultipartBody(payload = {}, files = []) {
     if (value === undefined || value === null || value === '') return;
     appendMultipartField(parts, boundary, key, typeof value === 'string' ? value : JSON.stringify(value));
   });
-  (files || []).forEach((file, index) => appendMultipartFile(parts, boundary, 'image', file || {}, index));
+  (files || []).forEach((file, index) => appendMultipartFile(parts, boundary, 'image[]', file || {}, index));
   parts.push(Buffer.from(`--${boundary}--\r\n`));
   const body = Buffer.concat(parts);
   return {
