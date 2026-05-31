@@ -2,7 +2,7 @@
 const assert = require('assert');
 const { makeJobId, publicJob } = require('../../server/jobs/common');
 const { makeChatJob } = require('../../server/jobs/chat');
-const { buildImageEditMultipartBody } = require('../../server/jobs/image');
+const { buildImageEditMultipartBody, extractImageEditFiles, stripImageEditFileFields } = require('../../server/jobs/image');
 const { normalizeContentText, normalizeReasoningText } = require('../../server/jobs/reasoning');
 
 const supplied = 'chatjob-12345678';
@@ -30,5 +30,13 @@ assert.strictEqual(Number(multipart.headers['Content-Length']), multipart.body.l
 assert.match(multipartText, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/);
 assert.match(multipartText, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/);
 assert.match(multipartText, /Content-Disposition: form-data; name="image"; filename="a\.png"\r\nContent-Type: image\/png\r\n\r\npng-data/);
+assert.doesNotMatch(multipartText, /name="image\[\]"/);
 assert.ok(multipartText.endsWith('--\r\n'));
+
+const editBody = {
+  payload: { model: 'gpt-image-1', prompt: '改图', files: [{ name: 'payload.png', data: 'bad' }] },
+  files: [{ name: 'outer.png', type: 'image/png', data: Buffer.from('outer').toString('base64') }],
+};
+assert.deepStrictEqual(extractImageEditFiles(editBody).map(file => file.name), ['outer.png']);
+assert.deepStrictEqual(stripImageEditFileFields(editBody.payload), { model: 'gpt-image-1', prompt: '改图' });
 console.log('jobs ok');

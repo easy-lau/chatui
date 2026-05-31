@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 const assert = require('assert');
+const http = require('http');
 const { createApp } = require('../../server/app');
 
 const port = Number(process.env.TEST_ROUTER_PORT || 18766);
+const upstreamPort = port + 1;
 const base = `http://127.0.0.1:${port}`;
+const upstreamBase = `http://127.0.0.1:${upstreamPort}`;
 
 async function listen(server) {
   await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
@@ -16,7 +19,16 @@ async function json(res) {
 
 (async () => {
   const { server } = createApp();
+  let upstreamRequest = null;
+  const upstream = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    upstreamRequest = { url: req.url, headers: req.headers, body: Buffer.concat(chunks) };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
   try {
+    await new Promise(resolve => upstream.listen(upstreamPort, '127.0.0.1', resolve));
     await listen(server);
 
     let res = await fetch(`${base}/api/version`, { method: 'POST' });
@@ -48,6 +60,25 @@ async function json(res) {
     res = await fetch(`${base}/api/models`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.strictEqual(res.status, 400, 'proxy validates missing base url');
     assert.strictEqual((await json(res)).error.code, 'INVALID_BASE_URL', 'base url error code');
+
+    res = await fetch(`${base}/api/images/edits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseUrl: upstreamBase,
+        payload: { model: 'gpt-image-1', prompt: '改图', files: [{ name: 'payload.png', data: 'bad' }] },
+        files: [{ name: 'outer.png', type: 'image/png', data: Buffer.from('outer').toString('base64') }],
+      }),
+    });
+    assert.strictEqual(res.status, 200, 'image edit proxy accepts base64 files');
+    assert.strictEqual(upstreamRequest.url, '/images/edits', 'image edit proxy target path');
+    assert.match(upstreamRequest.headers['content-type'], /^multipart\/form-data; boundary=----chatui-image-edit-/, 'image edit proxy sends official multipart body');
+    const imageEditBody = upstreamRequest.body.toString('utf8');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/, 'image edit proxy keeps model field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/, 'image edit proxy keeps prompt field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="image"; filename="outer\.png"\r\nContent-Type: image\/png\r\n\r\nouter/, 'image edit proxy forwards official image file field');
+    assert.doesNotMatch(imageEditBody, /name="image\[\]"/, 'image edit proxy does not use non-official image[] field');
+    assert.doesNotMatch(imageEditBody, /payload\.png|name="files"/, 'image edit proxy strips json file fields');
 
     for (let i = 0; i < 4; i += 1) {
       res = await fetch(`${base}/api/chat-jobs`, {
@@ -90,6 +121,7 @@ async function json(res) {
     console.log('router ok');
   } finally {
     await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => upstream.close(resolve));
   }
 })().catch(err => {
   console.error(err);

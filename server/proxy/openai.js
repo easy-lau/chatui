@@ -2,6 +2,11 @@ const { SECURITY_HEADERS, send, sendJson, sendError } = require('../http/respons
 const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('./headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
+const {
+  extractImageEditFiles,
+  stripImageEditFileFields,
+  buildImageEditMultipartBody,
+} = require('../jobs/image');
 
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);
@@ -43,6 +48,8 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
     const targetUrl = withQueryParams(`${baseUrl}${targetPath}`, query);
     const wantsStream = method !== 'GET' && payload && payload.stream === true;
+    const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
+    const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
       proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, payload, { stream: true });
       if (proxyChatJob.streamStarted) proxyChatJob = null;
@@ -53,16 +60,23 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         notifyJob(proxyChatJob);
       }
     }
+    let upstreamBody = method === 'GET' ? undefined : JSON.stringify(payload);
+    let upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
+    if (isImageEdit && imageEditFiles.length) {
+      const multipart = buildImageEditMultipartBody(stripImageEditFileFields(payload), imageEditFiles);
+      upstreamBody = multipart.body;
+      upstreamContentHeaders = multipart.headers;
+    }
     const upstream = await fetch(targetUrl.toString(), {
       method,
       signal: controller.signal,
       headers: {
-        ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
+        ...upstreamContentHeaders,
         ...(wantsStream ? { Accept: 'text/event-stream' } : {}),
         ...extraHeaders,
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
-      ...(method === 'GET' ? {} : { body: JSON.stringify(payload) }),
+      ...(method === 'GET' ? {} : { body: upstreamBody }),
     });
 
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';

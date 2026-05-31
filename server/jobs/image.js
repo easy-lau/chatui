@@ -4,6 +4,7 @@ const { normalizeExtraHeaders } = require('../proxy/headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
 const { makeJobId, getJobIdFromUrl, publicJob } = require('./common');
 
+
 function multipartEscape(value = '') {
   return String(value || '').replace(/[\r\n"]/g, '_');
 }
@@ -41,6 +42,21 @@ function buildImageEditMultipartBody(payload = {}, files = []) {
   };
 }
 
+function extractImageEditFiles(body = {}) {
+  const candidates = [body.files, body.images, body.image_files, body.imageFiles, body.payload?.files, body.payload?.images]
+    .find(Array.isArray) || [];
+  return candidates.filter(item => item?.data);
+}
+
+function stripImageEditFileFields(payload = {}) {
+  const next = { ...(payload || {}) };
+  delete next.files;
+  delete next.images;
+  delete next.image_files;
+  delete next.imageFiles;
+  return next;
+}
+
 function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
 async function runImageJob(job) {
 const controller = new AbortController();
@@ -51,9 +67,9 @@ try {
   const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
   let body;
   if (job.mode === 'edit_image') {
-    const multipart = buildImageEditMultipartBody(job.payload, job.files);
-    Object.assign(headers, multipart.headers);
+    const multipart = buildImageEditMultipartBody(stripImageEditFileFields(job.payload), job.files);
     body = multipart.body;
+    Object.assign(headers, multipart.headers);
   } else {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(job.payload || {});
@@ -89,8 +105,7 @@ try {
   const baseUrl = normalizeBaseUrl(body.baseUrl);
   const apiKey = String(body.apiKey || '').trim();
   const payload = body.payload || {};
-  const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
-  if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
+    if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
   const jobId = makeJobId(body.jobId);
   if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const mode = body.mode === 'edit_image' ? 'edit_image' : 'image';
@@ -130,4 +145,9 @@ sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   return { startImageJob, getImageJob };
 }
 
-module.exports = { createImageJobHandlers, buildImageEditMultipartBody };
+module.exports = {
+  createImageJobHandlers,
+  buildImageEditMultipartBody,
+  extractImageEditFiles,
+  stripImageEditFileFields,
+};
