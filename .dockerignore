@@ -1,11 +1,17 @@
 .git
 .github
+.gitignore
+.openclaw
 node_modules
 npm-debug.log*
 .DS_Store
 *.local
 .env
 .env.*
+coverage
+dist
+temp
+test
 README.md
 LICENSE
 *.md

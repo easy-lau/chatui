@@ -5,6 +5,10 @@ on:
     types:
       - published
 
+concurrency:
+  group: docker-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: true
+
 env:
   IMAGE_NAME: chatui
   DOCKERHUB_NAMESPACE: liugangqiang
@@ -93,6 +97,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          pull: true
           tags: ${{ steps.meta_acr.outputs.tags }}
           labels: ${{ steps.meta_acr.outputs.labels }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
