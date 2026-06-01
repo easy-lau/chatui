@@ -7,6 +7,8 @@ function compactDisplayItems(items = []) {
     const prevKey = prev ? [prev.role || '', prev.rawText || '', prev.html || '', prev.pending || '', prev.jobId || '', prev.responseIndex || '', prev.messageIndex || ''].join('') : '';
     if (prev && key === prevKey) {
       if (item.metaText && !prev.metaText) prev.metaText = item.metaText;
+      if (item.reasoningText && !prev.reasoningText) prev.reasoningText = item.reasoningText;
+      if (item.keepReasoning && !prev.keepReasoning) prev.keepReasoning = item.keepReasoning;
     } else {
       result.push(item);
     }

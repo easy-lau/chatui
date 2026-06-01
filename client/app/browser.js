@@ -796,7 +796,13 @@
       const prev = result[result.length - 1];
       const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || ''].join('');
       const prevKey = prev ? [prev.role || '', prev.rawText || '', prev.html || '', prev.pending || '', prev.jobId || '', prev.responseIndex || '', prev.messageIndex || ''].join('') : '';
-      if (!prev || key !== prevKey) result.push(item);
+      if (prev && key === prevKey) {
+        if (item.metaText && !prev.metaText) prev.metaText = item.metaText;
+        if (item.reasoningText && !prev.reasoningText) prev.reasoningText = item.reasoningText;
+        if (item.keepReasoning && !prev.keepReasoning) prev.keepReasoning = item.keepReasoning;
+      } else {
+        result.push(item);
+      }
     }
     return result;
   }
