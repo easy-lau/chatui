@@ -1,0 +1,31 @@
+function getEffectiveImageStylePrompt({ session = null, config = {} } = {}) {
+  return String(session?.hasImageStylePromptOverride ? session.imageStylePrompt || '' : config.imageStylePrompt || '').trim();
+}
+
+function getSessionChatModel({ session = null, config = {}, models = [] } = {}) {
+  const selected = String(session?.chatModel || '').trim();
+  return selected && models.includes(selected) ? selected : config.chatModel;
+}
+
+function sessionChatModelValue(session = null, models = []) {
+  const selected = String(session?.chatModel || '').trim();
+  return selected && models.includes(selected) ? selected : '';
+}
+
+function sessionModelOptions({ models = [], globalChatModel = '', isAllowed = () => true } = {}) {
+  const chatModels = [...new Set(models)].filter(model => isAllowed(model, 'chat'));
+  return [{ value: '', label: `跟随全局${globalChatModel ? ` · ${globalChatModel}` : ''}` }]
+    .concat(chatModels.map(model => ({ value: model, label: model })));
+}
+
+function normalizeSessionChatModel(model = '', models = []) {
+  return models.includes(model) ? model : '';
+}
+
+module.exports = {
+  getEffectiveImageStylePrompt,
+  getSessionChatModel,
+  sessionChatModelValue,
+  sessionModelOptions,
+  normalizeSessionChatModel,
+};

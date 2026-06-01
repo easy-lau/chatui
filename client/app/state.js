@@ -32,6 +32,12 @@ function ensureActiveSession(appState, create = createSession) {
   }
   session.messages ||= [];
   session.display ||= [];
+  session.headerValues ||= {};
+  session.systemPrompt ||= '';
+  session.imageStylePrompt ||= '';
+  session.chatModel ||= '';
+  if (session.hasSystemPromptOverride !== true) session.hasSystemPromptOverride = false;
+  if (session.hasImageStylePromptOverride !== true) session.hasImageStylePromptOverride = false;
   return session;
 }
 
