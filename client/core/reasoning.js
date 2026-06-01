@@ -106,6 +106,7 @@ function extractStreamDelta(event) {
 
 function extractResponsesStreamDelta(event) {
   const type = String(event?.type || '');
+  if (/\.done$/i.test(type) || type === 'response.completed') return { content: '', reasoning: '' };
   const isReasoning = /reasoning/i.test(type);
   const isSummary = /summary/i.test(type);
   const content = normalizeContentText(
@@ -113,7 +114,6 @@ function extractResponsesStreamDelta(event) {
     (!isReasoning ? event?.text : '') ||
     (!isReasoning ? event?.output_text_delta : '') ||
     (!isReasoning ? event?.response?.output_text?.delta : '') ||
-    (type === 'response.output_text.done' ? event?.text : '') ||
     ''
   );
   const reasoningDelta = isReasoning && isSummary

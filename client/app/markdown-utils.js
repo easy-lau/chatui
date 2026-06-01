@@ -87,6 +87,10 @@ function replaceGfmEmojiShortcodes(value = '', shortcodes = GFM_EMOJI_SHORTCODES
   return output;
 }
 
+function isMathPlaceholder(value = '') {
+  return /^@@MATH\d+@@$/.test(String(value || ''));
+}
+
 function extractMathSegments(value = '') {
   const text = String(value || '');
   const math = [];
@@ -196,6 +200,14 @@ function restoreMathSegments(value, math = [], { katex = null, escapeHtml = Stri
         ? `<div class="math-fallback">${escapeHtml(item.raw)}</div>`
         : `<span class="math-fallback">${escapeHtml(item.raw)}</span>`;
     }
+  });
+}
+
+function restoreRawMathSegments(value, math = []) {
+  return String(value || '').replace(/@@MATH(\d+)@@/g, (match, index) => {
+    const item = math[Number(index)];
+    if (!item) return '';
+    return item.displayMode ? `$$${item.raw}$$` : `$${item.raw}$`;
   });
 }
 
@@ -332,8 +344,69 @@ function splitTableRow(value) {
     .map(cell => cell.trim());
 }
 
+function preserveCodeSpans(value = '', prefix = 'MD') {
+  const placeholders = [];
+  const text = String(value || '')
+    .replace(/```[\s\S]*?```/g, match => {
+      const key = `@@${prefix}_CODE_${placeholders.length}@@`;
+      placeholders.push(match);
+      return key;
+    })
+    .replace(/`[^`]*`/g, match => {
+      const key = `@@${prefix}_CODE_${placeholders.length}@@`;
+      placeholders.push(match);
+      return key;
+    });
+  return { text, placeholders };
+}
+
+function restoreCodeSpans(value = '', placeholders = [], prefix = 'MD') {
+  let text = String(value || '');
+  placeholders.forEach((item, index) => {
+    text = text.replace(`@@${prefix}_CODE_${index}@@`, item);
+  });
+  return text;
+}
+
+function normalizeMathExpression(value = '') {
+  return String(value || '')
+    .replace(/(?:<|&lt;)\s*sup\s*(?:>|&gt;)\s*([^<>&]+?)\s*(?:<|&lt;)\s*\/\s*sup\s*(?:>|&gt;)/gi, '^{$1}')
+    .replace(/(?:<|&lt;)\s*sub\s*(?:>|&gt;)\s*([^<>&]+?)\s*(?:<|&lt;)\s*\/\s*sub\s*(?:>|&gt;)/gi, '_{$1}')
+    .replace(/\^\s*\{\s*([^{}]+?)\s*\}/g, '^{$1}')
+    .replace(/_\s*\{\s*([^{}]+?)\s*\}/g, '_{$1}');
+}
+
+function repairLooseMathHtml(value = '') {
+  const preserved = preserveCodeSpans(value, 'MATHHTML');
+  const text = normalizeMathExpression(preserved.text);
+  return restoreCodeSpans(text, preserved.placeholders, 'MATHHTML');
+}
+
+function replaceOutsideMathPlaceholders(text = '', replacer = value => value) {
+  return String(text || '').split(/(@@MATH\d+@@)/g).map(part => (isMathPlaceholder(part) ? part : replacer(part))).join('');
+}
+
+function normalizeLooseMath(value = '') {
+  const code = preserveCodeSpans(value, 'LOOSEMATH');
+  const links = [];
+  let protectedText = code.text.replace(/!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)/g, match => {
+    const key = `@@LOOSEMATH_LINK_${links.length}@@`;
+    links.push(match);
+    return key;
+  });
+  const math = extractMathSegments(protectedText);
+  let text = replaceOutsideMathPlaceholders(math.text, part => part
+    .replace(/(?<![\w$])([A-Za-z]|\d+)\s*\^\s*([+-]?\d+|[A-Za-z])(?![\w$])/g, (_, base, exp) => `$${base}^{${exp}}$`)
+    .replace(/(?<![\w$])([A-Za-z])\s*_\s*([+-]?\d+|[A-Za-z])(?![\w$])/g, (_, base, sub) => `$${base}_{${sub}}$`));
+  text = restoreRawMathSegments(text, math.math);
+  links.forEach((item, index) => {
+    text = text.replace(`@@LOOSEMATH_LINK_${index}@@`, item);
+  });
+  return restoreCodeSpans(text, code.placeholders, 'LOOSEMATH');
+}
+
 function prepareMarkdownSource(value = '') {
-  return normalizeExtendedMarkdown(repairCollapsedMarkdownBlocks(repairMarkdownPunctuation(value)));
+  return normalizeExtendedMarkdown(normalizeLooseMath(repairLooseMathHtml(repairCollapsedMarkdownBlocks(repairMarkdownPunctuation(value)))));
 }
 
 function renderLists(value) {
@@ -482,9 +555,15 @@ module.exports = {
   renderMarkdownLegacy,
   extractMathSegments,
   restoreMathSegments,
+  restoreRawMathSegments,
   slugifyHeading,
   repairMarkdownPunctuation,
   repairCollapsedMarkdownBlocks,
+  preserveCodeSpans,
+  restoreCodeSpans,
+  normalizeMathExpression,
+  repairLooseMathHtml,
+  normalizeLooseMath,
   splitTableRow,
   renderTables,
 };

@@ -14,9 +14,13 @@ const {
   renderMarkdownLegacy,
   extractMathSegments,
   restoreMathSegments,
+  restoreRawMathSegments,
   slugifyHeading,
   repairMarkdownPunctuation,
   repairCollapsedMarkdownBlocks,
+  normalizeMathExpression,
+  repairLooseMathHtml,
+  normalizeLooseMath,
   splitTableRow,
   renderTables,
 } = require('../../client/app/markdown-utils');
@@ -35,6 +39,13 @@ assert.strictEqual(
   'Text<sup class="footnote-ref"><a href="#fn-1" id="fnref-1">[1]</a></sup>\n\n\n<section class="footnotes">\n<ol>\n<li id="fn-safe-1">note **x** <a href="#fnref-safe-1" class="footnote-backref">↩</a></li>\n</ol>\n</section>',
 );
 assert.strictEqual(prepareMarkdownSource('a｜b text### title :rocket:'), 'a|b text\n### title 🚀');
+assert.strictEqual(normalizeMathExpression('1 < sup > 1 < / sup > and H < sub > 2 < / sub > O'), '1 ^{1} and H _{2} O');
+assert.strictEqual(repairLooseMathHtml('`< sup >code< / sup >`'), '`< sup >code< / sup >`');
+assert.strictEqual(prepareMarkdownSource('1 &lt; sup &gt; 1 &lt; / sup &gt;'), '1 ^{1}');
+assert.strictEqual(normalizeLooseMath('next is 6^6 and x_1'), 'next is $6^{6}$ and $x_{1}$');
+assert.strictEqual(normalizeLooseMath('`6^6` remains code'), '`6^6` remains code');
+assert.strictEqual(normalizeLooseMath('keep $x^2$ and only fix y^3'), 'keep $x^2$ and only fix $y^{3}$');
+assert.strictEqual(normalizeLooseMath('[x_1](https://example.com/a_b) plain z_2'), '[x_1](https://example.com/a_b) plain $z_{2}$');
 assert.strictEqual(renderLists('- a\n- b\nplain\n1. one'), '<ul>\n<li>a</li>\n<li>b</li>\n</ul>\nplain\n<ol>\n<li>one</li>\n</ol>');
 assert.strictEqual(
   renderLegacyCodeBlockHtml({ lang: 'js', raw: 'const x = 1;' }, { escapeHtml: value => String(value), escapeAttr: value => `attr:${value}`, copyIconSvg: '<svg></svg>' }),
@@ -61,6 +72,7 @@ assert.strictEqual(
   restoreMathSegments('A @@MATH0@@', [{ raw: 'x', displayMode: true }], { katex: { renderToString: (raw, options) => `${raw}:${options.displayMode}` } }),
   'A x:true',
 );
+assert.strictEqual(restoreRawMathSegments('A @@MATH0@@ and @@MATH1@@', [{ raw: 'x^2', displayMode: false }, { raw: 'y', displayMode: true }]), 'A $x^2$ and $$y$$');
 
 assert.strictEqual(slugifyHeading(' Hello, ChatUI! 你好 '), 'hello-chatui-你好');
 assert.strictEqual(slugifyHeading('A--- B'), 'a-b');

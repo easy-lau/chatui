@@ -52,9 +52,10 @@
 
   function extractResponsesStreamDelta(event) {
     const type = String(event && event.type || '');
+    if (/\.done$/i.test(type) || type === 'response.completed') return { content: '', reasoning: '' };
     const isReasoning = /reasoning/i.test(type);
     const isSummary = /summary/i.test(type);
-    const content = normalizeContentText(event && ((!isReasoning ? event.delta : '') || (!isReasoning ? event.text : '') || (!isReasoning ? event.output_text_delta : '') || (!isReasoning ? event.response && event.response.output_text && event.response.output_text.delta : '') || (type === 'response.output_text.done' ? event.text : '')) || '');
+    const content = normalizeContentText(event && ((!isReasoning ? event.delta : '') || (!isReasoning ? event.text : '') || (!isReasoning ? event.output_text_delta : '') || (!isReasoning ? event.response && event.response.output_text && event.response.output_text.delta : '')) || '');
     const reasoningDelta = isReasoning && isSummary ? event && (event.delta || event.text || event.content || event.output_text || '') : '';
     const reasoning = normalizeReasoningText(event && (event.summary_text_delta || event.reasoning_summary_text_delta || event.delta_text || event.summary_text || event.reasoning_summary_text || event.summary || event.reasoning_summary || reasoningDelta) || '');
     return { content, reasoning };

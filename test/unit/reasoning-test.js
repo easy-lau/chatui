@@ -23,7 +23,10 @@ assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.output_text
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan' }), { content: '', reasoning: 'plan' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan', output_text_delta: 'wrong' }), { content: '', reasoning: 'plan' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.delta', delta: 'summary delta' }), { content: '', reasoning: 'summary delta' });
-assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.done', text: 'summary done' }), { content: '', reasoning: 'summary done' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.done', text: 'summary done' }), { content: '', reasoning: '' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.done', text: 'full summary already streamed' }), { content: '', reasoning: '' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.output_text.done', text: 'full answer already streamed' }), { content: '', reasoning: '' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.completed', response: { output_text: 'full answer already streamed' } }), { content: '', reasoning: '' });
 assert.strictEqual(reasoningBudgetTokens('xhigh'), 16384);
 assert.strictEqual(reasoningBudgetTokens('unknown'), 4096);
 console.log('reasoning ok');
