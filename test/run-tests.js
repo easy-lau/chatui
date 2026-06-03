@@ -106,6 +106,7 @@ const syntaxFiles = [
   'test/browser/mermaid-icon-toggle-test.js',
   'test/browser/code-copy-success-test.js',
   'test/unit/regenerate-autofollow-contract-test.js',
+  'test/unit/focus-follow-contract-test.js',
 ];
 
 const testFiles = [
@@ -166,6 +167,7 @@ const testFiles = [
   'test/browser/mermaid-icon-toggle-test.js',
   'test/browser/code-copy-success-test.js',
   'test/unit/regenerate-autofollow-contract-test.js',
+  'test/unit/focus-follow-contract-test.js',
   'test/api/router-test.js',
   'test/api/smoke-test.js',
 ];
