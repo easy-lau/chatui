@@ -1,6 +1,8 @@
 (function initChatUIAppImageResultWorkflow(root) {
   'use strict';
 
+  const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
     const extracted = deps.extractImageResult(result);
     if (extracted && extracted.kind === 'empty') return { html: '没有返回图片数据', raw: extracted.raw, metaText: elapsedText ? `RT ${elapsedText}` : '' };
@@ -16,10 +18,12 @@
       const filename = `generated-${Date.now()}-${index + 1}.png`;
       const persisted = await deps.settleWithin(deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true }), 8000, { persistedSrc: item.src, displaySrc: item.src });
       const persistedSrc = persisted?.persistedSrc || item.src;
-      // Prefer the durable stored reference for rendered HTML as well. Blob object URLs are
-      // document-scoped and become invalid after refresh/re-render; hydrateMessageMedia()
-      // will resolve indexeddb:// refs back to fresh blob URLs for display.
-      const displaySrc = persistedSrc;
+      // Never put indexeddb:// directly into img.src: browsers treat unknown schemes as
+      // relative network URLs (for example /indexeddb//img...), producing red failed
+      // requests in DevTools. Keep the durable ref in data-persisted-src and let
+      // hydrateMessageMedia()/resolvePersistedImages() replace the transparent placeholder
+      // with a fresh blob URL for the current document.
+      const displaySrc = String(persistedSrc || '').startsWith('indexeddb://') ? TRANSPARENT_PIXEL : persistedSrc;
       const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null) || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
       const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];

@@ -59,7 +59,8 @@ async function json(res) {
     assert.ok(dependencyLoader.includes('registry.npmmirror.com/markdown-it/14.2.0'), 'uses controlled domestic markdown-it CDN');
     assert.ok(dependencyLoader.includes("local: './vendor/markdown-it.min.js'"), 'markdown CDN has local fallback');
     assert.ok(html.includes('./client/core/browser.js'), 'loads browser core adapter before app');
-    assert.ok(html.includes('./client/services/fallback.js'), 'loads browser services fallback before adapter');
+    assert.ok(html.includes('./client/services/composition.js'), 'loads browser services composition before adapter');
+    assert.ok(html.includes('./client/services/fallback.js'), 'loads legacy browser services fallback alias before adapter');
     assert.ok(html.includes('./client/services/browser.js'), 'loads browser services adapter before app');
     assert.ok(html.includes('./client/ui/browser.js'), 'loads browser ui adapter before app');
     assert.ok(html.includes('./client/app/browser.js'), 'loads browser app adapter before app');
@@ -79,10 +80,15 @@ async function json(res) {
     const browserCore = await res.text();
     assert.ok(browserCore.includes('window.ChatUICore'), 'browser core exposes stable namespace');
 
+    res = await fetch(`${base}/client/services/composition.js`);
+    assert.strictEqual(res.status, 200, 'browser services composition status');
+    const browserServicesComposition = await res.text();
+    assert.ok(browserServicesComposition.includes('window.ChatUIServicesComposition'), 'browser services composition exposes explicit internal namespace');
+
     res = await fetch(`${base}/client/services/fallback.js`);
-    assert.strictEqual(res.status, 200, 'browser services fallback status');
+    assert.strictEqual(res.status, 200, 'browser services fallback alias status');
     const browserServicesFallback = await res.text();
-    assert.ok(browserServicesFallback.includes('window.ChatUIServicesFallback'), 'browser services fallback exposes internal namespace');
+    assert.ok(browserServicesFallback.includes('ChatUIServicesFallbackAlias'), 'browser services fallback remains compatibility alias');
 
     res = await fetch(`${base}/client/services/browser.js`);
     assert.strictEqual(res.status, 200, 'browser services status');

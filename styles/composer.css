@@ -9,6 +9,8 @@
   right:auto!important;
   width:min(1040px,calc(100vw - var(--sessions-offset,0px) - 72px))!important;
   transform:translateX(-50%)!important;
+  z-index:120!important;
+  isolation:isolate!important;
 }
 body.session-sidebar-collapsed .composer,
 body.session-sidebar-collapsed .composer.compact-composer{
@@ -34,6 +36,8 @@ body.session-sidebar-collapsed .composer.compact-composer{
   align-items:stretch!important;
   width:100%!important;
   max-width:100%!important;
+  position:relative!important;
+  z-index:1!important;
 }
 .composer textarea,
 .composer textarea:focus,

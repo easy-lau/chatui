@@ -64,6 +64,14 @@ assertContains('Composer layout contract overrides.', 'composer CSS contract com
 assertContains('.composer-actions{', 'composer CSS contains action row rules', composerCss);
 assertContains('.input-stack{', 'composer CSS contains input stack rules', composerCss);
 assertContains('env(safe-area-inset-bottom)', 'composer mobile safe-area bottom is preserved', composerCss);
+assertRuleIncludes('.composer,\n.composer.compact-composer', [
+  'z-index:120!important',
+  'isolation:isolate!important',
+], { source: composerCss });
+assertRuleIncludes('.input-stack{\n  margin:0 auto!important', [
+  'position:relative!important',
+  'z-index:1!important',
+], { source: composerCss });
 
 // Timing metadata must float above bubbles and must not reintroduce normal-flow padding regressions.
 assertContains('Message layout contract overrides.', 'message CSS contract comment exists', messageCss);
@@ -118,12 +126,13 @@ assertContains('id="imagePreviewCopy"', 'image preview keeps copy button in prev
 assertNotContains('generated-image-actions', 'generated image cards must not add extra per-image button row', baseCss);
 assertNotContains('imageActionButtonsHtml(a,s)', 'generated image cards must not render extra per-image button row', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
 
-assertContains('function removeGeneratedImageInlineActions', 'runtime cleanup removes previously cached generated image inline action rows', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
-assertContains('.content .generated-image-actions', 'runtime cleanup targets stale generated-image-actions saved in old messages', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
-assertContains('[data-copy-image]', 'runtime cleanup removes stale per-image copy buttons from generated image cards', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+const imageActionsJs = fs.readFileSync(path.join(root, 'client/app/image-actions-workflow.js'), 'utf8');
+assertContains('function removeGeneratedImageInlineActions', 'runtime cleanup removes previously cached generated image inline action rows', imageActionsJs);
+assertContains('.content .generated-image-actions', 'runtime cleanup targets stale generated-image-actions saved in old messages', imageActionsJs);
+assertContains('[data-copy-image]', 'runtime cleanup removes stale per-image copy buttons from generated image cards', imageActionsJs);
 
-assertContains('function canWriteImageClipboard(){return window.isSecureContext&&!!navigator.clipboard?.write&&"function"==typeof ClipboardItem}', 'image clipboard write requires secure context and ClipboardItem support', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
-assertContains('复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持', 'image preview copy explains HTTP LAN clipboard limitation', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('function canWriteImageClipboard(){return window.isSecureContext&&!!navigator.clipboard?.write&&"function"==typeof ClipboardItem}', 'image clipboard write requires secure context and ClipboardItem support', imageActionsJs);
+assertContains('复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持', 'image preview copy explains HTTP LAN clipboard limitation', imageActionsJs);
 assertContains(`.image-preview-action.is-disabled,
 .image-preview-action:disabled{`, 'disabled image preview copy button has visible disabled state', baseCss);
 

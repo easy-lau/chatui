@@ -12,15 +12,19 @@ const files = [
   'client/services/route-service.js',
   'client/services/image-generation-service.js',
   'client/services/image-service.js',
+  'client/services/composition.js',
   'client/services/fallback.js',
 ];
+const compositionSource = fs.readFileSync(path.join(root, 'client/services/composition.js'), 'utf8');
 const fallbackSource = fs.readFileSync(path.join(root, 'client/services/fallback.js'), 'utf8');
 
-assert.ok(fallbackSource.includes('window.ChatUIServicesFallback'), 'fallback keeps stable browser namespace');
-assert.ok(!fallbackSource.includes('function extractChatJobText'), 'fallback does not duplicate chat extraction implementation');
-assert.ok(!fallbackSource.includes('function requestModels'), 'fallback does not duplicate model request implementation');
-assert.ok(!fallbackSource.includes('ROUTE_SYSTEM_PROMPT ='), 'fallback does not duplicate route prompt implementation');
-assert.ok(!fallbackSource.includes('function extractImageResult'), 'fallback does not duplicate image extraction implementation');
+assert.ok(compositionSource.includes('window.ChatUIServicesComposition'), 'composition exposes explicit browser namespace');
+assert.ok(compositionSource.includes('window.ChatUIServicesFallback = api'), 'composition preserves legacy fallback alias');
+assert.ok(!compositionSource.includes('function extractChatJobText'), 'composition does not duplicate chat extraction implementation');
+assert.ok(!compositionSource.includes('function requestModels'), 'composition does not duplicate model request implementation');
+assert.ok(!compositionSource.includes('ROUTE_SYSTEM_PROMPT ='), 'composition does not duplicate route prompt implementation');
+assert.ok(!compositionSource.includes('function extractImageResult'), 'composition does not duplicate image extraction implementation');
+assert.ok(fallbackSource.includes('ChatUIServicesFallbackAlias'), 'fallback file is only a compatibility alias');
 
 const calls = [];
 const context = {
@@ -53,7 +57,6 @@ const context = {
       reasoning: { extractStreamDelta: data => data?.choices?.[0]?.delta?.content || '' },
       imageRouteContext: {
         normalizeRoute: route => ({ mode: route.mode || 'chat', target: route.target || 'none' }),
-        inferLocalImageRoute: input => /生成/.test(input) ? { mode: 'image', target: 'new' } : null,
       },
       imageReferences: { makeImageItemId: (ref, index) => `img_${ref}_${index}` },
       attachments: { isImageFile: item => /^image\//.test(item?.type || '') },
@@ -67,7 +70,8 @@ for (const file of files) {
 }
 
 const fallback = context.window.ChatUIServicesFallback;
-assert.ok(fallback, 'fallback namespace exists');
+assert.ok(context.window.ChatUIServicesComposition, 'composition namespace exists');
+assert.strictEqual(fallback, context.window.ChatUIServicesComposition, 'legacy fallback namespace aliases composition');
 assert.strictEqual(typeof fallback.models.requestModels, 'function');
 assert.strictEqual(typeof fallback.jobs.startChatJob, 'function');
 assert.strictEqual(typeof fallback.chat.extractChatJobText, 'function');
@@ -77,7 +81,7 @@ assert.strictEqual(typeof fallback.images.extractImageResult, 'function');
 assert.deepStrictEqual(fallback.chat.extractChatJobText({ output_text: 'ok' }).content, 'ok');
 assert.strictEqual(fallback.chat.parseSseLine('data: {"choices":[{"delta":{"content":"你"}}]}').delta, '你');
 assert.strictEqual(fallback.route.parseRouteResult('image').mode, 'image');
-assert.strictEqual(fallback.route.inferLocalImageRoute('生成一张图').mode, 'image');
+assert.strictEqual(fallback.route.inferLocalImageRoute, undefined, 'service composition must not expose local route fallback');
 assert.strictEqual(fallback.images.extractImageResult({ data: [{ url: 'u' }] }).src, 'u');
 assert.strictEqual(fallback.images.buildImagePromptWithStylePrompt('猫', '水彩'), '猫\n\n图片样式要求：\n水彩');
 assert.strictEqual(fallback.images.createImageContext({ attachments: [{}], selectedReferenceId: 'latest' }).attachments[0].imageId, 'img_latest_1');
@@ -89,7 +93,7 @@ assert.strictEqual(fallback.images.createImageContext({ attachments: [{}], selec
   assert.strictEqual(chatPayload.ok, true);
   assert.ok(calls.some(call => call.url === '/api/models'), 'model request delegates through shared model service');
   assert.ok(calls.some(call => call.url === '/api/chat/completions'), 'chat request delegates through shared chat service');
-  console.log('services fallback adapter ok');
+  console.log('services composition adapter ok');
 })().catch(err => {
   console.error(err);
   process.exit(1);

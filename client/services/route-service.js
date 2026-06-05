@@ -8,8 +8,6 @@ const imageRouteContext = root?.ChatUICoreImageRouteContext
   || root?.window?.ChatUICoreImageRouteContext
   || root?.window?.ChatUICore?.imageRouteContext
   || (typeof require === 'function' ? require('../core/image-route-context') : {});
-const { inferLocalImageRoute } = imageRouteContext;
-
 function stripJsonFence(text = '') {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
@@ -50,7 +48,6 @@ const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT,
   stripJsonFence,
   parseRouteResult,
-  inferLocalImageRoute,
   buildRoutePayload,
   extractRouteText,
 });

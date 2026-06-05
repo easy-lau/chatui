@@ -78,8 +78,21 @@
       return template.innerHTML;
     } catch { return text; }
   }
+  const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   function stripTransientBlobUrlsFromHtml(html = '', documentRef = root.document) {
-    return stripGeneratedImageActionMarkup(String(html || '').replace(/\s(?:src|href)=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-object-url=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-preview-object-url=(['"])blob:[^'"]*\1/gi, ''), documentRef);
+    const stripped = stripGeneratedImageActionMarkup(String(html || '').replace(/\s(?:src|href)=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-object-url=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-preview-object-url=(['"])blob:[^'"]*\1/gi, ''), documentRef);
+    if (!/src=(['"])indexeddb:\/\//i.test(stripped)) return stripped;
+    try {
+      const template = documentRef.createElement('template');
+      template.innerHTML = stripped;
+      template.content.querySelectorAll('img[src^="indexeddb://"]').forEach(img => {
+        const persisted = img.getAttribute('src') || '';
+        if (persisted && !img.getAttribute('data-persisted-src')) img.setAttribute('data-persisted-src', persisted);
+        if (persisted && !img.getAttribute('data-original-src')) img.setAttribute('data-original-src', persisted);
+        img.setAttribute('src', TRANSPARENT_PIXEL);
+      });
+      return template.innerHTML;
+    } catch { return stripped.replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} src=${quote}${TRANSPARENT_PIXEL}${quote} data-persisted-src=${quote}${src}${quote}`); }
   }
   function sanitizeAttachmentContextForStorage(value) {
     if (!value) return '';

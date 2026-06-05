@@ -8,7 +8,8 @@ const root = path.resolve(__dirname, '../..');
 const browserServicesPath = path.join(root, 'client/services/browser.js');
 const browserServices = fs.readFileSync(browserServicesPath, 'utf8');
 
-assert.ok(browserServices.includes('window.ChatUIServicesFallback'), 'browser services adapter uses fallback namespace');
+assert.ok(browserServices.includes('window.ChatUIServicesComposition'), 'browser services adapter uses explicit composition namespace');
+assert.ok(browserServices.includes('window.ChatUIServicesFallback'), 'browser services adapter preserves legacy fallback namespace');
 assert.ok(!browserServices.includes('ROUTE_SYSTEM_PROMPT ='), 'route prompt is not duplicated in browser adapter');
 assert.ok(!browserServices.includes('function requestModels'), 'model service logic is not duplicated in browser adapter');
 assert.ok(!browserServices.includes('function extractChatJobText'), 'chat service logic is not duplicated in browser adapter');
@@ -20,7 +21,7 @@ const fallback = {
   route: { parseRouteResult: () => ({ target: 'new' }) },
   images: { buildImagePromptWithStylePrompt: (prompt, style) => `${prompt}:${style}` },
 };
-const context = { window: { ChatUIServicesFallback: fallback } };
+const context = { window: { ChatUIServicesComposition: fallback } };
 vm.createContext(context);
 vm.runInContext(browserServices, context, { filename: browserServicesPath });
 
@@ -31,7 +32,7 @@ assert.strictEqual(context.window.ChatUIServices.route.parseRouteResult('image')
 assert.strictEqual(context.window.ChatUIServices.images.buildImagePromptWithStylePrompt('猫', '水彩'), '猫:水彩');
 
 const existing = { custom: { ok: true }, models: { requestModels: () => 'current' } };
-const contextWithCurrent = { window: { ChatUIServices: existing, ChatUIServicesFallback: fallback } };
+const contextWithCurrent = { window: { ChatUIServices: existing, ChatUIServicesComposition: fallback } };
 vm.createContext(contextWithCurrent);
 vm.runInContext(browserServices, contextWithCurrent, { filename: browserServicesPath });
 assert.strictEqual(contextWithCurrent.window.ChatUIServices.custom.ok, true);

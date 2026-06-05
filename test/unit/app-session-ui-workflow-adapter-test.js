@@ -11,7 +11,8 @@ assert.ok(indexHtml.includes('client/app/session-ui-workflow.js'), 'session ui w
 assert.ok(indexHtml.indexOf('client/app/session-ui-workflow.js') < indexHtml.indexOf('./app.js'), 'session ui loads before app.js');
 assert.ok(moduleSource.includes('createSessionUiWorkflow'), 'module owns workflow');
 assert.ok(appJs.includes('function getSessionUiWorkflow()'), 'app has ui adapter');
-for(const name of ['renderSessionList','newSession','beginRenameSession','renderSessionModelArea','setSessionChatModel']) assert.ok(extract(name).includes('getSessionUiWorkflow().'), `${name} delegates`);
+for(const name of ['renderSessionList','newSession','beginRenameSession','setSessionChatModel']) assert.ok(extract(name).includes('getSessionUiWorkflow().'), `${name} delegates`);
+assert.ok(extract('renderSessionModelArea').includes('getSessionPanelWorkflow().'), 'renderSessionModelArea delegates through session panel workflow');
 for(const name of ['deleteSession','clearAllSessions']) assert.ok(extract(name,true).includes('getSessionUiWorkflow().'), `${name} delegates`);
 assert.ok(!appJs.includes('function renderSessionList(){const e=$("sessionList")'), 'app no longer keeps renderSessionList implementation');
 assert.ok(!appJs.includes('function newSession(){saveActivePromptDraft()'), 'app no longer keeps newSession implementation');

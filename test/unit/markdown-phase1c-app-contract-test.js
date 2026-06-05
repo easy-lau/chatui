@@ -31,8 +31,15 @@ assert.ok(indexHtml.indexOf('client/app/markdown/enhancer.js') < indexHtml.index
 assert.ok(indexHtml.indexOf('client/app/markdown/browser-enhancer.js') < indexHtml.indexOf('client/app/markdown/browser.js'), 'browser enhancer loads before browser renderer');
 assert.ok(indexHtml.indexOf('client/app/markdown/browser-streaming-renderer.js') < indexHtml.indexOf('client/app/markdown/browser.js'), 'browser streaming renderer loads before browser renderer');
 assert.ok(!indexHtml.includes('cdn.jsdelivr.net/npm/markdown-it@14.2.0'), 'old hard-coded markdown-it CDN script removed from index');
+assert.ok(!indexHtml.includes('./vendor/purify.min.js'), 'index must not directly serve local DOMPurify JS');
+assert.ok(!indexHtml.includes('./vendor/markdown-it.min.js'), 'index must not directly serve local markdown-it JS');
+assert.ok(!indexHtml.includes('./vendor/katex.min.js"'), 'index must not directly serve local KaTeX JS');
+assert.ok(!indexHtml.includes('data-markdown-dependency-loaded="local"'), 'index must not mark markdown JS as local-loaded by default');
 assert.ok(dependencyLoader.includes('registry.npmmirror.com/markdown-it/14.2.0'), 'loader owns markdown-it domestic CDN');
 assert.ok(dependencyLoader.includes("local: './vendor/markdown-it.min.js'"), 'loader owns markdown-it local fallback');
+assert.ok(dependencyLoader.includes('attempt(resource.cdn || resource.local, resource.cdn ? \'cdn\' : \'local\')'), 'dependency loader tries CDN before local fallback');
+assert.ok(dependencyLoader.includes("from === 'cdn' && resource.local"), 'dependency loader falls back to local only after CDN failure');
+assert.ok(dependencyLoader.includes("markdownItTexmath: 'texmath'"), 'dependency loader aliases public texmath global to markdownItTexmath');
 assert.ok(dependencyLoader.includes('registry.npmmirror.com/dompurify/3.4.7'), 'loader owns DOMPurify CDN/fallback');
 
 assert.match(appJs, /function renderMarkdown\(e\)\{[^}]*window\.ChatUIApp\?\.markdown\?\.renderMarkdown/, 'main assistant markdown path uses new renderer API');

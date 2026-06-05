@@ -20,7 +20,7 @@
   function normalizeBlockquoteFencedCodeContent(code = '') { const src = String(code || '').replace(/\r\n?/g, '\n'); const lines = src.split('\n'); const contentLines = lines.filter(line => line.length > 0); if (!contentLines.length) return code; const quotePrefixed = contentLines.filter(line => /^\s{0,3}> ?/.test(line)); if (quotePrefixed.length !== contentLines.length) return code; const nonReplQuotePrefixed = quotePrefixed.filter(line => !/^\s{0,3}>>>/.test(line)); if (!nonReplQuotePrefixed.length) return code; return lines.map(line => line.replace(/^(\s{0,3})> ?/, '$1')).join('\n'); }
   function decodeHtmlEntities(html = '') { return String(html || '').replace(/&(?:#x([0-9a-f]+)|#(\d+)|amp|lt|gt|quot|#39|apos|#96);/gi, (all, hex, dec) => { if (hex) return String.fromCodePoint(parseInt(hex, 16)); if (dec) return String.fromCodePoint(parseInt(dec, 10)); return ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&#96;': '`' }[all.toLowerCase()] || all); }); }
   function highlightedTextMatchesSource(highlighted = '', source = '') { return decodeHtmlEntities(String(highlighted || '').replace(/<[^>]*>/g, '')) === String(source || ''); }
-  function hasCriticalMarkdownPlugins() { return !!pluginGlobal('markdownItTexmath') && !!pluginGlobal('markdownitMultimdTable'); }
+  function hasCriticalMarkdownPlugins() { return !!(global.markdownit || global.markdownIt || global.MarkdownIt) && !!global.katex?.renderToString && !!pluginGlobal('markdownItTexmath') && !!pluginGlobal('markdownitMultimdTable'); }
 
   function createMarkdownEngine() {
     const MarkdownIt = global.markdownit || global.markdownIt || global.MarkdownIt;

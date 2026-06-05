@@ -1,11 +1,11 @@
 (function () {
   const current = window.ChatUIServices || {};
-  const fallback = window.ChatUIServicesFallback || {};
-  const models = current.models || fallback.models || {};
-  const jobs = current.jobs || fallback.jobs || {};
-  const chat = current.chat || fallback.chat || {};
-  const route = current.route || fallback.route || {};
-  const images = current.images || fallback.images || {};
+  const composition = window.ChatUIServicesComposition || window.ChatUIServicesFallback || {};
+  const models = current.models || composition.models || {};
+  const jobs = current.jobs || composition.jobs || {};
+  const chat = current.chat || composition.chat || {};
+  const route = current.route || composition.route || {};
+  const images = current.images || composition.images || {};
 
   window.ChatUIServices = Object.freeze({
     ...current,

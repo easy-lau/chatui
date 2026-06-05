@@ -2,8 +2,8 @@
   'use strict';
 
   const VERSION = '2.0.2';
-  const DEFAULT_TIMEOUT_MS = 15000;
-  const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists' });
+  const DEFAULT_TIMEOUT_MS = 2500;
+  const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists', markdownItTexmath: 'texmath' });
   const resources = Object.freeze({
     styles: Object.freeze([
       Object.freeze({ id: 'katex-css', cdn: 'https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css', local: './vendor/katex.min.css' }),
@@ -13,8 +13,8 @@
       Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.7/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
       Object.freeze({ id: 'markdown-it', cdn: 'https://registry.npmmirror.com/markdown-it/14.2.0/files/dist/markdown-it.min.js', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
       Object.freeze({ id: 'markdown-it-texmath', cdn: 'https://registry.npmmirror.com/markdown-it-texmath/1.0.0/files/texmath.js', local: './vendor/markdown-it-plugins/markdown-it-texmath.min.js', global: 'markdownItTexmath' }),
-      Object.freeze({ id: 'markdown-it-multimd-table', cdn: 'https://registry.npmmirror.com/markdown-it-multimd-table/4.2.3/files/dist/markdown-it-multimd-table.min.js', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
-      Object.freeze({ id: 'markdown-it-task-lists', cdn: 'https://registry.npmmirror.com/markdown-it-task-lists/2.1.1/files/dist/markdown-it-task-lists.min.js', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
+      Object.freeze({ id: 'markdown-it-multimd-table', cdn: 'https://cdn.jsdelivr.net/npm/markdown-it-multimd-table@4.2.3/dist/markdown-it-multimd-table.min.js', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
+      Object.freeze({ id: 'markdown-it-task-lists', cdn: 'https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
       Object.freeze({ id: 'markdown-it-emoji', cdn: 'https://registry.npmmirror.com/markdown-it-emoji/3.0.0/files/dist/markdown-it-emoji.min.js', local: './vendor/markdown-it-plugins/markdown-it-emoji.min.js', global: 'markdownitEmoji' }),
       Object.freeze({ id: 'markdown-it-footnote', cdn: 'https://registry.npmmirror.com/markdown-it-footnote/4.0.0/files/dist/markdown-it-footnote.min.js', local: './vendor/markdown-it-plugins/markdown-it-footnote.min.js', global: 'markdownitFootnote' }),
       Object.freeze({ id: 'markdown-it-deflist', cdn: 'https://registry.npmmirror.com/markdown-it-deflist/3.0.1/files/dist/markdown-it-deflist.min.js', local: './vendor/markdown-it-plugins/markdown-it-deflist.min.js', global: 'markdownitDeflist' }),
@@ -52,18 +52,18 @@
         const cleanup = () => { clearTimeout(timer); if (node) { node.onload = null; node.onerror = null; } };
         const attempt = (url, from) => {
           cleanup(); node = createNode(url); node.dataset.markdownDependency = resource.id;
-          node.onload = () => { cleanup(); node.dataset.markdownDependencyLoaded = from; log('info', `[markdown] dependency loaded: ${resource.id} (${from})`); resolve({ id: resource.id, from }); };
-          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${from})`, url); if (from === 'local' && resource.cdn && resource.cdn !== url) { attempt(resource.cdn, 'cdn'); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
+          node.onload = () => { cleanup(); const alias = GLOBAL_ALIASES[resource.global]; if (alias && !root[resource.global] && readGlobal(alias, root)) root[resource.global] = readGlobal(alias, root); node.dataset.markdownDependencyLoaded = from; log('info', `[markdown] dependency loaded: ${resource.id} (${from})`); resolve({ id: resource.id, from }); };
+          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${from})`, url); if (from === 'cdn' && resource.local && resource.local !== url) { attempt(resource.local, 'local'); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
           timer = setTimeout(() => node.onerror(), DEFAULT_TIMEOUT_MS); appendNode(node);
         };
-        attempt(resource.local || resource.cdn, resource.local ? 'local' : 'cdn');
+        attempt(resource.cdn || resource.local, resource.cdn ? 'cdn' : 'local');
       }).catch((err) => { loadState.delete(resource.id); throw err; });
       loadState.set(resource.id, promise); return promise;
     }
     const loadStyle = resource => loadElement(resource, href => { const link = doc.createElement('link'); link.rel = 'stylesheet'; link.href = href; return link; });
     const loadScript = resource => loadElement(resource, src => { const script = doc.createElement('script'); script.src = src; script.defer = false; return script; });
     const loadStyles = () => Promise.allSettled(resources.styles.map(loadStyle)).then(results => results.map(r => r.status === 'fulfilled' ? r.value : { error: r.reason?.message || String(r.reason) }));
-    const loadScripts = () => resources.scripts.reduce((chain, resource) => chain.then(list => loadScript(resource).then(item => list.concat(item)).catch(err => { log('warn', `[markdown] optional dependency unavailable: ${resource.id}`, err); return list.concat({ id: resource.id, error: err.message || String(err) }); })), Promise.resolve([]));
+    const loadScripts = () => Promise.all(resources.scripts.map(resource => loadScript(resource).catch(err => { log('warn', `[markdown] optional dependency unavailable: ${resource.id}`, err); return { id: resource.id, error: err.message || String(err) }; })));
     const loadAll = () => Promise.all([loadStyles(), loadScripts()]).then(([styles, scripts]) => ({ styles, scripts, readiness: getReadiness(root) }));
     return { VERSION, resources, getReadiness: () => getReadiness(root), loadStyles, loadScripts, loadAll };
   }

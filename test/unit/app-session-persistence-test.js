@@ -16,6 +16,10 @@ assert.strictEqual(p.compactDisplayItems([{ role: 'assistant', rawText: 'x' }, {
 const dom = new JSDOM('<div></div>');
 const html = '<p>x</p><button data-download-image="1">d</button><img src="blob:x" data-object-url="blob:y">';
 assert.ok(!p.stripTransientBlobUrlsFromHtml(html, dom.window.document).includes('blob:'));
+const indexedDbHtml = p.stripTransientBlobUrlsFromHtml('<img class="generated-thumb" src="indexeddb://img-1.png">', dom.window.document);
+assert.ok(indexedDbHtml.includes('src="data:image/gif;base64,'), 'indexeddb src should be replaced by a transparent placeholder');
+assert.ok(indexedDbHtml.includes('data-persisted-src="indexeddb://img-1.png"'), 'indexeddb reference should be preserved for hydration');
+assert.ok(!/<img\b[^>]*\ssrc="indexeddb:\/\//.test(indexedDbHtml), 'stored/restored html must not keep indexeddb:// in img src');
 assert.ok(!p.stripGeneratedImageActionMarkup(html, dom.window.document).includes('data-download-image'));
 const ctx = p.sanitizeAttachmentContextForStorage({ attachments: [{ name: 'a', src: 'data:x', text: 't' }] });
 assert.strictEqual(JSON.parse(ctx).attachments[0].src, '');
