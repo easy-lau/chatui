@@ -64,27 +64,34 @@
       messageNode.dataset.progressiveRendering = '1';
       delete content.__plainStreamingTextNode;
       delete content.__plainStreamingBox;
-      content.innerHTML = `<div class="markdown-progressive-status">正在分块渲染 Markdown…</div>`;
-      const chunks = splitMarkdownRenderChunks(text);
+      const restoreProgressiveAnchor = deps.state?.activeOutputNode === messageNode && !deps.state?.userScrollLocked
+        ? deps.preserveMessageBottomAnchor?.(messageNode, 72)
+        : null;
+      content.innerHTML = `<div class="markdown-progressive-status">正在分块挂载 Markdown…</div>`;
+      restoreProgressiveAnchor?.();
+      const tpl = document.createElement('template');
+      tpl.innerHTML = render(text);
+      const allNodes = [...tpl.content.childNodes];
       let index = 0;
       const run = deadline => {
         if (!messageNode.isConnected || messageNode.dataset.progressiveRenderToken !== token) return;
         const started = performance?.now ? performance.now() : Date.now();
-        while (index < chunks.length) {
-          const html = render(chunks[index++]);
-          const tpl = document.createElement('template');
-          tpl.innerHTML = html;
-          const nodes = [...tpl.content.childNodes];
-          content.append(...nodes);
-          const chunkRoot = fragmentRootFor(nodes);
-          bindCopy(chunkRoot);
-          enhance(chunkRoot, { deferMermaid: true, progressive: true });
+        const batch = [];
+        while (index < allNodes.length) {
+          batch.push(allNodes[index++]);
           const now = performance?.now ? performance.now() : Date.now();
           const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
-          if ((now - started) > 8 || (timeLeft && timeLeft < 5)) break;
+          if (batch.length >= 24 || (now - started) > 8 || (timeLeft && timeLeft < 5)) break;
         }
         content.querySelector('.markdown-progressive-status')?.remove();
-        if (index < chunks.length) {
+        if (batch.length) {
+          content.append(...batch);
+          const chunkRoot = fragmentRootFor(batch);
+          bindCopy(chunkRoot);
+          enhance(chunkRoot, { deferMermaid: true, progressive: true });
+          restoreProgressiveAnchor?.();
+        }
+        if (index < allNodes.length) {
           if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
           else setTimeout(() => run(), 0);
           return;
@@ -95,6 +102,8 @@
         cleanupGeneratedImageNumberArtifacts(messageNode);
         hydrate(messageNode, { save: false });
         messageNode.dataset.enhancedHash = hash;
+        restoreProgressiveAnchor?.();
+        requestAnimationFrame?.(() => restoreProgressiveAnchor?.());
       };
       if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
       else setTimeout(() => run(), 0);

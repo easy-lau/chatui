@@ -9,7 +9,7 @@
   right:auto!important;
   width:min(1040px,calc(100vw - var(--sessions-offset,0px) - 72px))!important;
   transform:translateX(-50%)!important;
-  z-index:120!important;
+  z-index:40!important;
   isolation:isolate!important;
 }
 body.session-sidebar-collapsed .composer,

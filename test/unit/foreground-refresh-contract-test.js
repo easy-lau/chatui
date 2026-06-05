@@ -12,7 +12,8 @@ assert.match(bootstrapWorkflow, /window\.addEventListener\("pageshow",refreshAct
 assert.match(bootstrapWorkflow, /window\.addEventListener\("focus",refreshActiveSessionOnReturn\)/, 'should refresh after window focus');
 assert.match(appJs, /readJsonStorage\(sessionStorageKey\(CHAT_KEY,e\)/, 'should reload canonical chat messages from storage');
 assert.match(appJs, /readJsonStorage\(sessionStorageKey\(UI_KEY,e\)/, 'should reload canonical display items from storage');
-assert.match(appJs, /syncActiveSession\(\{skipSave:!0\}\),renderActiveSession\(\)/, 'should sync state and rerender active session without overwriting storage first');
+assert.match(appJs, /if\(!i&&!o&&!r\)return void updateSendAvailability\(\)/, 'should not rerender on ordinary focus when stored session data did not change');
+assert.match(appJs, /syncActiveSession\(\{skipSave:!0\}\),renderActiveSession\(\)/, 'should sync state and rerender active session only after storage changes without overwriting storage first');
 assert.match(appJs, /if\(isSessionBusy\(e\)\)return void resumeSessionJobs\(e\)/, 'should resume pending jobs instead of full rerender while active session is busy');
 
 console.log('foreground refresh contract ok');

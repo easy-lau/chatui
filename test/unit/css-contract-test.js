@@ -65,9 +65,12 @@ assertContains('.composer-actions{', 'composer CSS contains action row rules', c
 assertContains('.input-stack{', 'composer CSS contains input stack rules', composerCss);
 assertContains('env(safe-area-inset-bottom)', 'composer mobile safe-area bottom is preserved', composerCss);
 assertRuleIncludes('.composer,\n.composer.compact-composer', [
-  'z-index:120!important',
+  'z-index:40!important',
   'isolation:isolate!important',
 ], { source: composerCss });
+assertRuleIncludes('.modal', ['z-index:50'], { source: baseCss });
+assertRuleIncludes('.header-params-panel', ['z-index:52'], { source: baseCss });
+assertRuleIncludes('.session-prompt-panel', ['z-index:100'], { source: baseCss });
 assertRuleIncludes('.input-stack{\n  margin:0 auto!important', [
   'position:relative!important',
   'z-index:1!important',
