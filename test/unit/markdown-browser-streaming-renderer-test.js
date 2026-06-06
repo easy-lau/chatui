@@ -25,11 +25,21 @@ function main() {
   assert(api, 'browser streaming namespace exists');
   assert.strictEqual(api.splitStableTail('a\n\nb').stable, 'a\n\n');
 
+  window.ChatUIMarkdownBrowserEngine.renderMarkdown = value => {
+    const source = String(value);
+    const fence = source.match(/```(\w*)\n([\s\S]*?)(?:\n```|$)/);
+    if (fence) return `<pre><code class="language-${fence[1]}">${window.ChatUIMarkdownBrowserEngine.escapeHtml(fence[2])}</code></pre>`;
+    return `<p>${window.ChatUIMarkdownBrowserEngine.escapeHtml(source).replace(/\n/g, '<br>')}</p>`;
+  };
   const out = window.document.getElementById('out');
-  const renderer = api.createStreamingRenderer();
+  const renderer = api.createStreamingRenderer({ renderMarkdown: window.ChatUIMarkdownBrowserEngine.renderMarkdown });
   renderer.append('第一段\n\n```js\n', out);
   assert(out.querySelector('.streaming-tail'), 'open fence stays tail');
-  renderer.append('console.log(1)\n```\n\n', out);
+  assert(out.querySelector('.streaming-tail pre code.language-js'), 'open fence tail renders as code block while streaming');
+  renderer.append('console.log(1)\n', out);
+  assert(out.querySelector('.streaming-tail pre code.language-js'), 'code block stays rendered before closing fence');
+  assert(out.textContent.includes('console.log(1)'), 'streaming code content is visible inside code block');
+  renderer.append('```\n\n', out);
   assert(out.textContent.includes('console.log(1)'), 'closed fence commits');
   const result = renderer.final(out);
   assert(['incremental-final', 'full-rerender-final'].includes(result.mode));
