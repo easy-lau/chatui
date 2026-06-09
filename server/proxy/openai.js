@@ -1,5 +1,6 @@
 const { SECURITY_HEADERS, send, sendError } = require('../http/response');
 const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
+const { limiter } = require('../concurrency');
 const {
   extractImageEditFiles,
   stripImageEditFileFields,
@@ -29,9 +30,11 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     return sendError(res, 403, '不允许代理该路径', 'PROXY_PATH_FORBIDDEN');
   }
   let proxyChatJob = null;
+  let upstreamTimer = null;
   const extracted = await extractProxyRequest(req, res);
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
+  await limiter.acquire();
   try {
     const payload = body.payload || {};
     const query = body.query || {};
@@ -72,6 +75,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       body: method === 'GET' ? undefined : upstreamBody,
       upstreamTimeoutMs,
     });
+    upstreamTimer = timer;
     const upstream = await upstreamResponse;
 
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
@@ -94,7 +98,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       });
       if (!upstream.body) return res.end();
       let clientOpen = true;
-      res.on('close', () => { clientOpen = false; });
+      res.on('close', () => { clientOpen = false; controller.abort(); });
       for await (const chunk of upstream.body) {
         const buf = Buffer.from(chunk);
         const text = buf.toString('utf8');
@@ -140,11 +144,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       res.end();
     }
   } finally {
-    clearTimeout(timer);
+    if (upstreamTimer) clearTimeout(upstreamTimer);
+    limiter.release();
   }
 }
 
   async function proxyImage(req, res) {
+  let upstreamTimer = null;
   const extracted = await extractProxyRequest(req, res);
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
@@ -159,6 +165,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       upstreamTimeoutMs,
     });
+    upstreamTimer = timer;
     const upstream = await upstreamResponse;
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
@@ -178,7 +185,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const aborted = err?.name === 'AbortError';
     sendError(res, err.statusCode || (aborted ? 504 : 500), aborted ? '图片下载超时' : (err.message || String(err)), aborted ? 'IMAGE_DOWNLOAD_TIMEOUT' : 'IMAGE_PROXY_FAILED');
   } finally {
-    clearTimeout(timer);
+    if (upstreamTimer) clearTimeout(upstreamTimer);
   }
 }
 

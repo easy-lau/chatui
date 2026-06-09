@@ -214,6 +214,7 @@ const syntaxFiles = [
   'test/browser/refresh-persistence-test.js',
   'test/unit/regenerate-autofollow-contract-test.js',
   'test/unit/focus-follow-contract-test.js',
+  'test/unit/session-switch-preserves-active-messages-test.js',
 ];
 
 const testFiles = [

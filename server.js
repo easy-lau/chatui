@@ -5,6 +5,12 @@ const { HOST, PORT } = require('./server/config');
 const { createApp } = require('./server/app');
 
 const { server } = createApp();
+
+// HTTP server tuning: prevent socket exhaustion under high traffic
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+server.requestTimeout = 120000;
+server.maxConnections = process.env.MAX_CONNECTIONS ? Number(process.env.MAX_CONNECTIONS) : Infinity;
 const pidFiles = [path.join(__dirname, 'temp', `chatui-${PORT}.pid`)];
 if (Number(PORT) === 8765) pidFiles.push(path.join(__dirname, 'temp', 'chatui-server.pid'));
 

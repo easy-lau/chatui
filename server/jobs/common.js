@@ -80,6 +80,7 @@ function createJobEvents({ jobSubscribers }) {
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
     const job = store.get(id);
+    console.log('[subscribeJob] url=' + req.url + ' id=' + id + ' found=' + !!job);
     if (!job) { res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' }); res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: '任务不存在或服务已重启' } })}\n\n`); res.end(); return; }
     res.writeHead(200, {
       ...SECURITY_HEADERS,

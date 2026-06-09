@@ -161,6 +161,7 @@ try {
 }
 
 function getChatJob(req, res) {
+console.log('[getChatJob] url=' + req.url + ' — EventSource will FAIL if this is being called for /events URL');
 const id = getJobIdFromUrl(req);
 const job = findJobOr404(chatJobs, id, res);
 if (!job) return;
