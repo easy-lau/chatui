@@ -55,7 +55,7 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!parsedRouteUser.context.recent_messages.some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 2200, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('OCR/提取文字'));
+  assert.ok(payload.messages[0].content.includes('OCR') && payload.messages[0].content.includes('image_refs'));
 }
 
 function testImageGenerationPayloadDoesNotRewritePromptOrAutoParams() {
@@ -109,9 +109,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('[file id=...]') && system.includes('只是附件索引占位符'));
-  assert.ok(system.includes('file_candidates') && system.includes('不包含文件正文'));
-  assert.ok(system.includes('按需读取完整文件文本再回答'));
+  assert.ok(system.includes('[file id=...]') && system.includes('附件索引占位符'));
+  assert.ok(system.includes('file_candidates') && system.includes('不接收也不需要文件正文'));
+  assert.ok(system.includes('需要基于文件回答时') && system.includes('file_refs'));
   assert.ok(body.includes('"is_image": false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text": true'));
@@ -167,6 +167,33 @@ function testExistingImageEditGateAllowsPreviousSelection() {
   assert.ok(appSource.includes('!!p.usePreviousImage') && appSource.includes('p.target==="previous"'));
 }
 
+function testStructuredRouteDecisionCarriesRefs() {
+  const imageRoute = routeContext.normalizeRoute({
+    mode: 'edit_image',
+    operation: { type: 'image_edit', scope: 'history', edit_instruction: '变成黑白色' },
+    image_refs: [{ role: 'target', image_id: 'img_imgref_latest_1', reference_id: 'imgref_latest', index: 1, target: 'previous', source: 'history' }],
+    edit_instruction: '变成黑白色',
+    confidence: 0.92,
+  }, 'chat');
+  assert.strictEqual(imageRoute.mode, 'edit_image');
+  assert.strictEqual(imageRoute.operation.type, 'image_edit');
+  assert.strictEqual(imageRoute.imageRefs.length, 1);
+  assert.deepStrictEqual(imageRoute.selectedIndexes, [1]);
+  assert.deepStrictEqual(imageRoute.selectedImageIds, ['img_imgref_latest_1']);
+  assert.strictEqual(imageRoute.selectedReferenceId, 'imgref_latest');
+  assert.strictEqual(imageRoute.usePreviousImage, true);
+
+  const fileRoute = routeContext.normalizeRoute({
+    mode: 'chat',
+    operation: { type: 'file_qa', scope: 'current' },
+    file_refs: [{ role: 'source', file_id: 'att_1', index: 1, name: 'mail.txt', source: 'current' }],
+    confidence: 0.9,
+  }, 'chat');
+  assert.strictEqual(fileRoute.mode, 'chat');
+  assert.strictEqual(fileRoute.operation.type, 'file_qa');
+  assert.strictEqual(fileRoute.fileRefs[0].file_id, 'att_1');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -177,6 +204,7 @@ const tests = [
   testQuotedFileAttachmentTextIsIncluded,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
   testExistingImageEditGateAllowsPreviousSelection,
+  testStructuredRouteDecisionCarriesRefs,
 ];
 
 for (const test of tests) {
