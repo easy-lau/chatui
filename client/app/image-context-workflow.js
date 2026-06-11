@@ -303,10 +303,18 @@
     function getAssistantImageContext(node) {
       if (!node) return null;
       const candidates = [node.dataset.imageContext || '', node.__displayItem?.imageContext || ''];
+      const session = getActiveSession();
       const displayItemId = node.dataset.displayItemId || node.__displayItem?.id || '';
+      const responseIndex = Number(node.dataset.responseIndex || node.__displayItem?.responseIndex);
       if (displayItemId) {
-        const item = (getActiveSession().display || []).find(item => item.id === displayItemId);
+        const item = (session.display || []).find(item => item.id === displayItemId);
         if (item?.imageContext) candidates.push(item.imageContext);
+      }
+      if (Number.isFinite(responseIndex)) {
+        const message = Array.isArray(session?.messages) ? session.messages[responseIndex] : null;
+        if (message?.imageContext) candidates.push(message.imageContext);
+        const displayByResponse = (session.display || []).find(item => item?.role === 'assistant' && String(item.responseIndex || '') === String(responseIndex));
+        if (displayByResponse?.imageContext) candidates.push(displayByResponse.imageContext);
       }
       for (const candidate of candidates) if (candidate) try { const context = typeof candidate === 'string' ? JSON.parse(candidate) : candidate; if (context && typeof context === 'object') return context; } catch {}
       const images = [...node.querySelectorAll?.('img.generated-thumb[data-persisted-src], img.generated-thumb[data-original-src], img[data-persisted-src]') || []]

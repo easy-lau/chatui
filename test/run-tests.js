@@ -7,6 +7,7 @@ const imageService = require('../client/services/image-service');
 const imageJobs = require('../server/jobs/image');
 const sessionPersistence = require('../client/app/session-persistence');
 const chatWorkflow = require('../client/app/chat-workflow');
+const imageContextWorkflow = require('../client/app/image-context-workflow');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -134,6 +135,27 @@ function testQuotedFileAttachmentTextIsIncluded() {
   assert.ok(base[0].content.includes('引用消息带有非图片文件附件'));
 }
 
+function testQuotedAssistantImageContextRestoresFromCanonicalMessage() {
+  const imageContext = JSON.stringify({
+    prompt: '画一只猫',
+    mode: 'image',
+    target: 'previous',
+    attachments: [{ name: 'cat.png', type: 'image/png', src: 'indexeddb://cat', imageId: 'img_latest_1' }],
+  });
+  const session = {
+    messages: [
+      { role: 'user', content: '画一只猫' },
+      { role: 'assistant', content: '[图片生成完成] 画一只猫', imageContext },
+    ],
+    display: [],
+  };
+  const workflow = imageContextWorkflow.createImageContextWorkflow({ getActiveSession: () => session });
+  const node = { dataset: { responseIndex: '1' }, __displayItem: {}, querySelectorAll: () => [] };
+  const restored = workflow.getAssistantImageContext(node);
+  assert.ok(restored, 'assistant image context should restore from canonical message by responseIndex');
+  assert.strictEqual(restored.attachments[0].src, 'indexeddb://cat');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -142,6 +164,7 @@ const tests = [
   testStorageSanitizesEmbeddedImageContent,
   testFilePlaceholderSemanticsAndFileUnderstanding,
   testQuotedFileAttachmentTextIsIncluded,
+  testQuotedAssistantImageContextRestoresFromCanonicalMessage,
 ];
 
 for (const test of tests) {
