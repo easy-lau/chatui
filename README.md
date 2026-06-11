@@ -860,6 +860,7 @@ GET, POST
 - 自定义 Header 透传。
 - 上游超时。
 - SSE 转发。
+- 图片上游路径规则：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart。前端/本地缓存里的 base64 会在服务端转成文件 Blob，按 `image` 字段上传；多图会重复追加多个 `image` 字段。
 - 流式聊天 Job 同步更新。
 - 错误响应标准化。
 
@@ -882,6 +883,7 @@ GET, POST
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `8765` | HTTP 监听端口 |
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游 API 超时，默认 10 分钟 |
+| `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
 | `DISALLOW_PRIVATE_UPSTREAM` | 未设置 | 设置为 `1` 时禁止代理访问私有/内网地址 |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
 | `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
@@ -906,7 +908,7 @@ GET, POST
 示例：
 
 ```bash
-HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
+HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 CHATUI_CONTEXT_WINDOW_TOKENS=524288 node server.js
 ```
 
 使用统计示例：
@@ -1142,7 +1144,7 @@ curl -I http://your-host/vendor/katex.min.css
 - 模型是否支持 OpenAI 兼容图片接口。
 - 图片尺寸是否被该模型支持。
 - API Key 是否有生图权限。
-- 上游是否支持 `/images/generations` 或 `/images/edits`。
+- 上游是否支持 `/images/generations` 和 `/images/edits`：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart，服务端会把 base64 输入转成 `image` 文件字段。
 
 ### 图片显示失败但返回了 URL
 

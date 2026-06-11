@@ -2,6 +2,7 @@ const { sendJson } = require('../http/response');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
+const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../client/core/context-budget');
 
 function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
   return {
@@ -24,7 +25,33 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
   };
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs }) {
+function summarizeChatPayload(payload = {}) {
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  let imageParts = 0;
+  let textParts = 0;
+  const imageUrlLengths = [];
+  messages.forEach(message => {
+    if (!Array.isArray(message?.content)) return;
+    message.content.forEach(part => {
+      if (!part || typeof part !== 'object') return;
+      if (part.type === 'image_url' || part.image_url) {
+        imageParts += 1;
+        const url = String(part.image_url?.url || part.image_url || '');
+        imageUrlLengths.push(url.length);
+      } else if (part.type === 'text' || part.text) textParts += 1;
+    });
+  });
+  return {
+    model: String(payload.model || ''),
+    messages: messages.length,
+    arrayContentMessages: messages.filter(message => Array.isArray(message?.content)).length,
+    textParts,
+    imageParts,
+    imageUrlLengths,
+  };
+}
+
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS }) {
 async function runChatJob(job) {
 const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
   method: 'POST',
@@ -118,7 +145,8 @@ const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const payload = body.payload || {};
+  const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
+  console.log('[chat-stream-job] upstream payload', JSON.stringify(summarizeChatPayload(payload)));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
   if (!job) {
@@ -137,7 +165,8 @@ const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const payload = body.payload || {};
+  const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
+  console.log('[chat-job] upstream payload', JSON.stringify(summarizeChatPayload(payload)));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const job = {
@@ -224,4 +253,4 @@ return false;
   };
 }
 
-module.exports = { createChatJobHandlers };
+module.exports = { createChatJobHandlers, summarizeChatPayload };

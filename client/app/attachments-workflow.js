@@ -114,10 +114,14 @@
     async function ensureChatAttachmentImageDataUrls(list = []) {
       const result = [];
       for (const item of list || []) {
-        if (isImageFile(item) && item.dataUrl && item.dataUrl.startsWith('indexeddb://')) {
-          try { result.push({ ...item, dataUrl: await imageRefToDataUrl(item.dataUrl, item.name || 'image.png') }); }
-          catch (err) { console.warn('restore chat image data url failed', err); result.push({ ...item, dataUrl: '', unsupportedReason: item.unsupportedReason || '图片缓存不存在，无法发送给聊天模型' }); }
-        } else result.push(item);
+        if (!isImageFile(item)) { result.push(item); continue; }
+        const ref = String(item.dataUrl || item.previewSrc || item.src || '');
+        if (/^data:image\//i.test(ref)) { result.push({ ...item, dataUrl: ref }); continue; }
+        try {
+          if (ref.startsWith('indexeddb://')) result.push({ ...item, dataUrl: await imageRefToDataUrl(ref, item.name || 'image.png') });
+          else if (item.file) result.push({ ...item, dataUrl: await readFileAsDataURL(item.file) });
+          else result.push({ ...item, dataUrl: '', unsupportedReason: item.unsupportedReason || '图片未成功读取，无法发送给聊天模型' });
+        } catch (err) { console.warn('restore chat image data url failed', err); result.push({ ...item, dataUrl: '', unsupportedReason: item.unsupportedReason || '图片缓存不存在，无法发送给聊天模型' }); }
       }
       return result;
     }

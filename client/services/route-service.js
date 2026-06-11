@@ -1,13 +1,16 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = "你是 ChatUI 意图路由器。一次性判断本次输入走 chat、image 还是 edit_image；只输出 JSON。\n\n输出：\n{\"mode\":\"chat|image|edit_image\",\"target\":\"none|new|uploaded|previous\",\"use_previous_image\":false,\"selected_reference_id\":\"imgref_...\",\"selected_indexes\":[],\"selected_image_ids\":[],\"contextual_image_prompt\":\"\",\"confidence\":0.0,\"evidence\":\"\"}\n\n流程：\n1. 普通对话/解释/总结/翻译/代码/文本改写/Markdown 或 md 文档生成/数学公式/表格/图表语法/图片链接或外链示例 => chat + none。\n2. 从零创建/绘制/生成图片文件、海报、头像、logo、人物、动物、场景 => image + new。\n3. 修改/编辑/调整/替换/去掉/加上/换背景/继续改已有图片 => edit_image，并按下列规则选图。\n4. 如果 current_input 是“按照上述要求生成图片/按上面要求出图/根据前面描述生成图”等引用型生图，仍然在本次路由调用内判断为 image + new，并从 context.recent_messages 提取最近相关视觉需求，写入 contextual_image_prompt。\n\n引用型生图：\n- contextual_image_prompt 必须是可直接给生图模型的完整提示；历史是视觉描述时保留主体、风格、构图、尺寸、文字等要求。\n- 历史是文字需求、方案、流程、架构说明、功能说明时，也要把相关内容转成适合图片模型的视觉表达提示，例如流程图、信息图、架构图、界面示意图、技术说明图或海报；不要因为“不是视觉描述”而返回 chat。\n- 只允许使用 context.recent_messages 与 current_input 提取和改写相关内容；忽略发版、测试、配置、闲聊等无关历史。\n- 只有历史中完全没有可引用的相关内容时，才返回 chat + none，并在 evidence 说明缺少可用上下文。\n\n编辑选图：\n- 指本次上传/附件/原图/我发的图 => uploaded，use_previous_image=false。\n- 指上一张/刚才那张/最近结果/继续改 => previous，use_previous_image=true，selected_reference_id=imgref_latest。\n- 指更早图片，如“最开始的图/第一版/前面那张” => 必须从 context.recent_image_references 选最匹配的 selected_reference_id，不能默认最新图。\n- 未明确哪张已有图 => 用 context.latest_image_reference；多图组默认整组。\n\n精准选单图/多图：\n- 用户指定第 N 张、左/右/中间、某对象/标签/文件名时，必须在对应 reference 的 candidates 中匹配具体图片。\n- 填 1-based selected_indexes，并优先填对应 candidates.image_id 到 selected_image_ids；image_id 必须原样保留 img_ 前缀。\n- 选多张就填多个；无法确定具体图时不要猜，selected_indexes=[]、selected_image_ids=[] 表示整组。\n\n约束：\n- selected_reference_id 必须原样保留 imgref_ 前缀；最新图组用 imgref_latest。\n- 只能根据 current_input、recent_messages、last_generated_image、latest_uploaded_image、latest_image_reference、recent_image_references、attachments 元数据判断。\n- attachments 只有文件名/类型/大小/是否图片；不要读取、分析或臆测图片内容，不要使用 base64/附件正文。\n- 附件不含图片且未明确编辑已有图片 => chat + none。\n- 出现“图片/图表/链接”但用户要求输出 Markdown、文档、文本内容或语法示例时，仍然是 chat，不是 image。\n- confidence 表示把握；evidence 用一句短中文说明依据。";
+const ROUTE_SYSTEM_PROMPT = "你是 ChatUI 图片意图与执行计划路由器。只判断本次输入走 chat、image 或 edit_image，并输出图片选择与执行参数；只输出 JSON。路由器不得改写、补全、翻译、扩写用户提示词。\n\n输出：{\"mode\":\"chat|image|edit_image\",\"target\":\"none|new|uploaded|previous\",\"use_previous_image\":false,\"selected_reference_id\":\"imgref_...\",\"selected_indexes\":[],\"selected_image_ids\":[],\"need_clarification\":false,\"clarification_question\":\"\",\"intent\":\"text_to_image|image_edit_single|image_edit_batch|image_compose|image_reference_gen|unknown\",\"tasks\":[{\"task_type\":\"generate|edit\",\"input_images\":[{\"image_id\":\"图片ID\",\"role\":\"target|reference|subject|background|style_reference\"}],\"n\":1,\"size\":\"auto\",\"quality\":\"auto\",\"background\":\"auto\",\"format\":\"auto\"}],\"confidence\":0.0,\"evidence\":\"\"}\n\n意图：text_to_image=未指定修改已有图，只生成新图。image_edit_single=明确修改一张图。image_edit_batch=多张图分别做同样修改；每张单独 edit 任务，不要合成。image_compose=多图融合/换主体背景/图一风格改图二；一次 edit 任务传多图并标明 subject/background/style_reference/target。image_reference_gen=参考图片生成新图，不直接改原图；generate 任务，图片角色 reference 或 style_reference。\n\n多图生成：用户要求生成多张独立图片时（如\"画一只狗、一只猫、一头牛\"），用一个 generate task，n 设为要求的张数（如 n:3），不要拆分为多个 task。\n\n选图来源优先级：显式引用/引用消息 > 当前上传图片 > 明确编号(第一张/第二张/最后一张) > 最近 assistant 返回图片 > 最近用户上传图片 > 会话相关图片。引用多图消息时：说第一/第二/最后选对应；说这些图/全部/都选全部；只说这张且只有一张选它；只说这张但有多张必须追问；语义明显参考多图或合成多图可选多张。编辑单图目标不明确时不要把多图都传入。\n\n追问：编辑但无可用图片；这张图对应多图且无法确定；第二张但数量不足；目标图和参考图角色不清；缺关键参数会明显错误。需要追问时输出 need_clarification=true、intent=unknown、tasks=[]、mode=chat、target=none。\n\n参数：识别 n(几张/三张等；九宫格/拼图/海报布局不是多张输出)、size/比例(1:1=1024x1024，16:9/横图=1536x1024，9:16/竖图=1024x1536，头像可 auto 或 1024x1024)、quality(高清=high，否则=auto)、background(透明/白底/黑底)、format(png/jpeg/webp)。无法识别用 auto。\n\n约束：普通对话/识图提问/总结/翻译/代码/Markdown/图表语法/图片链接示例 => chat+none。生成图片 => image+new。编辑/修改已有图 => edit_image。例如\"修改下图/编辑这张/把这张改成黑白/给上图加水印\"都是 edit_image，不是 image。只能根据 current_input、recent_messages、last_generated_image、latest_uploaded_image、latest_image_reference、recent_image_references、recent_uploaded_image_references、attachments 元数据判断；不要读取或臆测附件内容。selected_reference_id 与 image_id 必须原样保留 imgref_/img_ 前缀。evidence 用一句短中文。mode 必须与 intent 一致：intent 为 text_to_image 时 mode=image；intent 为 image_edit_single/image_edit_batch/image_compose/image_reference_gen 时 mode=edit_image。";
 
 const imageRouteContext = root?.ChatUICoreImageRouteContext
   || root?.ChatUICore?.imageRouteContext
   || root?.window?.ChatUICoreImageRouteContext
   || root?.window?.ChatUICore?.imageRouteContext
   || (typeof require === 'function' ? require('../core/image-route-context') : {});
+
+const UPLOADED_IMAGE_ROUTE_PROMPT = "\n\n上传图修改硬规则（优先级最高）：\n- 用户说\"修改下图/编辑这张/改下图/改这张/把这张图/把刚才的图/把我发的图/把上传的图/把上面那张图\"等任何指向已有图片的短语 + 修改动作 => 必须返回 edit_image。\n- 如果上下文有上传图片引用（latest_uploaded_image 或 recent_uploaded_image_references 不为空）且用户说的是修改类操作，target 必须是 uploaded，不能是 new 或 previous。\n- recent_uploaded_image_references 是用户上传图片的可编辑引用，含用户发图时的提示词和紧随助手识别/描述结果。\n- 用户先发图识别，随后说修改它/修改这张/按刚才识别的图改 => edit_image + uploaded，selected_reference_id 填对应 uploaded 引用如 imgref_uploaded_1。\n- 只有目标明确是助手生成结果图才用 target=previous。\n- 不要把\"修改下图\"误判为 image + new（生成新图）；只要有可编辑的上传图，\"修改/编辑/改\"类动词 + 下图/这张/那个/上传的等指代 = edit_image。";
+
 function stripJsonFence(text = '') {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
@@ -15,18 +18,11 @@ function stripJsonFence(text = '') {
 function parseRouteResult(text = '', normalizeRoute) {
   const value = String(text || '').trim();
   if (!value) return null;
-  if (typeof normalizeRoute !== 'function') throw new TypeError('normalizeRoute is required');
+  const normalize = normalizeRoute || imageRouteContext.normalizeRoute;
+  if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
   try {
-    const parsed = JSON.parse(stripJsonFence(value));
-    const route = normalizeRoute(parsed);
-    const contextualPrompt = String(parsed.contextual_image_prompt || parsed.contextualImagePrompt || '').trim();
-    return contextualPrompt ? { ...route, contextualImagePrompt: contextualPrompt } : route;
-  } catch {}
-  const lower = value.toLowerCase();
-  if (lower === 'edit_image') return normalizeRoute({ mode: 'edit_image', target: 'previous', use_previous_image: false, confidence: 0.5, evidence: '' });
-  if (lower === 'image') return normalizeRoute({ mode: 'image', target: 'new', use_previous_image: false, confidence: 0.8 });
-  if (lower === 'chat') return normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0.8 });
-  return null;
+    return normalize(JSON.parse(stripJsonFence(value)));
+  } catch { return null; }
 }
 
 function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT } = {}) {
@@ -34,7 +30,7 @@ function buildRoutePayload({ model, input, attachments = [], context = {}, curre
     model,
     temperature: 0,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + UPLOADED_IMAGE_ROUTE_PROMPT },
       { role: 'user', content: JSON.stringify({ current_input: input, current_mode: currentMode, auto_mode: autoMode, attachments, context }, null, 2) },
     ],
   };
@@ -46,6 +42,7 @@ function extractRouteText(response = {}) {
 
 const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT,
+  UPLOADED_IMAGE_ROUTE_PROMPT,
   stripJsonFence,
   parseRouteResult,
   buildRoutePayload,

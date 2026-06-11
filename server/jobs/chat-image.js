@@ -3,10 +3,10 @@ const { createChatJobHandlers } = require('./chat');
 const { createImageJobHandlers } = require('./image');
 const { normalizeReasoningText } = require('./reasoning');
 
-function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs }) {
+function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs, contextWindowTokens }) {
   const { notifyJob, subscribeJob, abortJob } = createJobEvents({ jobSubscribers });
   const imageHandlers = createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs });
-  const chatHandlers = createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs });
+  const chatHandlers = createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens });
 
   return {
     ...chatHandlers,

@@ -1,5 +1,5 @@
 const http = require('http');
-const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
+const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
 const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { extractFileText } = require('./extract');
 const { serveStatic } = require('./http/static');
@@ -17,7 +17,7 @@ function createApp() {
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
   const sweeper = startJobSweeper([imageJobs, chatJobs]);
-  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS });
+  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS });
   const {
     makeChatJob,
     abortJob,
@@ -37,6 +37,7 @@ function createApp() {
     notifyJob,
     updateChatJobFromStreamChunk,
     upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS,
+    contextWindowTokens: CONTEXT_WINDOW_TOKENS,
     allowedProxyMethods: ALLOWED_PROXY_METHODS,
     allowedProxyPaths: ALLOWED_PROXY_PATHS,
   });

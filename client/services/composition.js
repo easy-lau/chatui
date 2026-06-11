@@ -72,6 +72,7 @@
     buildPromptWithTextAttachments: (prompt, list, isImageFile = attachments.isImageFile) => imageGenerationService.buildPromptWithTextAttachments(prompt, list, isImageFile),
     buildImagePromptWithStylePrompt: (prompt, stylePrompt) => imageGenerationService.buildImagePromptWithStylePrompt(prompt, stylePrompt),
     buildImageRequestPayload: options => imageGenerationService.buildImageRequestPayload(options),
+    buildGptImage2TaskPayload: options => imageGenerationService.buildGptImage2TaskPayload(options),
     createImageContext: options => imageGenerationService.createImageContext({ makeImageItemId: imageReferences.makeImageItemId, ...options }),
     imageFileToJobPayload: (attachment, readFileAsDataURL) => imageService.imageFileToJobPayload(attachment, readFileAsDataURL),
     imageFilesToJobPayload: (list, readFileAsDataURL) => imageService.imageFilesToJobPayload(list, readFileAsDataURL),

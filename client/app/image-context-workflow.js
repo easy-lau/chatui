@@ -173,6 +173,21 @@
       return null;
     }
 
+    function getUploadedImageContextByReference(sessionId = getState().activeSessionId, referenceId = '') {
+      const rawReference = parseImageReferenceId(referenceId);
+      if (!rawReference || !String(rawReference).startsWith('uploaded_')) return null;
+      const messageIndex = Number(String(rawReference).replace(/^uploaded_/, '')) - 1;
+      if (!Number.isFinite(messageIndex) || messageIndex < 0) return null;
+      const state = getState();
+      const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
+      const context = parseImageContext(session?.messages?.[messageIndex]?.imageContext);
+      return context?.attachments?.length && (context.target === 'uploaded' || context.mode === 'edit_image') ? context : null;
+    }
+
+    function getUploadedImageContext(sessionId = getState().activeSessionId, referenceId = '') {
+      return getUploadedImageContextByReference(sessionId, referenceId) || getLatestUploadedImageContext(sessionId);
+    }
+
     async function restoreImageAttachmentsFromContext(context) {
       const attachments = Array.isArray(context?.attachments) ? context.attachments : [];
       const result = [];
@@ -233,7 +248,7 @@
       return null;
     }
 
-    return Object.freeze({ serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
+    return Object.freeze({ serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getUploadedImageContextByReference, getUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
   }
 
   const api = Object.freeze({ createImageContextWorkflow });

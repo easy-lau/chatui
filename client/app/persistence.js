@@ -36,7 +36,7 @@ function sanitizeStoredDisplayItem(item = {}) {
 
 function sanitizeStoredMessage(message = {}) {
   const next = { ...message };
-  next.content = stripLargeDataUrlsFromText(next.content || '');
+  next.content = stripLargePayloadData(next.content ?? '');
   next.rawText = stripLargeDataUrlsFromText(next.rawText || '');
   if (next.html) next.html = stripLargeDataUrlsFromText(next.html);
   next.imageContext = sanitizeAttachmentContextForStorage(next.imageContext) || next.imageContext || '';

@@ -31,12 +31,13 @@ function buildImageCompletionMessage({ prompt = '', mode = 'image' } = {}) {
 
 async function imageFileToJobPayload(attachment, readFileAsDataURL) {
   const file = attachment?.file;
-  if (!file) return null;
-  const dataUrl = await readFileAsDataURL(file);
+  const existingDataUrl = String(attachment?.dataUrl || attachment?.src || attachment?.previewUrl || '');
+  const dataUrl = file ? await readFileAsDataURL(file) : existingDataUrl;
+  if (!String(dataUrl || '').startsWith('data:')) return null;
   const data = String(dataUrl || '').split(',')[1] || '';
   return data ? {
-    name: attachment.name || file.name || 'image.png',
-    type: attachment.type || file.type || 'image/png',
+    name: attachment.name || file?.name || 'image.png',
+    type: attachment.type || file?.type || String(dataUrl).match(/^data:([^;,]+)/)?.[1] || 'image/png',
     data,
   } : null;
 }

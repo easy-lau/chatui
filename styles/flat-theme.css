@@ -113,8 +113,15 @@ body {
   border-radius: 10px !important;
   box-shadow: var(--shadow-sm) !important;
 }
-.session-new-btn:hover {
+.session-new-btn:hover,
+.session-new-btn:focus-visible,
+.session-new-btn:active {
   background: var(--accent-hover) !important;
+  color: #fff !important;
+}
+.session-new-btn span,
+.session-new-btn svg {
+  color: inherit !important;
 }
 
 /* ── Session Tabs ── */
@@ -209,6 +216,14 @@ body {
   border-top: none !important;
   background: transparent !important;
 }
+.session-config-wrap {
+  display: grid !important;
+  grid-template-columns: 42px 42px 42px auto !important;
+  align-items: center !important;
+  justify-content: start !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
 .session-config-btn,
 .session-clear-all-btn,
 .session-github-btn {
@@ -231,6 +246,21 @@ body {
 .session-github-btn:active {
   background: #e2e8f0 !important;
   color: var(--text) !important;
+}
+.session-config-btn {
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 42px !important;
+}
+.session-config-btn svg {
+  width: 18px !important;
+  height: 18px !important;
+  flex: 0 0 18px !important;
 }
 .session-clear-all-btn:hover {
   color: var(--danger) !important;

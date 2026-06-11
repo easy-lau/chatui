@@ -3,10 +3,12 @@ const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
 const { limiter } = require('../concurrency');
 const {
   extractImageEditFiles,
+  extractImageEditMasks,
   stripImageEditFileFields,
   buildImageEditMultipartBody,
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
+const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../client/core/context-budget');
 
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);
@@ -23,7 +25,7 @@ function withQueryParams(rawUrl, params) {
   return url.toString();
 }
 
-function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, allowedProxyMethods, allowedProxyPaths }) {
+function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths }) {
   async function proxy(req, res) {
   const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
   if (!allowedProxyPaths.some(re => re.test(targetPath))) {
@@ -43,12 +45,17 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
     if (!allowedProxyMethods.has(method)) return sendError(res, 405, '不支持的代理方法', 'PROXY_METHOD_NOT_ALLOWED');
 
-    const targetUrl = withQueryParams(`${baseUrl}${targetPath}`, query);
-    const wantsStream = method !== 'GET' && payload && payload.stream === true;
+    let upstreamPath = targetPath;
+    let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath, contextWindowTokens });
+    if (method !== 'GET' && targetPath === '/images/generations') {
+      console.log('[image-generation-proxy] upstream json', JSON.stringify({ model: outboundPayload.model || '', fields: Object.keys(outboundPayload), n: outboundPayload.n || 1 }));
+    }
+    const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
     const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
+    const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
-      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, payload, { stream: true });
+      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, { stream: true });
       if (proxyChatJob.streamStarted) proxyChatJob = null;
       else {
         proxyChatJob.updatedAt = Date.now();
@@ -57,13 +64,16 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         notifyJob(proxyChatJob);
       }
     }
-    let upstreamBody = method === 'GET' ? undefined : JSON.stringify(payload);
+    let upstreamBody = method === 'GET' ? undefined : JSON.stringify(outboundPayload);
     let upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
     if (isImageEdit && imageEditFiles.length) {
-      const multipart = buildImageEditMultipartBody(stripImageEditFileFields(payload), imageEditFiles);
+      const editPayload = stripImageEditFileFields(outboundPayload);
+      const multipart = buildImageEditMultipartBody(editPayload, imageEditFiles, { masks: imageEditMasks });
+      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload), images: imageEditFiles.length, hasMask: !!imageEditMasks.length, n: editPayload.n || 1 }));
       upstreamBody = multipart.body;
       upstreamContentHeaders = multipart.headers;
     }
+    const targetUrl = withQueryParams(`${baseUrl}${upstreamPath}`, query);
     const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
       headers: {

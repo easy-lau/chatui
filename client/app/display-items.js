@@ -28,7 +28,8 @@ function displayItemHasRichMedia(item) {
     /user-attachment-preview-grid/.test(item.html) ||
     /class=["'][^"']*generated-thumb/.test(item.html) ||
     /class=["'][^"']*user-attachment-image/.test(item.html) ||
-    /image-download-row/.test(item.html)
+    /image-download-row/.test(item.html) ||
+    /sent-quote-preview/.test(item.html)
   ));
 }
 

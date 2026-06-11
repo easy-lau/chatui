@@ -47,6 +47,160 @@
       return chunks.length ? chunks : [src];
     }
 
+    function messageRoleLabel(role = '') {
+      return role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息';
+    }
+
+    function messageRoleFromNode(node) {
+      return node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error';
+    }
+
+    function normalizeQuoteText(text = '', limit = 1200) {
+      return String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+    }
+
+    function escapeHtmlLocal(value = '') {
+      return String(value ?? '').replace(/[&<>\"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch]));
+    }
+
+    function readQuoteContext(value) {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        try { return readQuoteContext(JSON.parse(value)); } catch { return null; }
+      }
+      if (!value || typeof value !== 'object') return null;
+      const content = normalizeQuoteText(value.content ?? value.rawText ?? '', 1200);
+      if (!content) return null;
+      const quote = { role: value.role === 'assistant' ? 'assistant' : 'user', content };
+      ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex'].forEach(key => {
+        if (value[key] !== undefined && value[key] !== null && value[key] !== '') quote[key] = String(value[key]);
+      });
+      return quote;
+    }
+
+    function quoteContextJson(value) {
+      const quote = readQuoteContext(value);
+      return quote ? JSON.stringify(quote) : '';
+    }
+
+    function renderSentQuotePreview(value) {
+      const quote = readQuoteContext(value);
+      if (!quote) return '';
+      const label = quote.role === 'assistant' ? 'AI' : '用户';
+      const context = escapeHtmlLocal(JSON.stringify(quote));
+      const text = escapeHtmlLocal(normalizeQuoteText(quote.content, 48));
+      return `<button class="sent-quote-preview" type="button" data-quote-context="${context}" title="jump to quoted message"><span class="sent-quote-label">&#24341;&#29992;</span><span class="sent-quote-text">${text}</span></button>`;
+    }
+
+    function withSentQuotePreview(html = '', quoteContext = '') {
+      const preview = renderSentQuotePreview(quoteContext);
+      if (!preview || /class=["'][^"']*sent-quote-preview/.test(String(html || ''))) return String(html || '');
+      return `${preview}${String(html || '')}`;
+    }
+
+    function findQuotedMessageNode(quote) {
+      const ctx = readQuoteContext(quote);
+      if (!ctx) return null;
+      if (ctx.sessionId && deps.state?.activeSessionId && ctx.sessionId !== deps.state.activeSessionId) return null;
+      const root = deps.$?.('messages') || deps.document;
+      if (!root?.querySelectorAll) return null;
+      const nodes = [...root.querySelectorAll('.message')];
+      if (ctx.displayItemId) {
+        const byDisplay = nodes.find(node => node.dataset.displayItemId === ctx.displayItemId);
+        if (byDisplay) return byDisplay;
+      }
+      if (ctx.role === 'assistant' && ctx.responseIndex !== undefined) {
+        const byResponse = nodes.find(node => node.classList.contains('assistant') && String(node.dataset.responseIndex || '') === String(ctx.responseIndex));
+        if (byResponse) return byResponse;
+      }
+      if (ctx.role === 'user' && ctx.messageIndex !== undefined) {
+        const byMessage = nodes.find(node => node.classList.contains('user') && String(node.dataset.messageIndex || '') === String(ctx.messageIndex));
+        if (byMessage) return byMessage;
+      }
+      return nodes.find(node => messageRoleFromNode(node) === ctx.role && normalizeQuoteText(node.dataset.rawText || node.textContent || '', 1200) === ctx.content) || null;
+    }
+
+    function jumpToQuotedMessage(quote) {
+      const target = findQuotedMessageNode(quote);
+      if (!target) return false;
+      if (!deps.revealNodeAboveComposer?.(target, 18)) target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      target.classList.remove('quote-target-flash');
+      void target.offsetWidth;
+      target.classList.add('quote-target-flash');
+      setTimeout(() => target.classList.remove('quote-target-flash'), 1600);
+      return true;
+    }
+
+    function bindSentQuotePreviews(root) {
+      root?.querySelectorAll?.('.sent-quote-preview').forEach(button => {
+        if (button.dataset.quoteJumpBound === '1') return;
+        button.dataset.quoteJumpBound = '1';
+        button.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToQuotedMessage(button.dataset.quoteContext || '');
+        });
+      });
+    }
+
+    function getQuotedMessage() {
+      const quote = deps.state?.quotedMessage || null;
+      return quote?.content ? quote : null;
+    }
+
+    function renderComposerQuote() {
+      const bar = deps.$?.('quoteBar');
+      if (!bar) return;
+      const quote = getQuotedMessage();
+      if (!quote) {
+        bar.hidden = true;
+        bar.replaceChildren?.();
+        if (!bar.replaceChildren) bar.innerHTML = '';
+        return;
+      }
+      const label = deps.document?.createElement ? deps.document.createElement('span') : document.createElement('span');
+      const text = deps.document?.createElement ? deps.document.createElement('span') : document.createElement('span');
+      const close = deps.document?.createElement ? deps.document.createElement('button') : document.createElement('button');
+      label.className = 'quote-preview-label';
+      label.textContent = `引用 ${messageRoleLabel(quote.role)}`;
+      text.className = 'quote-preview-text';
+      text.textContent = normalizeQuoteText(quote.content, 180);
+      close.className = 'quote-preview-close';
+      close.type = 'button';
+      close.title = '取消引用';
+      close.setAttribute('aria-label', '取消引用');
+      close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+      close.addEventListener('click', clearQuotedMessage);
+      bar.replaceChildren?.(label, text, close);
+      if (!bar.replaceChildren) {
+        bar.innerHTML = '';
+        bar.append(label, text, close);
+      }
+      bar.hidden = false;
+    }
+
+    function clearQuotedMessage() {
+      deps.state.quotedMessage = null;
+      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(node => node.classList.remove('quoted'));
+      renderComposerQuote();
+    }
+
+    function selectQuotedMessage(node) {
+      if (!node) return;
+      const role = messageRoleFromNode(node);
+      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || '');
+      if (!content) return;
+      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
+      node.classList.add('quoted');
+      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content, sessionId: deps.state.activeSessionId || '' };
+      if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
+      if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
+      if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;
+      deps.state.quotedMessage = quote;
+      renderComposerQuote();
+      deps.$?.('prompt')?.focus?.();
+    }
+
     function renderMarkdownProgressively(messageNode, text = '', hash = chatuiContentHash(text)) {
       const render = deps.renderMarkdown || (value => String(value || ''));
       const resetActions = deps.resetMessageActionStates || (() => {});
@@ -124,11 +278,11 @@
 
     function addMessage(e, t, s = {}) {
       with (deps) {
-        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t;n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=stripTransientBlobUrlsFromHtml(t):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?renderUserMessageContent(String(t||"")):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{skipMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
+        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{skipMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
       }
     }
 
-    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage });
+    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
   }
 
   const api = Object.freeze({ createMessageWorkflow });

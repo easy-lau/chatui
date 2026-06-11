@@ -25,7 +25,13 @@
 
   function loadDisplayChatJob(sessionId, deps = {}) {
     const session = (deps.sessions || []).find(item => item.id === sessionId);
-    const item = [...(session?.display || [])].reverse().find(item => item?.pending === '1' && item.jobId && !deps.isImagePendingDisplayItem(item));
+    const hasCompletedAssistantForResponse = deps.hasCompletedAssistantForResponse || (() => false);
+    const item = [...(session?.display || [])].reverse().find(item => (
+      item?.pending === '1' &&
+      item.jobId &&
+      !deps.isImagePendingDisplayItem(item) &&
+      !hasCompletedAssistantForResponse(session, item.responseIndex)
+    ));
     return item?.jobId ? {
       id: item.jobId,
       prompt: '',
@@ -74,7 +80,12 @@
       let done = false;
       let retries = 0;
       let opened = false;
-      let aggregateEvent = null;
+      const initialOffsets = options.resumeOffsets || {};
+      let aggregateEvent = initialOffsets.baseContent || initialOffsets.baseReasoning ? {
+        status: 'running',
+        data: { choices: [{ message: { content: String(initialOffsets.baseContent || ''), reasoning_content: String(initialOffsets.baseReasoning || '') } }] },
+        metrics: {},
+      } : null;
       const normalizeCompactUpdate = event => {
         if (!event || typeof event !== 'object') return event;
         const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || Object.prototype.hasOwnProperty.call(event, 'ft');

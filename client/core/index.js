@@ -7,4 +7,5 @@ module.exports = {
   imageReferences: require('./image-references'),
   imageRouteContext: require('./image-route-context'),
   attachments: require('./attachments'),
+  contextBudget: require('./context-budget'),
 };

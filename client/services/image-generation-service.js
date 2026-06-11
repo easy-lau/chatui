@@ -21,10 +21,47 @@ function buildImagePromptWithStylePrompt(prompt = '', stylePrompt = '') {
   return style && text ? `${text}\n\n图片样式要求：\n${style}` : text || style;
 }
 
-function buildImageRequestPayload({ model, prompt, size = 'auto' } = {}) {
+function normalizeAutoValue(value) {
+  const text = String(value || '').trim();
+  return text && text !== 'auto' ? text : '';
+}
+
+function normalizeOutputFormat(value) {
+  const text = normalizeAutoValue(value).toLowerCase();
+  if (text === 'jpg') return 'jpeg';
+  return ['png', 'jpeg', 'webp'].includes(text) ? text : '';
+}
+
+function normalizeCount(value) {
+  const count = Number.parseInt(value, 10);
+  return Number.isFinite(count) && count >= 1 ? Math.min(count, 10) : 0;
+}
+
+function buildImageRequestPayload({ model, prompt, n, size = 'auto', quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
   const payload = { model, prompt };
-  if (size && size !== 'auto') payload.size = size;
+  const resolvedN = normalizeCount(n);
+  const resolvedSize = normalizeAutoValue(size);
+  const resolvedQuality = normalizeAutoValue(quality);
+  const resolvedBackground = normalizeAutoValue(background);
+  const resolvedFormat = normalizeOutputFormat(output_format || format);
+  if (resolvedN > 1) payload.n = resolvedN;
+  if (resolvedSize) payload.size = resolvedSize;
+  if (resolvedQuality) payload.quality = resolvedQuality;
+  if (resolvedBackground) payload.background = resolvedBackground;
+  if (resolvedFormat) payload.output_format = resolvedFormat;
   return payload;
+}
+
+function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
+  return buildImageRequestPayload({
+    model,
+    prompt: task.prompt || prompt,
+    n: task.n,
+    size: task.size,
+    quality: task.quality,
+    background: task.background,
+    format: task.format || task.output_format || task.outputFormat,
+  });
 }
 
 function createImageContext({ prompt = '', routePrompt = '', attachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
@@ -51,6 +88,7 @@ const api = Object.freeze({
   buildPromptWithTextAttachments,
   buildImagePromptWithStylePrompt,
   buildImageRequestPayload,
+  buildGptImage2TaskPayload,
   createImageContext,
 });
 
