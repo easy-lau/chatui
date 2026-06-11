@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const routeContext = require('../client/core/image-route-context');
 const routeService = require('../client/services/route-service');
@@ -156,6 +158,15 @@ function testQuotedAssistantImageContextRestoresFromCanonicalMessage() {
   assert.strictEqual(restored.attachments[0].src, 'indexeddb://cat');
 }
 
+function testExistingImageEditGateAllowsPreviousSelection() {
+  const submitSource = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(submitSource.includes('canResolveExistingEditImage'), 'submit workflow must allow previous/uploaded image resolver before blocking edit');
+  assert.ok(submitSource.includes('!!routeInfo.usePreviousImage') && submitSource.includes('routeInfo.target==="previous"'));
+  assert.ok(appSource.includes('canResolveExistingEditImage'), 'regenerate/app workflow must allow previous/uploaded image resolver before blocking edit');
+  assert.ok(appSource.includes('!!p.usePreviousImage') && appSource.includes('p.target==="previous"'));
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -165,6 +176,7 @@ const tests = [
   testFilePlaceholderSemanticsAndFileUnderstanding,
   testQuotedFileAttachmentTextIsIncluded,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
+  testExistingImageEditGateAllowsPreviousSelection,
 ];
 
 for (const test of tests) {
