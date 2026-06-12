@@ -218,9 +218,9 @@ body {
 }
 .session-config-wrap {
   display: grid !important;
-  grid-template-columns: 42px 42px 42px auto !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   align-items: center !important;
-  justify-content: start !important;
+  justify-content: stretch !important;
   gap: 8px !important;
   min-width: 0 !important;
 }
@@ -1245,6 +1245,50 @@ body {
   border-color: var(--border) !important;
 }
 
+/* Streaming markdown tail: show a vivid neon caret and never show a dot marker. */
+.streaming-tail,
+[data-markdown-streaming-tail="1"] {
+  display: inline !important;
+  position: relative !important;
+  background: transparent !important;
+  color: inherit !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.streaming-tail::before,
+[data-markdown-streaming-tail="1"]::before {
+  content: none !important;
+  display: none !important;
+}
+.streaming-tail::after,
+[data-markdown-streaming-tail="1"]::after {
+  content: '' !important;
+  display: inline-block !important;
+  width: 3px !important;
+  height: 1.16em !important;
+  margin-left: 3px !important;
+  vertical-align: -0.16em !important;
+  background: linear-gradient(180deg, #22d3ee 0%, var(--accent) 48%, #8b5cf6 100%) !important;
+  opacity: .98 !important;
+  border-radius: 999px !important;
+  box-shadow: 0 0 6px rgba(20, 184, 166, .75), 0 0 12px rgba(34, 211, 238, .42) !important;
+  animation: streaming-caret-neon .9s ease-in-out infinite !important;
+}
+@keyframes streaming-caret-neon {
+  0%, 100% {
+    opacity: .5;
+    transform: scaleY(.86);
+    box-shadow: 0 0 4px rgba(20, 184, 166, .45), 0 0 8px rgba(34, 211, 238, .28);
+  }
+  45%, 65% {
+    opacity: 1;
+    transform: scaleY(1.08);
+    box-shadow: 0 0 7px rgba(20, 184, 166, .85), 0 0 16px rgba(34, 211, 238, .55), 0 0 22px rgba(139, 92, 246, .35);
+  }
+}
+
 /* ═══════════════════════════════════════════
    Pending Feedback Animation
    ═══════════════════════════════════════════ */
@@ -1404,7 +1448,7 @@ button:disabled,
 }
 .session-config-wrap {
   display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   align-items: stretch !important;
   justify-content: stretch !important;
   gap: 8px !important;
@@ -1419,7 +1463,7 @@ button:disabled,
   min-width: 0 !important;
   min-height: 38px !important;
   height: 38px !important;
-  padding: 0 10px !important;
+  padding: 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -1435,11 +1479,12 @@ button:disabled,
   flex: 1 1 auto !important;
 }
 .session-config-btn::after {
-  content: "配置";
+  content: none !important;
 }
 .session-config-btn svg,
 .session-clear-all-btn svg,
-.session-github-btn svg {
+.session-github-btn svg,
+.sidebar-version-badge svg {
   width: 17px !important;
   height: 17px !important;
   flex: 0 0 17px !important;
@@ -1447,6 +1492,19 @@ button:disabled,
 .sidebar-version-badge {
   color: var(--muted) !important;
   background: rgba(255,255,255,.56) !important;
+}
+.sidebar-version-badge svg {
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 1.9 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+.sidebar-version-text {
+  display: inline-block !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 .session-config-wrap .session-config-btn,

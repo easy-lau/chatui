@@ -446,6 +446,19 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
   return fallbackMode;
 }
 
+function canonicalRouteAction(route = {}) {
+  const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
+  const operationType = String(route?.operation?.type || '').trim();
+  if (['plain_chat', 'file_qa', 'image_qa', 'ocr'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
+  if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
+  if (operationType === 'image_edit') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
+  if (operationType === 'image_reference_gen') return { mode: 'image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
+  if (explicitMode === 'chat') return { mode: 'chat', intent: 'unknown', type: 'plain_chat', source: 'mode' };
+  if (explicitMode === 'image') return { mode: 'image', intent: 'text_to_image', type: 'text_to_image', source: 'mode' };
+  if (explicitMode === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: 'image_edit', source: 'mode' };
+  return null;
+}
+
 function planImageIds(plan = {}) {
   const ids = [];
   for (const task of plan.tasks || []) for (const image of task.input_images || []) if (image.image_id) ids.push(image.image_id);
@@ -543,13 +556,13 @@ function normalizeRoute(route, fallbackMode = 'chat') {
   const plan = normalizeImagePlan({ ...(route || {}), tasks: Array.isArray(route?.tasks) && route.tasks.length ? route.tasks : imageRefsToTasks(imageRefs, route?.mode || fallbackMode, route || {}) });
   const plannedMode = plan.intent !== 'unknown' ? modeFromImageIntent(plan.intent, fallbackMode) : '';
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
-  // Prefer intent-derived mode over LLM's explicit mode when they disagree,
-  // because the LLM may return mode:"image" while intent says "image_edit_single"
-  // (old prompt habits vs new structured intent field).
-  const preferredMode = plannedMode || explicitMode || fallbackMode;
-  const mode = plannedMode && explicitMode && plannedMode !== explicitMode ? plannedMode : preferredMode;
+  const action = canonicalRouteAction(route || {});
+  // operation.type is the most specific action. mode and intent are derived from it
+  // when present, so conflicting fields cannot route to a different pipeline.
+  const preferredMode = action?.mode || plannedMode || explicitMode || fallbackMode;
+  const mode = preferredMode;
   const planIds = planImageIds(plan);
-  const rawTarget = ['none', 'new', 'uploaded', 'previous'].includes(route && route.target) ? route.target : targetFromPlan(plan, mode);
+  const rawTarget = action?.source === 'operation' && action.mode === 'chat' ? 'none' : ['none', 'new', 'uploaded', 'previous'].includes(route && route.target) ? route.target : targetFromPlan(plan, mode);
   const target = rawTarget || (mode === 'image' ? 'new' : 'none');
   const confidence = Number.isFinite(Number(route && route.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
   const evidence = String(route && route.evidence || '').trim();
@@ -572,7 +585,7 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     clarificationQuestion: plan.clarificationQuestion,
     contextualImagePrompt: String(route && (route.contextual_image_prompt || route.contextualImagePrompt) || '').trim(),
     editInstruction: String(route && (route.edit_instruction || route.editInstruction) || '').trim(),
-    intent: plan.intent,
+    intent: action?.intent || plan.intent,
     tasks: plan.tasks,
     operation,
     imageRefs: plan.needClarification ? [] : imageRefs,
@@ -601,6 +614,7 @@ const api = Object.freeze({
   normalizePlanInputImages,
   normalizeImagePlanTask,
   normalizeImagePlan,
+  canonicalRouteAction,
   normalizeRouteOperation,
   normalizeRouteImageRefs,
   normalizeRouteFileRefs,

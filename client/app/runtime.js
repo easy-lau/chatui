@@ -3,7 +3,18 @@
     const value = String(version || '').trim();
     if (!value) return '';
     const label = value.startsWith('v') ? value : `v${value}`;
-    doc.querySelectorAll('[data-app-version]').forEach(node => { node.textContent = label; });
+    const compactLabel = label.replace(/^v/i, '');
+    doc.querySelectorAll('[data-app-version]').forEach(node => {
+      if (node.classList?.contains('sidebar-version-badge')) {
+        node.title = `当前版本 ${label}`;
+        node.setAttribute('aria-label', `当前版本 ${label}`);
+        node.dataset.versionLabel = label;
+        const textNode = node.querySelector?.('.sidebar-version-text');
+        if (textNode) textNode.textContent = compactLabel;
+        return;
+      }
+      node.textContent = label;
+    });
     const railConfigBtn = doc.getElementById('railConfigBtn');
     if (railConfigBtn) {
       railConfigBtn.title = `模型配置 · ${label}`;

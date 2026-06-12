@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="./styles/composer.css?v=1.3.0" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.2" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.2" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.0.5" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.0.9" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -63,13 +63,13 @@
         </button>
         <button id="clearAllSessionsBtn" class="session-clear-all-btn" type="button" title="清除所有会话" aria-label="清除所有会话">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>
-          <span>清除所有会话</span>
         </button>
         <a class="session-github-btn" href="https://github.com/MrLiuGangQiang/chatui" target="_blank" rel="noopener noreferrer" title="GitHub 项目" aria-label="GitHub 项目">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6A9.4 9.4 0 0 0 8.9 20c.47.09.64-.2.64-.45v-1.62c-2.6.57-3.15-1.12-3.15-1.12-.43-1.1-1.05-1.39-1.05-1.39-.86-.59.07-.58.07-.58.95.07 1.45.98 1.45.98.85 1.45 2.23 1.03 2.77.79.09-.62.33-1.03.6-1.27-2.08-.24-4.27-1.04-4.27-4.63 0-1.02.37-1.86.98-2.52-.1-.24-.43-1.2.09-2.48 0 0 .8-.26 2.61.96A9 9 0 0 1 12 6.35c.8 0 1.61.11 2.37.32 1.8-1.22 2.6-.96 2.6-.96.52 1.28.2 2.24.1 2.48.61.66.98 1.5.98 2.52 0 3.6-2.2 4.39-4.3 4.62.34.29.64.86.64 1.74v2.48c0 .25.17.54.65.45A9.4 9.4 0 0 0 12 2.6Z"/></svg>
-          <span>GitHub</span>
         </a>
-        <span class="sidebar-version-badge" data-app-version aria-label="当前版本">v--</span>
+        <span class="sidebar-version-badge" data-app-version aria-label="当前版本" title="当前版本">
+          <span class="sidebar-version-text">--</span>
+        </span>
         </div>
       </div>
     </aside>
@@ -418,6 +418,8 @@
   <script src="./client/services/image-service.js?v=1.2.67"></script>
   <script src="./client/services/composition.js?v=1.2.65"></script>
   <script src="./client/services/usage-stats.js?v=1.2.67"></script>
+  <script src="./client/ui/usage-stats-format.js?v=1.0.0"></script>
+  <script src="./client/ui/usage-stats-auth.js?v=1.0.0"></script>
   <script src="./client/services/browser.js?v=1.2.65"></script>
   <script src="./client/app/state.js?v=1.2.65"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
@@ -444,11 +446,11 @@
   <script src="./client/app/image-result-workflow.js?v=1.2.67"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.65"></script>
   <script src="./client/app/submit-workflow.js?v=1.3.41"></script>
-  <script src="./client/app/chat-workflow.js?v=1.3.8"></script>
+  <script src="./client/app/chat-workflow.js?v=1.3.10"></script>
   <script src="./client/app/image-workflow.js?v=1.3.12"></script>
-  <script src="./client/app/message-workflow.js?v=1.3.15"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.16"></script>
   <script src="./client/app/display-history-workflow.js?v=1.2.79"></script>
-  <script src="./client/app/scroll-focus-workflow.js?v=1.3.0"></script>
+  <script src="./client/app/scroll-focus-workflow.js?v=1.3.2"></script>
   <script src="./client/app/route-decision-workflow.js?v=1.3.14"></script>
   <script src="./client/app/reasoning-workflow.js?v=1.2.67"></script>
   <script src="./client/ui/file-actions.js?v=1.2.65"></script>
@@ -461,12 +463,12 @@
   <script src="./client/ui/render-cache.js?v=1.2.65"></script>
   <script src="./client/ui/render-scheduler.js?v=1.2.65"></script>
   <script src="./client/ui/message-virtualizer.js?v=1.2.65"></script>
-  <script src="./client/ui/usage-stats.js?v=1.2.68"></script>
+  <script src="./client/ui/usage-stats.js?v=1.2.69"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
-  <script src="./client/app/runtime.js?v=1.2.65"></script>
+  <script src="./client/app/runtime.js?v=1.2.66"></script>
   <script src="./client/app/media-workflow.js?v=1.2.65"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.65"></script>
   <script src="./client/app/bootstrap-workflow.js?v=1.2.78"></script>
-  <script src="./app.js?v=1.3.33"></script>
+  <script src="./app.js?v=1.3.34"></script>
 </body>
 </html>

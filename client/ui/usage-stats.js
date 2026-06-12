@@ -11,79 +11,29 @@
     ['last_month', '上月排行'],
     ['total', '总排行'],
   ];
-  const CONFIG_KEY = 'openapi-chat-image-config-v2';
-  const DEPARTMENT_PASSWORD_KEY = 'openapi-chat-usage-department-password';
+  const format = (typeof window !== 'undefined' && window.ChatUIUsageStatsFormat) || (typeof require === 'function' ? require('./usage-stats-format') : {});
+  const auth = (typeof window !== 'undefined' && window.ChatUIUsageStatsAuth) || (typeof require === 'function' ? require('./usage-stats-auth') : {});
 
   const $ = id => document.getElementById(id);
-  const escapeHtml = (typeof window !== 'undefined' && (window.ChatUIAppFormatting || window.ChatUIApp?.formatting || {}).escapeHtml) || (value => String(value ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
-
-  function formatTokens(value) {
-    const number = Number(value) || 0;
-    if (Math.abs(number) >= 1000000000) return `${trimUnit(number / 1000000000)}B`;
-    if (Math.abs(number) >= 1000000) return `${trimUnit(number / 1000000)}M`;
-    return new Intl.NumberFormat('zh-CN').format(number);
-  }
-
-  function trimUnit(value) {
-    return value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1).replace(/\.0$/, '') : value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1');
-  }
-
-  function fullNumber(value) {
-    return new Intl.NumberFormat('zh-CN').format(Number(value) || 0);
-  }
-
-  function tokenPercent(part, total) {
-    const totalTokens = Number(total) || 0;
-    const partTokens = Number(part) || 0;
-    if (totalTokens <= 0 || partTokens <= 0) return 0;
-    return Math.max(0, Math.min(100, partTokens / totalTokens * 100));
-  }
-
-  function cachePercent(row = {}) {
-    return tokenPercent(row?.prompt_cached_tokens, row?.prompt_tokens);
-  }
-
-  function reasoningPercent(row = {}) {
-    return tokenPercent(row?.completion_reasoning_tokens, row?.completion_tokens);
-  }
-
-  function formatPercent(value) {
-    const number = Number(value) || 0;
-    return `${number >= 10 ? number.toFixed(1) : number.toFixed(2)}`.replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1') + '%';
-  }
-
-  function formatMetricValue(value, type) {
-    return type === 'percent' ? formatPercent(value) : formatTokens(value);
-  }
-
-  function fullMetricValue(value, type) {
-    return type === 'percent' ? formatPercent(value) : fullNumber(value);
-  }
+  const {
+    escapeHtml,
+    formatTokens,
+    fullNumber,
+    cachePercent,
+    reasoningPercent,
+    formatMetricValue,
+    fullMetricValue,
+  } = format;
+  const {
+    currentApiKey: readCurrentApiKey,
+    shouldLoadRanking,
+    getDepartmentPassword,
+    setDepartmentPassword,
+    clearDepartmentPassword,
+  } = auth;
 
   function currentApiKey() {
-    const inputValue = $('apiKey')?.value?.trim();
-    if (inputValue) return inputValue;
-    try {
-      return String(JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}')?.apiKey || '').trim();
-    } catch {
-      return '';
-    }
-  }
-
-  function shouldLoadRanking(apiKey) {
-    return Boolean(String(apiKey || '').trim());
-  }
-
-  function getDepartmentPassword() {
-    try { return String(localStorage.getItem(DEPARTMENT_PASSWORD_KEY) || '').trim(); } catch { return ''; }
-  }
-
-  function setDepartmentPassword(password) {
-    try { localStorage.setItem(DEPARTMENT_PASSWORD_KEY, String(password || '').trim()); } catch {}
-  }
-
-  function clearDepartmentPassword() {
-    try { localStorage.removeItem(DEPARTMENT_PASSWORD_KEY); } catch {}
+    return readCurrentApiKey({ getElement: $ });
   }
 
   function ensureDom() {
@@ -290,6 +240,11 @@
   let activeDepartmentRange = 'today';
   let activeMode = 'personal';
 
+  function clearDepartmentCache() {
+    cache.departmentRankings = {};
+    cache.departmentUsers = {};
+  }
+
   function usageService() {
     return window.ChatUIServices?.usageStats;
   }
@@ -322,6 +277,7 @@
     if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
     if (!payload?.authorized) throw new Error('密码错误，无权限访问');
     setDepartmentPassword(password);
+    clearDepartmentCache();
     return true;
   }
 
@@ -336,6 +292,7 @@
         if (!String(err.message || '').includes('密码错误')) throw err;
       }
       clearDepartmentPassword();
+      clearDepartmentCache();
       showUsageLimit('已保存的部门统计密码无效，请重新输入');
     }
     return promptAndVerifyDepartmentPassword();
@@ -427,7 +384,10 @@
         ]);
       }
     } catch (err) {
-      if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+      if (String(err.message || '').includes('密码错误')) {
+        clearDepartmentPassword();
+        clearDepartmentCache();
+      }
       showUsageLimit(err.message || '加载失败');
     } finally {
       refresh?.classList.remove('is-spinning');
@@ -460,7 +420,10 @@
         renderPersonal(null, true);
         await loadDepartmentRanking(activeDepartmentRange);
       } catch (err) {
-        if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+        if (String(err.message || '').includes('密码错误')) {
+          clearDepartmentPassword();
+          clearDepartmentCache();
+        }
         showUsageLimit(err.message || '密码错误，无权限访问');
       }
       return;
@@ -477,7 +440,10 @@
           clearUsageLimit();
           await loadDepartmentUsers(row.dataset.departmentId, row.dataset.departmentName || '部门');
         } catch (err) {
-          if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+          if (String(err.message || '').includes('密码错误')) {
+            clearDepartmentPassword();
+            clearDepartmentCache();
+          }
           showUsageLimit(err.message || '查询部门用户统计失败');
         }
       };
@@ -502,7 +468,10 @@
           if (activeMode === 'department') await loadDepartmentRanking(activeDepartmentRange);
           else await loadRanking(activeRange);
         } catch (err) {
-          if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+          if (String(err.message || '').includes('密码错误')) {
+            clearDepartmentPassword();
+            clearDepartmentCache();
+          }
           showUsageLimit(err.message || '加载失败');
         }
       });
@@ -522,7 +491,10 @@
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
-      if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+      if (String(err.message || '').includes('密码错误')) {
+        clearDepartmentPassword();
+        clearDepartmentCache();
+      }
       showUsageLimit(err.message || '导出部门统计失败');
     }
   }
@@ -552,7 +524,7 @@
     });
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { formatTokens, trimUnit, fullNumber, tokenPercent, cachePercent, reasoningPercent, formatPercent, shouldLoadRanking };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { currentApiKey, renderPersonal, renderRanking, renderDepartmentUsers };
 
   if (typeof document === 'undefined') return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
