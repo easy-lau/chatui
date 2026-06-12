@@ -55,6 +55,13 @@ function normalizeLargeLimit(value, fallback = 1000) {
   return Math.min(Math.floor(limit), 10000);
 }
 
+function normalizeRangeBounds(row = {}) {
+  return {
+    start_time: row.start_time || null,
+    end_time: row.end_time || null,
+  };
+}
+
 function createUsageStatsRepository(pool, options = {}) {
   const rankingLimit = normalizeRankingLimit(options.rankingLimit || process.env.USAGE_RANKING_LIMIT || process.env.USAGE_STATS_RANKING_LIMIT);
 
@@ -126,7 +133,21 @@ function createUsageStatsRepository(pool, options = {}) {
     return result.rows.map(normalizeTokenRow);
   }
 
-  return { getRanking, getPersonalRange, getDepartmentRanking, getDepartmentUsers };
+  async function getDepartmentRangeBounds(range) {
+    const sqlByRange = {
+      today: `SELECT CURRENT_DATE::timestamptz AS start_time, NOW() AS end_time`,
+      yesterday: `SELECT (CURRENT_DATE - INTERVAL '1 day')::timestamptz AS start_time, CURRENT_DATE::timestamptz AS end_time`,
+      month: `SELECT date_trunc('month', NOW()) AS start_time, NOW() AS end_time`,
+      last_month: `SELECT date_trunc('month', NOW()) - INTERVAL '1 month' AS start_time, date_trunc('month', NOW()) AS end_time`,
+      total: `SELECT MIN(created_at) AS start_time, NOW() AS end_time FROM usage_logs`,
+    };
+    const sql = sqlByRange[range];
+    if (!sql) throw new Error(`Unsupported department usage range: ${range}`);
+    const result = await pool.query(sql);
+    return normalizeRangeBounds(result.rows[0]);
+  }
+
+  return { getRanking, getPersonalRange, getDepartmentRanking, getDepartmentUsers, getDepartmentRangeBounds };
 }
 
 module.exports = { createUsageStatsRepository };

@@ -75,7 +75,7 @@
     const blob = await response.blob();
     const disposition = response.headers.get('content-disposition') || '';
     const match = disposition.match(/filename="?([^";]+)"?/i);
-    return { blob, filename: match?.[1] || `department-usage-${range}.xls` };
+    return { blob, filename: match?.[1] || `department-usage-${range}.xlsx` };
   }
 
   window.ChatUIServices = window.ChatUIServices || {};

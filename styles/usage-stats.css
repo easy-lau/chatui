@@ -310,7 +310,11 @@
 }
 
 .usage-personal.usage-department-summary {
-  display: block;
+  display: none;
+}
+
+.usage-mode-department .usage-stats-body {
+  padding-top: 10px;
 }
 
 .usage-personal-ranges button {

@@ -154,7 +154,7 @@
     const el = $('usagePersonal');
     if (!el) return;
     if (activeMode === 'department') {
-      el.innerHTML = '<div class="usage-empty">部门统计已开启。点击部门行可下钻查看人员使用统计。</div>';
+      el.innerHTML = '';
       return;
     }
     if (!hasApiKey) {
@@ -445,6 +445,7 @@
     }
     $('usageStatsExport')?.classList.toggle('show', activeMode === 'department');
     $('usagePersonal')?.classList.toggle('usage-department-summary', activeMode === 'department');
+    $('usageStatsPanel')?.classList.toggle('usage-mode-department', activeMode === 'department');
     renderTabs();
   }
 
@@ -515,7 +516,7 @@
       const url = URL.createObjectURL(payload.blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = payload.filename || `department-usage-${activeDepartmentRange}.xls`;
+      link.download = payload.filename || `department-usage-${activeDepartmentRange}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

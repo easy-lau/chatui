@@ -785,7 +785,7 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 - 部门统计支持今日排行、昨日排行、本月排行、上月排行、总排行。
 - 部门统计不受排行榜数量限制，会展示所有部门。
 - 部门排行可点击部门下钻查看该部门所有成员使用统计。
-- 部门统计支持导出 Excel XML `.xls`，第一个 Sheet 为部门排行，后续每个 Sheet 为对应部门人员使用统计。
+- 部门统计支持导出标准 `.xlsx`，第一个 Sheet 为部门排行，后续每个 Sheet 为对应部门人员使用统计；导出包含序号、开始时间、结束时间和各 token 指标。
 - 排行榜默认展示前 10 名，可通过环境变量调整。
 - 前三名使用金、银、铜视觉样式，但显示文本仍为 `1 / 2 / 3`。
 - 指标包括：总用量、输入、输出、缓存输入、推理输出。
@@ -828,7 +828,7 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 | `/api/usage/department/verify` | POST | 校验部门统计访问密码，body 包含 `password` |
 | `/api/usage/department/rankings` | POST | 查询部门排行，body 包含 `password` 与 `range=today|yesterday|month|last_month|total` |
 | `/api/usage/department/users` | POST | 查询部门人员统计，body 包含 `password`、`department_id` 与 `range` |
-| `/api/usage/department/export` | POST | 导出部门统计 Excel XML `.xls`，body 包含 `password` 与 `range` |
+| `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx`，body 包含 `password` 与 `range` |
 
 ### Job API
 
