@@ -22,6 +22,8 @@ const urlPolicy = require('../server/security/url-policy');
 const extractApi = require('../server/extract');
 const { ConcurrencyLimiter } = require('../server/concurrency');
 const safeLog = require('../server/logging/safe-log');
+const appState = require('../client/app/state');
+const sessionDisplay = require('../client/app/session-display');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -769,6 +771,47 @@ async function testReadBodyReturns413WithoutDestroyingConnection() {
   await assert.rejects(promise, err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
 }
 
+function testSessionPromptDraftPersistsPerSession() {
+  const store = new Map();
+  const storage = {
+    getItem: key => store.has(key) ? store.get(key) : null,
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: key => store.delete(key),
+  };
+  const state = { sessions: [], activeSessionId: '', models: [] };
+  const sessionA = { ...appState.createSession('A', () => 1000, () => 0.111111), id: 'session-a', promptDraft: 'A 草稿' };
+  const sessionB = { ...appState.createSession('B', () => 2000, () => 0.222222), id: 'session-b', promptDraft: 'B 草稿' };
+  state.sessions = [sessionA, sessionB];
+  state.activeSessionId = sessionA.id;
+  const workflow = sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => state.sessions.find(item => item.id === state.activeSessionId),
+    createSession: appState.createSession,
+    deriveSessionTitle: session => session.title || '新对话',
+    sessionStorageKey: (key, sessionId = state.activeSessionId) => `${key}:${sessionId}`,
+    readJsonStorage: (key, fallback) => { try { return JSON.parse(storage.getItem(key) || ''); } catch { return fallback; } },
+    safeSetJsonStorage: (key, value) => { storage.setItem(key, JSON.stringify(value)); return value; },
+    compactDisplayItems: items => items,
+    compactAdjacentDuplicateMessages: messages => messages,
+    sanitizeStoredDisplayItem: item => item,
+    sanitizeStoredMessage: message => message,
+    renderSessionList: () => {},
+    makeDisplayItemId: () => 'display-id',
+    localStorage: storage,
+    constants: { SESSIONS_KEY: 'sessions', ACTIVE_SESSION_KEY: 'active' },
+  });
+  workflow.saveSessionsMeta();
+  const meta = JSON.parse(storage.getItem('sessions'));
+  assert.strictEqual(meta.find(item => item.id === 'session-a').promptDraft, 'A 草稿');
+  assert.strictEqual(meta.find(item => item.id === 'session-b').promptDraft, 'B 草稿');
+
+  state.sessions = [];
+  state.activeSessionId = '';
+  workflow.loadSessions();
+  assert.strictEqual(state.sessions.find(item => item.id === 'session-a').promptDraft, 'A 草稿');
+  assert.strictEqual(state.sessions.find(item => item.id === 'session-b').promptDraft, 'B 草稿');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -804,6 +847,7 @@ const tests = [
   testUsageStatsFrontendHelpers,
   testServerHardeningHelpers,
   testReadBodyReturns413WithoutDestroyingConnection,
+  testSessionPromptDraftPersistsPerSession,
 ];
 
 (async () => {
