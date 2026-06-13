@@ -22,6 +22,7 @@ const urlPolicy = require('../server/security/url-policy');
 const extractApi = require('../server/extract');
 const { ConcurrencyLimiter } = require('../server/concurrency');
 const safeLog = require('../server/logging/safe-log');
+const officeExtract = require('../server/extract/office');
 const appState = require('../client/app/state');
 const sessionDisplay = require('../client/app/session-display');
 
@@ -812,6 +813,12 @@ function testSessionPromptDraftPersistsPerSession() {
   assert.strictEqual(state.sessions.find(item => item.id === 'session-b').promptDraft, 'B 草稿');
 }
 
+function testLegacyDocSupportIsRoutedToWordExtractor() {
+  assert.strictEqual(extractApi.fileKind('Mysql实用手册.doc', 'application/msword'), 'office');
+  assert.strictEqual(require('../client/app/attachments-workflow').canExtractOfficeText({ name: 'Mysql实用手册.doc', type: 'application/msword' }), true);
+  assert.strictEqual(typeof officeExtract.extractLegacyDocWithWordExtractor, 'function');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -848,6 +855,7 @@ const tests = [
   testServerHardeningHelpers,
   testReadBodyReturns413WithoutDestroyingConnection,
   testSessionPromptDraftPersistsPerSession,
+  testLegacyDocSupportIsRoutedToWordExtractor,
 ];
 
 (async () => {
