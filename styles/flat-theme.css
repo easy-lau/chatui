@@ -1314,12 +1314,16 @@ body {
    Generated Image Grid
    ═══════════════════════════════════════════ */
 .generated-image-item {
-  border-radius: 10px !important;
-  border: 1px solid var(--border) !important;
-  background: #f8fafc !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
 }
 .generated-thumb {
   border-radius: 8px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 .image-download-row {
   background: transparent !important;
