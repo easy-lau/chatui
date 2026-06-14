@@ -71,8 +71,8 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('ocr') && payload.messages[0].content.includes('image_source'));
-  assert.ok(payload.messages[0].content.includes('intent router') && payload.messages[0].content.includes('image_analyze'));
+  assert.ok(payload.messages[0].content.includes('"route":"chat|vision|image_generate|image_edit|unclear|unsafe"'));
+  assert.ok(payload.messages[0].content.includes('image_source'));
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
   assert.strictEqual(minimalPayload.messages[1].content, JSON.stringify({ current_input: '解释一下 JavaScript 里的 Promise 是什么。' }));
   assert.ok(minimalPayload.messages[0].content.length < 2600, `route system prompt too large: ${minimalPayload.messages[0].content.length}`);
@@ -237,9 +237,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('[file id]') && system.includes('references only'));
-  assert.ok(system.includes('file_candidates') && system.includes('cannot see file contents'));
-  assert.ok(system.includes('file_qa') && system.includes('file_candidates'));
+  assert.ok(system.includes('metadata/placeholders'));
+  assert.ok(system.includes('do not infer file/image contents'));
+  assert.ok(system.includes('context.file_candidates'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
@@ -289,7 +289,7 @@ function testHistoryFileCandidatesRouteAsFileQa() {
   });
   assert.strictEqual(context.file_candidates.length, 1);
   assert.strictEqual(context.file_candidates[0].source, 'history');
-  const parsed = routeService.parseRouteResult('{"intent":"file_qa","target_model":"text_model","need_file_input":false,"confidence":0.9}', routeContext.normalizeRoute, {
+  const parsed = routeService.parseRouteResult('{"route":"chat","need_file_input":false,"confidence":0.9}', routeContext.normalizeRoute, {
     input: '从文件中提取最后一个邮箱',
     attachments: [],
     context,
@@ -349,26 +349,24 @@ function testExistingImageEditGateAllowsPreviousSelection() {
 }
 
 function testLightweightIntentClassifierAdapters() {
-  const unsafe = routeContext.normalizeRoute(routeService.simpleRouteToLegacyRoute({
-    intent: 'unsafe', target_model: 'none', reply_to_user: '抱歉，这个请求我不能帮助处理。', confidence: 1, reason: 'route model unsafe',
+  const unsafeApi = routeContext.normalizeRoute(routeService.apiRouteToExecutionRoute({
+    route: 'unsafe', reply_to_user: '抱歉，这个请求我不能帮助处理。', confidence: 1, reason: 'route model unsafe',
   }, { input: '帮我盗取别人的账号密码', attachments: [], context: {} }), 'chat');
-  assert.strictEqual(unsafe.mode, 'chat');
-  assert.strictEqual(unsafe.needClarification, true);
-  assert.ok(unsafe.clarificationQuestion.includes('不能帮助'));
+  assert.strictEqual(unsafeApi.mode, 'chat');
+  assert.strictEqual(unsafeApi.needClarification, true);
+  assert.ok(unsafeApi.clarificationQuestion.includes('不能帮助'));
 
   const currentImage = [{ name: 'room.png', type: 'image/png', is_image: true }];
   const currentContext = { image_candidates: [] };
   const editCurrent = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_edit',
-    target_model: 'image_model',
+    route: 'image_edit',
     need_image_input: false,
     need_file_input: false,
     need_clarification: false,
     image_source: 'current',
-    image_role: 'target',
     selected_indexes: [1],
     use_previous_image: false,
-    rewritten_prompt: '把背景换成海边，保持主体不变',
+    instruction: '把背景换成海边，保持主体不变',
     reply_to_user: '',
     confidence: 0.95,
     reason: '修改当前上传图片',
@@ -380,9 +378,48 @@ function testLightweightIntentClassifierAdapters() {
   assert.deepStrictEqual(editCurrent.selectedIndexes, [1]);
   assert.strictEqual(editCurrent.editInstruction, '把背景换成海边，保持主体不变');
 
+  const apiEditCurrent = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit',
+    need_image_input: false,
+    need_file_input: false,
+    need_clarification: false,
+    image_source: 'current',
+    selected_indexes: [1],
+    use_previous_image: false,
+    instruction: '参考这个图做一个后端',
+    reply_to_user: '',
+    confidence: 0.95,
+    reason: '改图接口',
+  }), routeContext.normalizeRoute, { input: '参考这个图做一个后端', attachments: currentImage, context: currentContext });
+  assert.strictEqual(apiEditCurrent.mode, 'edit_image');
+  assert.strictEqual(apiEditCurrent.operation.type, 'image_edit');
+  assert.strictEqual(apiEditCurrent.target, 'uploaded');
+  assert.strictEqual(apiEditCurrent.editInstruction, '参考这个图做一个后端');
+
+  const apiVisionCurrent = routeService.parseRouteResult(JSON.stringify({
+    route: 'vision', image_source: 'current', selected_indexes: [1], confidence: 0.95,
+  }), routeContext.normalizeRoute, { input: '提取图片文字', attachments: currentImage, context: currentContext });
+  assert.strictEqual(apiVisionCurrent.mode, 'chat');
+  assert.strictEqual(apiVisionCurrent.operation.type, 'image_qa');
+  assert.strictEqual(apiVisionCurrent.target, 'none');
+
+  const apiTextImage = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate', instruction: '画一只猫', confidence: 0.95,
+  }), routeContext.normalizeRoute, { input: '画一只猫', attachments: [], context: {} });
+  assert.strictEqual(apiTextImage.mode, 'image');
+  assert.strictEqual(apiTextImage.operation.type, 'text_to_image');
+  assert.strictEqual(apiTextImage.target, 'new');
+
+  const apiRefImage = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate', image_source: 'current', selected_indexes: [1], instruction: '参考当前图片风格生成海报', confidence: 0.9,
+  }), routeContext.normalizeRoute, { input: '参考这张图的风格生成一张海报', attachments: currentImage, context: currentContext });
+  assert.strictEqual(apiRefImage.mode, 'image');
+  assert.strictEqual(apiRefImage.operation.type, 'image_reference_gen');
+  assert.strictEqual(apiRefImage.target, 'new');
+
   const quotedContext = { image_candidates: [{ index: 1, image_id: 'img_quote_1', reference_id: 'imgref_quote', target: 'previous', source: 'quoted' }] };
   const editQuoted = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_edit', target_model: 'image_model', image_source: 'quoted', image_role: 'target', selected_indexes: [1], rewritten_prompt: '改成漫画风', confidence: 0.9,
+    route: 'image_edit', image_source: 'quoted', selected_indexes: [1], instruction: '改成漫画风', confidence: 0.9,
   }), routeContext.normalizeRoute, { input: '改成漫画风', attachments: [], context: quotedContext });
   assert.strictEqual(editQuoted.mode, 'edit_image');
   assert.strictEqual(editQuoted.target, 'previous');
@@ -391,7 +428,7 @@ function testLightweightIntentClassifierAdapters() {
 
   const historyContext = { image_candidates: [{ index: 1, image_id: 'img_imgref_latest_1', reference_id: 'imgref_latest', target: 'previous', source: 'history' }], latest_image_reference: { reference_id: 'imgref_latest', target: 'previous' } };
   const editHistory = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_edit', target_model: 'image_model', image_source: 'history', image_role: 'target', selected_indexes: [1], use_previous_image: true, rewritten_prompt: '改成黑白', confidence: 0.9,
+    route: 'image_edit', image_source: 'history', selected_indexes: [1], use_previous_image: true, instruction: '改成黑白', confidence: 0.9,
   }), routeContext.normalizeRoute, { input: '把上一张改成黑白', attachments: [], context: historyContext });
   assert.strictEqual(editHistory.mode, 'edit_image');
   assert.strictEqual(editHistory.target, 'previous');
@@ -399,7 +436,7 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(editHistory.selectedReferenceId, 'imgref_latest');
 
   const refGen = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_reference_generate', target_model: 'image_model', image_source: 'current', image_role: 'reference', selected_indexes: [1], rewritten_prompt: '参考当前图片风格生成海报', confidence: 0.9,
+    route: 'image_generate', image_source: 'current', selected_indexes: [1], instruction: '参考当前图片风格生成海报', confidence: 0.9,
   }), routeContext.normalizeRoute, { input: '参考这张图的风格生成一张海报', attachments: currentImage, context: currentContext });
   assert.strictEqual(refGen.mode, 'image');
   assert.strictEqual(refGen.operation.type, 'image_reference_gen');
@@ -408,7 +445,7 @@ function testLightweightIntentClassifierAdapters() {
   assert.deepStrictEqual(refGen.selectedIndexes, [1]);
 
   const promptFromImage = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_analyze', target_model: 'vision_model', image_source: 'current', image_role: 'source', selected_indexes: [1], rewritten_prompt: '', confidence: 1,
+    route: 'vision', image_source: 'current', selected_indexes: [1], confidence: 1,
   }), routeContext.normalizeRoute, { input: '根据这张图片生成提示词', attachments: currentImage, context: currentContext });
   assert.strictEqual(promptFromImage.mode, 'chat');
   assert.strictEqual(promptFromImage.operation.type, 'image_qa');
@@ -416,7 +453,7 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(promptFromImage.intent, 'unknown');
 
   const multiAmbiguous = routeService.parseRouteResult(JSON.stringify({
-    intent: 'image_edit', target_model: 'image_model', image_source: 'current', image_role: 'target', selected_indexes: [], rewritten_prompt: '改一下', confidence: 0.6,
+    route: 'image_edit', image_source: 'current', selected_indexes: [], instruction: '改一下', confidence: 0.6,
   }), routeContext.normalizeRoute, { input: '把这张图改一下', attachments: [{ name: 'a.png', type: 'image/png', is_image: true }, { name: 'b.png', type: 'image/png', is_image: true }], context: { image_candidates: [] } });
   assert.strictEqual(multiAmbiguous.mode, 'chat');
   assert.strictEqual(multiAmbiguous.needClarification, true);
@@ -541,13 +578,15 @@ function testRouteOperationTypeDrivesCanonicalMode() {
 function testRoutePromptUsesEnglishRulesWithChineseEdgeCases() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('Return JSON only'));
-  ['text_chat', 'file_qa', 'image_generate', 'image_reference_generate', 'image_edit', 'image_analyze', 'ocr', 'prompt_optimize', 'unclear', 'unsafe'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
-  assert.ok(system.includes('target_model'));
+  ['chat', 'vision', 'image_generate', 'image_edit', 'unclear', 'unsafe'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
+  ['text_chat', 'file_qa', 'image_reference_generate', 'image_analyze', 'ocr', 'prompt_optimize', 'target_model', 'image_role', 'rewritten_prompt'].forEach(type => assert.ok(!system.includes(type), `route prompt should not expose legacy field/type ${type}`));
   assert.ok(system.includes('image_source'));
   assert.ok(system.includes('selected_indexes'));
   assert.ok(system.includes('use_previous_image'));
-  assert.ok(system.includes('Generate/reverse-engineer/extract a TEXT prompt from an image'));
-  assert.ok(system.includes('NEVER image_generate/reference/edit'));
+  assert.ok(system.includes('Input: current_input, attachments'));
+  assert.ok(system.includes('Output exactly'));
+  assert.ok(system.includes('Meanings: chat=text/file answer'));
+  assert.ok(system.includes('do not infer file/image contents'));
   assert.ok(system.length < 2600, `route prompt should stay compact: ${system.length}`);
 }
 

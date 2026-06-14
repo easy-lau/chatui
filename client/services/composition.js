@@ -62,7 +62,7 @@
   const route = Object.freeze({
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
-    simpleRouteToLegacyRoute: (simple, options) => routeService.simpleRouteToLegacyRoute(simple, options),
+    apiRouteToExecutionRoute: (simple, options) => routeService.apiRouteToExecutionRoute(simple, options),
     parseRouteResult: (text, normalizeRoute, options) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
