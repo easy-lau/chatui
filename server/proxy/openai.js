@@ -48,13 +48,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
     if (!allowedProxyMethods.has(method)) return sendError(res, 405, '不支持的代理方法', 'PROXY_METHOD_NOT_ALLOWED');
 
-    let upstreamPath = targetPath;
-    let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath, contextWindowTokens });
-    if (method !== 'GET' && targetPath === '/images/generations') {
+    let upstreamPath = targetPath === '/openai/image_edit' ? '/images/edits' : targetPath;
+    let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath: upstreamPath, contextWindowTokens });
+    if (method !== 'GET' && upstreamPath === '/images/generations') {
       safeLog('[image-generation-proxy] upstream json', { model: outboundPayload.model || '', fields: Object.keys(outboundPayload) });
     }
     const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
-    const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
+    const isImageEdit = method !== 'GET' && upstreamPath === '/images/edits';
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {

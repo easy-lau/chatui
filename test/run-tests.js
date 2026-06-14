@@ -7,6 +7,7 @@ const routeService = require('../client/services/route-service');
 const imageGeneration = require('../client/services/image-generation-service');
 const imageService = require('../client/services/image-service');
 const imageJobs = require('../server/jobs/image');
+const serverConfig = require('../server/config');
 const clarificationService = require('../client/services/clarification-service');
 const sessionPersistence = require('../client/app/session-persistence');
 const chatWorkflow = require('../client/app/chat-workflow');
@@ -190,6 +191,25 @@ function testImageJobTargetsAndMultipartSanitization() {
   assert.ok(!('n' in openaiPayload));
   assert.ok(!String(openaiPayload.prompt).includes('data:image'));
   assert.strictEqual(openaiPayload.images.length, 1);
+
+  const multipart = imageJobs.buildImageEditMultipartBody({ model: 'gpt-image-2', prompt: '改成黑白' }, [{ name: 'logo.png', type: 'image/png', data: 'QUJDRA==' }]);
+  assert.ok(Buffer.isBuffer(multipart.body));
+  assert.ok(multipart.headers['Content-Type'].includes('multipart/form-data; boundary='));
+  assert.strictEqual(multipart.headers['Content-Length'], String(multipart.body.length));
+  const boundary = multipart.headers['Content-Type'].match(/boundary=(.+)$/)?.[1];
+  assert.ok(boundary, 'multipart boundary should be present');
+  const multipartText = multipart.body.toString('latin1');
+  assert.ok(multipartText.includes('name="prompt"'));
+  assert.ok(multipartText.includes('name="image"; filename="logo.png"'));
+  assert.ok(multipartText.endsWith(`--${boundary}--\r\n`));
+
+  const multiImage = imageJobs.buildImageEditMultipartBody({ model: 'gpt-image-2', prompt: '合成' }, [
+    { name: 'a.png', type: 'image/png', data: 'QUJDRA==' },
+    { name: 'b.png', type: 'image/png', data: 'QUJDRA==' },
+  ]);
+  assert.strictEqual((multiImage.body.toString('latin1').match(/name="image"; filename=/g) || []).length, 2);
+  assert.throws(() => imageJobs.buildImageEditMultipartBody({ model: 'gpt-image-2', prompt: '坏图' }, [{ name: 'bad.png', type: 'image/png', data: '!!!!' }]), /图片附件数据无效/);
+  assert.ok(serverConfig.ALLOWED_PROXY_PATHS.some(re => re.test('/images/edits')));
 }
 
 function testStorageSanitizesEmbeddedImageContent() {

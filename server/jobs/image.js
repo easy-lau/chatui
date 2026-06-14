@@ -143,17 +143,35 @@ function hasFilePayloadData(value) {
   return typeof value === 'object' && !!value.data;
 }
 
-function imageFileToBlob(file = {}) {
+function invalidImageDataError() {
+  const err = new Error('图片附件数据无效，请重新上传图片');
+  err.statusCode = 400;
+  return err;
+}
+
+function normalizeImageBase64Data(file = {}) {
   const rawData = String(file.data || '').trim();
-  const base64 = rawData.includes(',') ? rawData.split(',').pop() : rawData;
-  return new Blob([Buffer.from(base64, 'base64')], { type: safeMultipartContentType(file.type) });
+  const base64 = (rawData.includes(',') ? rawData.split(',').pop() : rawData).replace(/\s+/g, '');
+  if (!base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length % 4 === 1) throw invalidImageDataError();
+  return base64;
+}
+
+function imageFileToBuffer(file = {}) {
+  const base64 = normalizeImageBase64Data(file);
+  const buffer = Buffer.from(base64, 'base64');
+  if (!buffer.length) throw invalidImageDataError();
+  return buffer;
+}
+
+function validateImageFilePayloads(files = []) {
+  (files || []).filter(file => file?.data).forEach(file => imageFileToBuffer(file));
 }
 
 function imageFileToDataUrl(file = {}) {
   const rawData = String(file.data || '').trim();
-  if (isDataUrlLike(rawData)) return rawData;
-  const base64 = rawData.includes(',') ? rawData.split(',').pop() : rawData;
-  const contentType = safeMultipartContentType(file.type);
+  const base64 = normalizeImageBase64Data(file);
+  const dataUrlType = isDataUrlLike(rawData) ? rawData.match(/^data:([^;,]+)/i)?.[1] : '';
+  const contentType = dataUrlType || safeMultipartContentType(file.type);
   return `data:${contentType};base64,${base64}`;
 }
 
@@ -165,21 +183,48 @@ function normalizeImageEditFieldValue(key, value) {
   return stripped.length > multipartTextFieldLimit('prompt') ? `${stripped.slice(0, multipartTextFieldLimit('prompt'))}\n[prompt-truncated]` : stripped;
 }
 
+function multipartBoundary() {
+  return `chatui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function multipartHeaderValue(value = '') {
+  return String(value || '').replace(/[\r\n"]/g, '_');
+}
+
+function buildMultipartTextPart(boundary, key, value) {
+  return Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${multipartHeaderValue(key)}"\r\n\r\n${String(value)}\r\n`, 'utf8');
+}
+
+function buildMultipartFilePart(boundary, fieldName, file = {}, index = 0) {
+  const buffer = imageFileToBuffer(file);
+  const name = multipartHeaderValue(fieldName);
+  const filename = multipartHeaderValue(safeMultipartFilename(file, index));
+  const type = safeMultipartContentType(file.type);
+  return Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`, 'utf8'),
+    buffer,
+    Buffer.from('\r\n', 'utf8'),
+  ]);
+}
+
 function buildImageEditMultipartBody(payload = {}, files = [], options = {}) {
-  const body = new FormData();
+  const boundary = multipartBoundary();
+  const parts = [];
   Object.entries(payload || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (!shouldForwardImageEditField(payload, key, value)) return;
     const fieldValue = normalizeImageEditFieldValue(key, value);
     if (!shouldForwardImageEditField(payload, key, fieldValue)) return;
-    body.append(String(key), String(fieldValue));
+    parts.push(buildMultipartTextPart(boundary, key, fieldValue));
   });
   (files || []).filter(file => file?.data && !isTaggedMaskFile(file)).forEach((file, index) => {
-    body.append('image', imageFileToBlob(file || {}), safeMultipartFilename(file, index));
+    parts.push(buildMultipartFilePart(boundary, 'image', file || {}, index));
   });
   const mask = normalizeFileList(options.masks)[0];
-  if (mask?.data) body.append('mask', imageFileToBlob(mask), safeMultipartFilename(mask, 0));
-  return { body, headers: {} };
+  if (mask?.data) parts.push(buildMultipartFilePart(boundary, 'mask', mask, 0));
+  parts.push(Buffer.from(`--${boundary}--\r\n`, 'utf8'));
+  const body = Buffer.concat(parts);
+  return { body, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) } };
 }
 
 function buildOpenAiImageEditPayload(payload = {}, files = [], options = {}) {
@@ -273,6 +318,7 @@ if (job.mode === 'edit_image') {
   const editPayload = stripImageEditFileFields(job.payload);
   const editBody = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
   safeLog('[image-edit] upstream multipart', { model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: job.files?.length || 0, masks: job.masks?.length || 0 });
+  Object.assign(headers, editBody.headers || {});
   body = editBody.body;
 } else {
   headers['Content-Type'] = 'application/json';
@@ -319,6 +365,7 @@ try {
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
   const masks = extractImageEditMasks(body);
+  validateImageFilePayloads([...imageFiles, ...masks]);
   const mode = body.mode === 'edit_image' || imageFiles.length ? 'edit_image' : 'image';
   if (mode === 'edit_image') payload = ensureImageEditPrompt(payload, body);
   if (mode === 'edit_image' && !imageFiles.length) return sendJson(res, 400, { error: { message: '图片编辑任务缺少图片附件' } });
