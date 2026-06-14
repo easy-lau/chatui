@@ -2,6 +2,7 @@
   'use strict';
 
   function formatElapsed(ms) {
+    if (Number.isFinite(ms) && ms < 1000) return ms > 0 && ms < 1 ? '<1ms' : `${Math.max(0, Math.round(ms))}ms`;
     const seconds = ms / 1000;
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
     return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
@@ -9,6 +10,13 @@
 
   function firstTokenTimeText(ms) {
     return Number.isFinite(ms) ? `TTFT ${formatElapsed(ms)}` : '';
+  }
+
+  function responseMetricsText({ firstTokenMs = null, durationMs = null, includeFirstToken = true, includeDuration = true } = {}) {
+    const parts = [];
+    if (includeFirstToken && Number.isFinite(firstTokenMs)) parts.push(`TTFT ${formatElapsed(firstTokenMs)}`);
+    if (includeDuration && Number.isFinite(durationMs)) parts.push(`RT ${formatElapsed(durationMs)}`);
+    return parts.join(' · ');
   }
 
   function escapeHtml(value) {
@@ -41,6 +49,7 @@
   const api = Object.freeze({
     formatElapsed,
     firstTokenTimeText,
+    responseMetricsText,
     escapeHtml,
     escapeAttr,
     renderStreamingText,

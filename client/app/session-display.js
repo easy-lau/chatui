@@ -136,7 +136,7 @@
       if (!state.sessions.find(item => item.id === sessionId) || !item) return;
       item.role = role;
       item.rawText = options.rawText ?? content;
-      if (options.deferPersist !== true && options.pending !== false) item.html = options.html ? String(content || '') : role === 'user' ? renderUserMessageContent(String(content || '')) : renderMarkdown(String(content || ''));
+      if (options.deferPersist !== true) item.html = options.html ? String(content || '') : role === 'user' ? renderUserMessageContent(String(content || '')) : renderMarkdown(String(content || ''));
       if (!item.id) item.id = makeDisplayItemId();
       if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
       if (options.id !== undefined && options.id) item.id = options.id;

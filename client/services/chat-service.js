@@ -20,6 +20,7 @@ function extractChatJobText(data) {
     content: normalizeText(message.content || message.text || message.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || ''),
     reasoning: message.reasoning_content || message.reasoning || data?.reasoning_content || data?.reasoning || '',
     firstTokenMs: Number.isFinite(data?.metrics?.firstTokenMs) ? data.metrics.firstTokenMs : null,
+    durationMs: Number.isFinite(data?.metrics?.durationMs) ? data.metrics.durationMs : null,
   };
 }
 

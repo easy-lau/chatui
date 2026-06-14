@@ -24,8 +24,10 @@ const extractApi = require('../server/extract');
 const { ConcurrencyLimiter } = require('../server/concurrency');
 const safeLog = require('../server/logging/safe-log');
 const officeExtract = require('../server/extract/office');
+const responsesStream = require('../server/proxy/responses-stream');
 const appState = require('../client/app/state');
 const sessionDisplay = require('../client/app/session-display');
+const formatting = require('../client/app/formatting');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -878,6 +880,85 @@ function testLegacyDocSupportIsRoutedToWordExtractor() {
   assert.strictEqual(typeof officeExtract.extractLegacyDocWithWordExtractor, 'function');
 }
 
+function testResponseMetricsTextIsUnified() {
+  assert.strictEqual(formatting.responseMetricsText({ firstTokenMs: 37, durationMs: 5678 }), 'TTFT 37ms · RT 5.7s');
+  assert.strictEqual(formatting.responseMetricsText({ firstTokenMs: 1234, durationMs: 5678 }), 'TTFT 1.2s · RT 5.7s');
+  assert.strictEqual(formatting.responseMetricsText({ durationMs: 61000, includeFirstToken: false }), 'RT 1m 1s');
+  const metrics = require('../client/services/chat-service').extractChatJobText({ metrics: { firstTokenMs: 100, durationMs: 220 }, choices: [{ message: { content: 'ok' } }] });
+  assert.strictEqual(metrics.firstTokenMs, 100);
+  assert.strictEqual(metrics.durationMs, 220);
+}
+
+function testResponsesDirectDoesNotRegisterManagedChatJob() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(source.includes('useResponsesDirect=shouldUseResponsesReasoning'), 'Responses path should be decided before chat-job allocation');
+  assert.ok(source.includes('useManagedChatJob=!useResponsesDirect'), 'Responses direct stream must not use managed chat-job lifecycle');
+  assert.ok(source.includes('let f=useManagedChatJob?makeClientChatJobId():null'), 'chat job id should only exist for managed chat/completions stream');
+  assert.ok(source.includes('if(useResponsesDirect){const Q=async e=>streamChatCompletions'), 'Responses stream should use the direct stream branch');
+  assert.ok(source.includes('N=useResponsesDirect'), 'fallback branch should keep the same transport family and avoid recomputing into another job path');
+}
+
+function testTtftStartsAtServerForwardStart() {
+  const serverSource = fs.readFileSync(path.join(__dirname, '../server/jobs/chat.js'), 'utf8');
+  const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(serverSource.includes('job.serverStartAtMs = performance.now()'), 'managed chat job should record high precision server forward start');
+  assert.ok(serverSource.includes('job.firstTokenMs = elapsedSince(job.serverStartAtMs)'), 'managed chat job first token should be measured from server forward start');
+  assert.ok(appSource.includes('serverFirstTokenMs=a.firstTokenMs'), 'Responses direct stream should preserve server-side firstTokenMs from compact SSE');
+  assert.ok(appSource.includes('serverDurationMs=a.durationMs'), 'Responses direct stream should preserve server-side durationMs from compact SSE');
+}
+
+function testResponsesCompactFtIsNeverZero() {
+  const normalizer = responsesStream.createResponsesCompactStreamNormalizer({ now: (() => {
+    const values = [1000, 1000, 1050];
+    return () => values.shift() ?? 1000;
+  })() });
+  const out = normalizer.push('event: response.reasoning_summary_text.delta\ndata: {"delta":"hello"}\n\n');
+  const payload = JSON.parse(out.match(/data: (.+)/)[1]);
+  assert.strictEqual(payload.r, 'hello');
+  assert.strictEqual(payload.ft, 1);
+  const done = normalizer.end();
+  const donePayload = JSON.parse(done.match(/data: (.+)/)[1]);
+  assert.strictEqual(donePayload.done, 1);
+  assert.strictEqual(donePayload.rt, 50);
+}
+
+function testFileUploadReturnsFocusToComposerSubmitPath() {
+  const bootstrapSource = fs.readFileSync(path.join(__dirname, '../client/app/bootstrap-workflow.js'), 'utf8');
+  const attachmentSource = fs.readFileSync(path.join(__dirname, '../client/app/attachments-workflow.js'), 'utf8');
+  assert.ok(bootstrapSource.includes('e.target.value="",updateSendAvailability?.();const t=$("prompt"),s=$("sendBtn"),n=t&&!t.disabled?t:s,o=()=>n?.focus?.();(window.requestAnimationFrame||window.setTimeout).call(window,o,0),window.setTimeout.call(window,o,80)'), 'file input change should move focus away from file button/input to prompt or send button with browser-bound timers');
+  assert.ok(attachmentSource.includes('root.requestAnimationFrame.call(root, focus)'), 'attachment workflow should call requestAnimationFrame with the window/root binding');
+  assert.ok(attachmentSource.includes('function focusComposerSubmitTarget()'), 'attachment workflow should centralize post-upload focus restore');
+  assert.ok(attachmentSource.includes('finishUploadProgressSoon();\n      focusComposerSubmitTarget();'), 'addFiles completion should restore focus to composer submit target');
+}
+
+function testImageBubblesAreShrinkWrapped() {
+  const source = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(source.includes('.message .content:has(.user-attachment-preview-grid),\n.message .content:has(.generated-image-grid){\n  width:fit-content!important;'), 'image message content should be shrink-wrapped instead of full-width');
+  assert.ok(source.includes('.message.user .bubble:has(.user-attachment-preview-grid),\n.message.assistant .bubble:has(.generated-image-grid),\n.message.error .bubble:has(.generated-image-grid){\n  width:fit-content!important;'), 'image bubbles should be shrink-wrapped to the image grid');
+  assert.ok(source.includes('width:fit-content!important;\n  max-width:100%!important;\n  min-width:0!important;'), 'image grids should use fit-content width with max-width guard');
+}
+
+function testSessionDisplayUpdatesFinalClarificationHtml() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/session-display.js'), 'utf8');
+  assert.ok(source.includes('if (options.deferPersist !== true) item.html ='), 'final display updates should refresh item html');
+  assert.ok(!source.includes('options.deferPersist !== true && options.pending !== false'), 'final pending=false updates must not skip html refresh');
+}
+
+function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const image = fs.readFileSync(path.join(__dirname, '../client/app/image-workflow.js'), 'utf8');
+  assert.ok(submit.includes('assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex))'), 'assistant placeholders should persist displayItemId and responseIndex on the DOM node');
+  assert.ok(submit.includes('updateMessage(assistantNode,e,{rawText:e,responseIndex})'), 'clarification final message should keep its responseIndex on the DOM node');
+  assert.ok(image.includes('if((e&&s&&e!==s)||(t&&a&&t!==a))d=null;'), 'image workflow should reject stale loading nodes from a different display item/response');
+}
+
+function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/session-persistence.js'), 'utf8');
+  assert.ok(source.includes('img[src*="attachment-data-omitted"]'), 'sanitizer should remove omitted attachment placeholders from img src');
+  assert.ok(source.includes('img[data-persisted-src*="attachment-data-omitted"]'), 'sanitizer should remove omitted attachment placeholders from persisted image src');
+  assert.ok(source.includes("img.removeAttribute('src');"), 'omitted attachment image placeholders should not trigger browser requests');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -915,6 +996,15 @@ const tests = [
   testReadBodyReturns413WithoutDestroyingConnection,
   testSessionPromptDraftPersistsPerSession,
   testLegacyDocSupportIsRoutedToWordExtractor,
+  testResponseMetricsTextIsUnified,
+  testResponsesDirectDoesNotRegisterManagedChatJob,
+  testTtftStartsAtServerForwardStart,
+  testResponsesCompactFtIsNeverZero,
+  testFileUploadReturnsFocusToComposerSubmitPath,
+  testImageBubblesAreShrinkWrapped,
+  testSessionDisplayUpdatesFinalClarificationHtml,
+  testClarificationAssistantNodeKeepsStableDisplayIdentity,
+  testOmittedAttachmentDataDoesNotRenderAsImageUrl,
 ];
 
 (async () => {

@@ -105,7 +105,7 @@
           ...base,
           status: event.e ? 'error' : event.done ? 'done' : 'running',
           data: { choices: [{ message }] },
-          metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}) },
+          metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}), ...(Number.isFinite(event.rt) ? { durationMs: event.rt } : {}) },
           error: event.e ? { message: event.e } : base.error || null,
         };
         return aggregateEvent;

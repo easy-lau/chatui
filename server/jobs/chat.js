@@ -1,10 +1,16 @@
 const { sendJson } = require('../http/response');
+const { performance } = require('perf_hooks');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../client/core/context-budget');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
+
+function elapsedSince(startedAt) {
+  const elapsed = performance.now() - Number(startedAt || performance.now());
+  return Math.max(1, elapsed);
+}
 
 function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
   return {
@@ -20,6 +26,8 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
     error: '',
     buffer: '',
     streamStarted: false,
+    serverStartAtMs: null,
+    upstreamAcceptedAtMs: null,
     firstTokenMs: null,
     compactStream: true,
     streamSeq: 0,
@@ -55,6 +63,7 @@ function summarizeChatPayload(payload = {}) {
 
 function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS }) {
 async function runChatJob(job) {
+job.serverStartAtMs = performance.now();
 const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
   method: 'POST',
   headers: {
@@ -68,11 +77,14 @@ const { response: upstreamResponse, controller, timer } = createUpstreamFetch(jo
 });
 try {
   const upstream = await upstreamResponse;
+  job.upstreamAcceptedAt = Date.now();
+  job.upstreamAcceptedAtMs = performance.now();
   const text = await upstream.text();
   const data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   job.status = 'done';
   job.data = data;
+  job.durationMs = elapsedSince(job.serverStartAtMs);
 } catch (err) {
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
@@ -89,6 +101,7 @@ async function runChatStreamJob(job) {
 if (job.streamStarted) return;
 job.streamStarted = true;
 job.serverStartAt = Date.now();
+job.serverStartAtMs = performance.now();
 job.firstTokenMs = null;
 const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
   method: 'POST',
@@ -104,6 +117,8 @@ const { response: upstreamResponse, controller, timer } = createUpstreamFetch(jo
 });
 try {
   const upstream = await upstreamResponse;
+  job.upstreamAcceptedAt = Date.now();
+  job.upstreamAcceptedAtMs = performance.now();
   const contentType = upstream.headers.get('content-type') || '';
   if (!upstream.ok) {
     const text = await upstream.text();
@@ -129,6 +144,7 @@ try {
     }
   }
   job.status = 'done';
+  job.durationMs = elapsedSince(job.serverStartAtMs);
   delete job.buffer;
 } catch (err) {
   const aborted = err?.name === 'AbortError';
@@ -214,7 +230,7 @@ function notifyChatStreamJob(job) {
 
 function markFirstToken(job) {
   if (job.firstTokenMs === null || job.firstTokenMs === undefined) {
-    job.firstTokenMs = Date.now() - Number(job.serverStartAt || job.createdAt || Date.now());
+    job.firstTokenMs = elapsedSince(job.serverStartAtMs);
   }
 }
 

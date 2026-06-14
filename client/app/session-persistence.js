@@ -89,6 +89,12 @@
     try {
       const template = documentRef.createElement('template');
       template.innerHTML = stripped;
+      template.content.querySelectorAll('img[src*="attachment-data-omitted"], img[src*="image-data-omitted"], img[data-persisted-src*="attachment-data-omitted"], img[data-persisted-src*="image-data-omitted"]').forEach(img => {
+        img.removeAttribute('src');
+        img.removeAttribute('data-persisted-src');
+        img.classList.add('image-missing');
+        if (!img.getAttribute('alt')) img.setAttribute('alt', '图片数据已省略');
+      });
       template.content.querySelectorAll('img[data-persisted-src], img[src^="indexeddb://"]').forEach(img => {
         const persisted = img.getAttribute('data-persisted-src') || img.getAttribute('src') || '';
         const currentSrc = img.getAttribute('src') || '';

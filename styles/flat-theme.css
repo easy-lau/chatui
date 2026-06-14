@@ -1522,17 +1522,19 @@ button:disabled,
   flex: 1 1 auto !important;
 }
 
-/* Final image-grid override: keep user uploads and assistant images row-first.
-   This file is loaded after messages.css, so keep the authoritative rules here. */
+/* Final image-grid override: keep image bubbles shrink-wrapped.
+   The image row itself should define the bubble width; otherwise a single image
+   can sit in a full-width bubble and make the left/right whitespace look uneven. */
 .message .content:has(.user-attachment-preview-grid),
 .message .content:has(.generated-image-grid){
-  width:100%!important;
+  width:fit-content!important;
   max-width:100%!important;
 }
 .message.user .bubble:has(.user-attachment-preview-grid),
 .message.assistant .bubble:has(.generated-image-grid),
 .message.error .bubble:has(.generated-image-grid){
-  width:100%!important;
+  width:fit-content!important;
+  max-width:100%!important;
 }
 .message.user .user-attachment-preview-grid,
 .message.assistant .generated-image-grid,
@@ -1544,7 +1546,7 @@ button:disabled,
   flex-wrap:wrap!important;
   align-items:flex-start!important;
   gap:8px!important;
-  width:100%!important;
+  width:fit-content!important;
   max-width:100%!important;
   min-width:0!important;
   margin-top:8px!important;

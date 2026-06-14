@@ -1,4 +1,9 @@
 const { normalizeContentText, normalizeReasoningText } = require('../jobs/reasoning');
+const { performance } = require('perf_hooks');
+
+function elapsedSince(startedAt, now) {
+  return Math.max(1, now() - Number(startedAt || now()));
+}
 
 function parseSseEvent(eventText) {
   const lines = String(eventText || '').split(/\r?\n/);
@@ -52,12 +57,10 @@ function sseUpdate(payload) {
   return `event: update\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
-function createResponsesCompactStreamNormalizer({ now = Date.now } = {}) {
+function createResponsesCompactStreamNormalizer({ now = () => performance.now(), startedAt = now() } = {}) {
   let buffer = '';
   let done = false;
   let firstTokenNotified = false;
-  const startedAt = now();
-
   const pushPayload = payload => {
     if (!payload || !Object.keys(payload).length) return '';
     return sseUpdate(payload);
@@ -66,7 +69,7 @@ function createResponsesCompactStreamNormalizer({ now = Date.now } = {}) {
   const markDone = () => {
     if (done) return '';
     done = true;
-    return pushPayload({ done: 1 });
+    return pushPayload({ done: 1, rt: elapsedSince(startedAt, now) });
   };
 
   function push(text, { flush = false } = {}) {
@@ -94,7 +97,7 @@ function createResponsesCompactStreamNormalizer({ now = Date.now } = {}) {
       if (delta.content) payload.d = delta.content;
       if (delta.reasoning) payload.r = delta.reasoning;
       if ((payload.d || payload.r) && !firstTokenNotified) {
-        payload.ft = Math.max(0, now() - startedAt);
+        payload.ft = elapsedSince(startedAt, now);
         firstTokenNotified = true;
       }
       out += pushPayload(payload);

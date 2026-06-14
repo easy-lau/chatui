@@ -1,4 +1,5 @@
 const { SECURITY_HEADERS, send, sendError } = require('../http/response');
+const { performance } = require('perf_hooks');
 const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
 const { limiter } = require('../concurrency');
 const { safeLog } = require('../logging/safe-log');
@@ -77,6 +78,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       upstreamContentHeaders = editBody.headers || {};
     }
     const targetUrl = withQueryParams(`${baseUrl.replace(/\/+$/, '')}${upstreamPath}`, query);
+    const upstreamStartedAt = performance.now();
     const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
       headers: {
@@ -101,7 +103,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, { 'Access-Control-Allow-Origin': '*' });
       }
       const compactResponses = targetPath === '/responses' && wantsStream;
-      const responsesNormalizer = compactResponses ? createResponsesCompactStreamNormalizer() : null;
+      const responsesNormalizer = compactResponses ? createResponsesCompactStreamNormalizer({ startedAt: upstreamStartedAt }) : null;
       res.writeHead(upstream.status, {
         ...SECURITY_HEADERS,
         'Content-Type': compactResponses ? 'text/event-stream; charset=utf-8' : contentType,

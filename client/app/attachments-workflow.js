@@ -72,6 +72,16 @@
       }));
     }
 
+    function focusComposerSubmitTarget() {
+      const prompt = getElement('prompt');
+      const send = getElement('sendBtn');
+      const target = prompt && !prompt.disabled ? prompt : send;
+      const focus = () => target?.focus?.();
+      if (root.requestAnimationFrame) root.requestAnimationFrame.call(root, focus);
+      else root.setTimeout?.call(root, focus, 0);
+      root.setTimeout?.call(root, focus, 80);
+    }
+
     function hasPendingUploads() { return (getState().uploadTasks || []).some(task => !task.done && !task.error); }
     function renderUploadProgress() {
       const state = getState();
@@ -214,6 +224,7 @@
       }
       autoResize();
       finishUploadProgressSoon();
+      focusComposerSubmitTarget();
     }
 
     function clearAttachments() { const state = getState(); state.attachments = []; renderAttachments(); }
