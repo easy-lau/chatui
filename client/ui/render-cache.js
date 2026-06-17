@@ -53,11 +53,18 @@
     };
   }
 
+  function markdownCacheNamespace(options = {}) {
+    const explicit = options.namespace || global.CHATUI_RENDER_CACHE_NAMESPACE || global.CHATUI_MARKDOWN_CACHE_VERSION || 'md-v2';
+    let readiness = 'fallback';
+    try { readiness = global.ChatUIMarkdownBrowserEngine?.hasCriticalMarkdownPlugins?.() ? 'ready' : 'fallback'; } catch {}
+    return `${explicit}:${readiness}`;
+  }
+
   function createRenderCache(options = {}) {
     const htmlCache = createLRUCache(options.maxEntries || 180, options.maxChars || 3_000_000);
     let hits = 0;
     let misses = 0;
-    function keyFor(raw = '') { return fnv1a(raw); }
+    function keyFor(raw = '') { return `${markdownCacheNamespace(options)}:${fnv1a(raw)}`; }
     return {
       keyFor,
       render(raw = '', renderer) {
@@ -80,7 +87,7 @@
       },
       put(raw = '', html = '') { htmlCache.set(keyFor(raw), { raw: String(raw || ''), value: String(html || '') }); return html; },
       clear() { htmlCache.clear(); hits = 0; misses = 0; },
-      stats() { const base = htmlCache.stats(); return { ...base, entries: htmlCache.size ? htmlCache.size() : base.entries, hits, misses }; },
+      stats() { const base = htmlCache.stats(); return { ...base, entries: htmlCache.size ? htmlCache.size() : base.entries, hits, misses, namespace: markdownCacheNamespace(options) }; },
     };
   }
 
@@ -88,7 +95,8 @@
   const api = Object.freeze({ createLRUCache, createRenderCache, renderCache, fnv1a });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (global && global.CHATUI_ENABLE_VIRTUAL_RENDER === true) {
-    global.ChatUI = Object.freeze({ ...(global.ChatUI || {}), performance: Object.freeze({ ...((global.ChatUI || {}).performance || {}), renderCache }) });
+  if (global) {
+    const existing = global.ChatUI || {};
+    global.ChatUI = Object.freeze({ ...existing, performance: Object.freeze({ ...(existing.performance || {}), createLRUCache, createRenderCache, renderCache }) });
   }
 })(typeof window !== 'undefined' ? window : globalThis);

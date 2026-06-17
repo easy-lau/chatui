@@ -55,8 +55,10 @@
       const content = node?.querySelector?.('.content');
       if (!content || node.dataset.virtualized === '1') return;
       rememberHeight(node);
-      node.dataset.virtualHeight = String(cachedHeight(node));
-      node.style.minHeight = `${cachedHeight(node)}px`;
+      const height = cachedHeight(node);
+      node.dataset.virtualHeight = String(height);
+      node.style.minHeight = `${height}px`;
+      content.style.minHeight = `${Math.max(48, height - 8)}px`;
       callbacks.cancel?.(node);
       content.innerHTML = plainPreview(node.dataset.rawText || '', cfg.placeholderPreviewChars);
       node.dataset.virtualized = '1';
@@ -71,6 +73,8 @@
       if (node.dataset.virtualized === '1') {
         node.dataset.virtualized = '0';
         node.style.minHeight = '';
+        const content = node.querySelector?.('.content');
+        if (content) content.style.minHeight = '';
       }
       callbacks.render?.(node, { force: true, generation });
     }
@@ -78,6 +82,7 @@
     function maybeUnload(node) {
       if (!cfg.enabled || !node?.isConnected || node.dataset.streaming === '1' || node.dataset.persist === '0') return;
       if (node.classList?.contains('user')) return;
+      if (node.querySelector?.('.generated-image-grid,.user-attachment-preview-grid,img.generated-thumb,img.user-attachment-image')) return;
       if (nearViewport(node, cfg.unloadMarginPx, cfg.root || container)) return;
       renderPlaceholder(node);
     }
@@ -142,5 +147,8 @@
 
   const api = Object.freeze({ createMessageVirtualizer, plainPreview, nearViewport });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (global && global.CHATUI_ENABLE_VIRTUAL_RENDER === true) global.ChatUI = Object.freeze({ ...(global.ChatUI || {}), performance: Object.freeze({ ...((global.ChatUI || {}).performance || {}), createMessageVirtualizer }) });
+  if (global) {
+    const existing = global.ChatUI || {};
+    global.ChatUI = Object.freeze({ ...existing, performance: Object.freeze({ ...(existing.performance || {}), createMessageVirtualizer }) });
+  }
 })(typeof window !== 'undefined' ? window : globalThis);

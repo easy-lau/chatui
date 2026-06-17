@@ -17,7 +17,7 @@
 
     function shouldProgressiveRenderMarkdown(text = '') {
       const raw = String(text || '');
-      return raw.length > 18000 || raw.split('\n').length > 420;
+      return raw.length > 8000 || raw.split('\n').length > 180;
     }
 
     function splitMarkdownRenderChunks(text = '') {
@@ -311,19 +311,27 @@
         : null;
       content.innerHTML = `<div class="markdown-progressive-status">正在分块挂载 Markdown…</div>`;
       restoreProgressiveAnchor?.();
-      const tpl = document.createElement('template');
-      tpl.innerHTML = render(text);
-      const allNodes = [...tpl.content.childNodes];
-      let index = 0;
+      const chunks = splitMarkdownRenderChunks(text);
+      const nodeQueue = [];
+      let chunkIndex = 0;
       const run = deadline => {
         if (!messageNode.isConnected || messageNode.dataset.progressiveRenderToken !== token) return;
         const started = performance?.now ? performance.now() : Date.now();
         const batch = [];
-        while (index < allNodes.length) {
-          batch.push(allNodes[index++]);
+        while (true) {
+          while (nodeQueue.length) {
+            batch.push(nodeQueue.shift());
+            const now = performance?.now ? performance.now() : Date.now();
+            const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
+            if (batch.length >= 24 || (now - started) > 8 || (timeLeft && timeLeft < 5)) break;
+          }
+          if (batch.length || chunkIndex >= chunks.length) break;
+          const tpl = document.createElement('template');
+          tpl.innerHTML = render(chunks[chunkIndex++]);
+          nodeQueue.push(...tpl.content.childNodes);
           const now = performance?.now ? performance.now() : Date.now();
           const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
-          if (batch.length >= 24 || (now - started) > 8 || (timeLeft && timeLeft < 5)) break;
+          if ((now - started) > 10 || (timeLeft && timeLeft < 5)) break;
         }
         content.querySelector('.markdown-progressive-status')?.remove();
         if (batch.length) {
@@ -333,7 +341,7 @@
           enhance(chunkRoot, { deferMermaid: true, progressive: true, allowResourceLoad: true });
           restoreProgressiveAnchor?.();
         }
-        if (index < allNodes.length) {
+        if (chunkIndex < chunks.length || nodeQueue.length) {
           if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
           else setTimeout(() => run(), 0);
           return;
@@ -360,7 +368,67 @@
 
     function updateMessageContentLight(e, t, s = {}) {
       with (deps) {
-        if(shouldSuppressRunUi(s.sessionId||state.activeSessionId,s.runToken))return;const n=e?.querySelector(".content");if(!n)return;const l=String(s.rawText??t??""),d=chatuiContentHash(l);if(!s.html&&"chat"!==s.streamKind&&!e.classList?.contains("user")&&e.dataset.rawHash===d&&e.dataset.renderedHash===d&&e.dataset.enhancedHash===d&&!s.forceRender){cleanupGeneratedImageNumberArtifacts(e);return}const o=s.noScroll?(state.userScrollLocked?preserveMessageViewport(e):preserveMessageBottomAnchor(e,72)):null,a=l;e.dataset.rawText=a,e.dataset.rawHash=d,e.dataset.streaming="1",void 0!==s.streamKind&&(e.dataset.streamKind=s.streamKind||""),void 0!==s.runToken&&(e.dataset.streamRunToken=s.runToken||""),s.skipSave&&(e.dataset.persist="0");if("chat"===s.streamKind&&!s.html&&!e.classList?.contains("user")){delete e.dataset.enhancedHash;let r=e.__markdownStreamingRenderer;if(!r||s.resetStream){r=window.ChatUIApp?.markdown?.createStreamingRenderer?.({renderMarkdown,enhance:(root,phase={})=>{bindInlineCopyButtons(root);enhanceRenderedMarkdown(root,{skipMermaid:!0,streaming:!!phase.streaming,deferMermaid:!0,allowResourceLoad:!!phase.final})}}),e.__markdownStreamingRenderer=r,n.innerHTML=""}if(r&&s.chunk!==!1){const l=String(t??"");const d=s.delta?l:l.startsWith(r.getRaw?.()||"")?l.slice((r.getRaw?.()||"").length):a.startsWith(r.getRaw?.()||"")?a.slice((r.getRaw?.()||"").length):l;r.append(d,n)}else if(n.textContent!==a)n.textContent=a}else{const i=s.html?String(t||""):e.classList?.contains("user")?renderUserMessageContent(a):renderMarkdown(a);n.innerHTML!==i&&(n.innerHTML=i,e.dataset.renderedHash=d,delete e.dataset.enhancedHash,resetMessageActionStates(e),cleanupGeneratedImageNumberArtifacts(e),"chat"!==s.streamKind&&(bindInlineCopyButtons(e),enhanceRenderedMarkdown(e,{allowResourceLoad:!1}),cleanupGeneratedImageNumberArtifacts(e),hydrateMessageMedia(e,{save:!1}),e.dataset.enhancedHash=d))}cleanupGeneratedImageNumberArtifacts(e);if(s.noScroll)o&&o();else scrollToActiveOutput(e,{force:!0,active:!0,settle:!1,margin:72});setTimeout(updateResumeStreamButton,0)
+        if (shouldSuppressRunUi(s.sessionId || state.activeSessionId, s.runToken)) return;
+        const contentNode = e?.querySelector('.content');
+        if (!contentNode) return;
+        const rawValue = String(s.rawText ?? t ?? '');
+        const rawHash = chatuiContentHash(rawValue);
+        const chatStream = s.streamKind === 'chat' && !s.html && !e.classList?.contains('user');
+        if (!s.html && !chatStream && !e.classList?.contains('user') && e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.forceRender) {
+          cleanupGeneratedImageNumberArtifacts(e);
+          return;
+        }
+
+        const restoreViewport = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
+        e.dataset.rawText = rawValue;
+        e.dataset.rawHash = rawHash;
+        e.dataset.streaming = '1';
+        if (void 0 !== s.streamKind) e.dataset.streamKind = s.streamKind || '';
+        if (void 0 !== s.runToken) e.dataset.streamRunToken = s.runToken || '';
+        if (s.skipSave) e.dataset.persist = '0';
+
+        if (chatStream) {
+          delete e.dataset.enhancedHash;
+          let streamRenderer = e.__markdownStreamingRenderer;
+          if (!streamRenderer || s.resetStream) {
+            streamRenderer = window.ChatUIApp?.markdown?.createStreamingRenderer?.({
+              renderMarkdown,
+              enhance: (scopeRoot, phase = {}) => {
+                bindInlineCopyButtons(scopeRoot);
+                enhanceRenderedMarkdown(scopeRoot, { skipMermaid: true, streaming: !!phase.streaming, deferMermaid: true, allowResourceLoad: !!phase.final });
+              },
+            });
+            e.__markdownStreamingRenderer = streamRenderer;
+            contentNode.innerHTML = '';
+          }
+          if (streamRenderer && s.chunk !== false) {
+            const incoming = String(t ?? '');
+            const previousRaw = streamRenderer.getRaw?.() || '';
+            const deltaText = s.delta ? incoming : incoming.startsWith(previousRaw) ? incoming.slice(previousRaw.length) : rawValue.startsWith(previousRaw) ? rawValue.slice(previousRaw.length) : incoming;
+            streamRenderer.append(deltaText, contentNode);
+          } else if (contentNode.textContent !== rawValue) contentNode.textContent = rawValue;
+        } else {
+          const html = s.html ? String(t || '') : e.classList?.contains('user') ? renderUserMessageContent(rawValue) : renderMarkdown(rawValue);
+          if (contentNode.innerHTML !== html) {
+            contentNode.innerHTML = html;
+            e.dataset.renderedHash = rawHash;
+            delete e.dataset.enhancedHash;
+            resetMessageActionStates(e);
+            cleanupGeneratedImageNumberArtifacts(e);
+            if (s.streamKind !== 'chat') {
+              bindInlineCopyButtons(e);
+              enhanceRenderedMarkdown(e, { allowResourceLoad: false });
+              cleanupGeneratedImageNumberArtifacts(e);
+              hydrateMessageMedia(e, { save: false });
+              e.dataset.enhancedHash = rawHash;
+            }
+          }
+          cleanupGeneratedImageNumberArtifacts(e);
+        }
+
+        if (s.noScroll) restoreViewport && restoreViewport();
+        else scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+        updateResumeStreamButton();
       }
     }
 
@@ -370,7 +438,77 @@
       }
     }
 
-    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
+    function addMessageProgressive(role, text, options = {}) {
+      with (deps) {
+        clearEmpty();
+        const node = $("messageTemplate").content.firstElementChild.cloneNode(true);
+        node.classList.add(role);
+        node.querySelector(".avatar").textContent = role === "user" ? "我" : role === "error" ? "!" : "AI";
+        const content = node.querySelector(".content");
+        const rawText = options.rawText ?? text;
+        const quote = quoteContextJson(options.quoteContext);
+        node.dataset.rawText = rawText;
+        node.dataset.rawHash = chatuiContentHash(rawText);
+        if (quote) { node.dataset.quoteContext = quote; node.classList.add("has-quote"); }
+        if (options.skipSave) node.dataset.persist = "0";
+        if (options.messageIndex !== undefined && options.messageIndex !== null) node.dataset.messageIndex = String(options.messageIndex);
+        if (options.responseIndex !== undefined && options.responseIndex !== null) node.dataset.responseIndex = String(options.responseIndex);
+        if (options.attachmentContext) node.dataset.attachmentContext = options.attachmentContext;
+        if (options.imageContext) node.dataset.imageContext = options.imageContext;
+
+        const lazy = chatuiShouldLazyRender(role, rawText, options);
+        const progressive = !options.html && role === "assistant" && shouldProgressiveRenderMarkdown(rawText) && !options.deferEnhance;
+        if (options.deferEnhance && role === "assistant" && !options.html) content.innerHTML = "";
+        else if (options.html) content.innerHTML = role === "user" ? withSentQuotePreview(stripTransientBlobUrlsFromHtml(text), quote) : stripTransientBlobUrlsFromHtml(text);
+        else if (progressive) content.innerHTML = '<div class="markdown-progressive-status">正在分块挂载 Markdown...</div>';
+        else if (lazy) content.innerHTML = chatuiPlainPreview(rawText);
+        else content.innerHTML = role === "user" ? withSentQuotePreview(renderUserMessageContent(String(text || "")), quote) : renderMarkdown(String(text || ""));
+
+        cleanupGeneratedImageNumberArtifacts(node);
+        bindSentQuotePreviews(node);
+        node.querySelector(".quote-btn")?.addEventListener("click", () => selectQuotedMessage(node));
+        const edit = node.querySelector(".edit-btn");
+        if (role === "user") edit.addEventListener("click", () => editUserMessage(node));
+        else edit.remove();
+        const refresh = node.querySelector(".refresh-btn");
+        if (role === "assistant" || role === "error") refresh.addEventListener("click", () => regenerateAssistantMessage(node));
+        else refresh.remove();
+        node.querySelector(".copy-btn")?.addEventListener("click", async () => {
+          await copyText(messageCopyText(node.dataset.rawText, content.innerText || content.textContent || "", content));
+          showCopySuccess(node.querySelector(".copy-btn"));
+        });
+        const download = node.querySelector(".download-answer-btn");
+        if (role === "assistant") download?.addEventListener("click", () => downloadAnswerFile(node, download));
+        else download?.remove();
+
+        $("messages").appendChild(node);
+        if (progressive) renderMarkdownProgressively(node, String(rawText || ""), node.dataset.rawHash);
+        else if (options.deferEnhance) {
+          node.dataset.renderedHash = node.dataset.rawHash;
+          node.dataset.deferEnhance = "1";
+          bindInlineCopyButtons(node);
+          cleanupGeneratedImageNumberArtifacts(node);
+          hydrateMessageMedia(node, { save: !options.skipSave });
+        } else if (lazy) chatuiQueueLazyMessage(node, rawText, { force: options.forceLazy });
+        else {
+          node.dataset.renderedHash = node.dataset.rawHash;
+          bindInlineCopyButtons(node);
+          enhanceRenderedMarkdown(node, { skipMermaid: true, allowResourceLoad: true });
+          cleanupGeneratedImageNumberArtifacts(node);
+          hydrateMessageMedia(node, { save: !options.skipSave });
+          bindSentQuotePreviews(node);
+          node.dataset.enhancedHash = node.dataset.rawHash;
+        }
+        chatuiRefreshVirtualizer();
+        setMessageMetaText(node, options.metaText || "");
+        if (node.querySelector("img.generated-thumb") && !options.deferEnhance) revealNodeAboveComposer(node);
+        if (!options.noScroll && !options.deferSave) scrollToBottom(true);
+        if (!options.skipSave && !options.deferSave) saveDisplayHistory();
+        return node;
+      }
+    }
+
+    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage: addMessageProgressive, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
   }
 
   const api = Object.freeze({ createMessageWorkflow });

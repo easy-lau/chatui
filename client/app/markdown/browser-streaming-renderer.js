@@ -92,9 +92,9 @@
     return tpl.innerHTML;
   }
 
-  function normalizedHtml(value = '') { return String(value || '').replace(/\sdata-markdown-streaming-tail="1"/g, '').replace(/\s+/g, ' ').trim(); }
-  function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); current.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail')?.remove(); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
-  function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) { if (typeof renderMarkdown !== 'function') return false; const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); current.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail')?.remove(); const delta = document.createElement('template'); delta.innerHTML = renderMarkdown(finalDelta); current.append(...delta.content.childNodes); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
+  function normalizedHtml(value = '') { return String(value || '').replace(/\s+/g, ' ').trim(); }
+  function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); return normalizedHtml(container.innerHTML) === normalizedHtml(tpl.innerHTML); }
+  function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) { if (typeof renderMarkdown !== 'function') return false; const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); const delta = document.createElement('template'); delta.innerHTML = renderMarkdown(finalDelta); current.append(...delta.content.childNodes); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
 
   function hasConservativeInlineMathTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const tail = src.slice(Math.max(0, src.lastIndexOf('\n') + 1)); let escaped = false; for (let i = 0; i < tail.length; i += 1) { const ch = tail[i]; if (escaped) { escaped = false; continue; } if (ch === '\\') { escaped = true; continue; } if (ch === '$' && tail[i + 1] !== '$' && tail[i - 1] !== '$') return true; } return false; }
   function splitLines(src) { const lines = []; let start = 0; for (let i = 0; i < src.length; i += 1) if (src[i] === '\n') { lines.push({ text: src.slice(start, i), start, end: i + 1, hasNl: true }); start = i + 1; } if (start < src.length) lines.push({ text: src.slice(start), start, end: src.length, hasNl: false }); return lines; }
@@ -116,32 +116,16 @@
   }
   function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete) stable = item.end; continue; } if (inMath) continue; if (blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); return Math.max(0, Math.min(stable, src.length)); }
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
-  function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown, renderTailText } = {}) {
+  function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown } = {}) {
     let raw = '', consumed = 0, tailText = '', closed = false;
-    const renderTextTail = renderTailText || (text => { const span = document.createElement('span'); span.className = 'streaming-tail'; span.dataset.markdownStreamingTail = '1'; span.textContent = text; return span; });
-    const findTail = c => c?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null;
-    const removeTail = c => findTail(c)?.remove();
     const htmlToFrag = (html, options = {}) => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); if (options.deferResources) deferStreamingResources(tpl.content); return tpl.content; };
     const insertRendered = (target, html, before, options = {}) => { const frag = htmlToFrag(html, options); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; };
     const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) });
-    const enhanceSafe = (c, phase = {}) => { try { enhance?.(c, phase); } catch (err) { console.warn('[markdown] streaming enhance failed:', err); } };
-    const renderTail = (text = '') => {
-      const value = String(text || '');
-      if (hasOpenFenceTail(value)) {
-        const wrap = document.createElement('div');
-        wrap.className = 'streaming-tail markdown-streaming-tail-rendered';
-        wrap.dataset.markdownStreamingTail = '1';
-        wrap.append(...htmlToFrag(render(value), { deferResources: true }).childNodes);
-        enhanceSafe(wrap, { streaming: true, tail: true });
-        return wrap;
-      }
-      return renderTextTail(value);
-    };
-    const updateTail = (container, text = '') => {
-      const oldTail = findTail(container);
-      if (!text) { oldTail?.remove(); return; }
-      const nextTail = renderTail(text);
-      if (oldTail) oldTail.replaceWith(nextTail); else container.appendChild(nextTail);
+    const enhanceSafe = (c, phase = {}) => {
+      try {
+        if (phase.streaming && !phase.final && !phase.reset) return;
+        enhance?.(c, phase);
+      } catch (err) { console.warn('[markdown] streaming enhance failed:', err); }
     };
     return {
       append(delta, container) {
@@ -149,15 +133,14 @@
         raw += String(delta || '');
         const { stable, tail, index } = splitStableTail(raw);
         if (index < consumed) {
-          if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); removeTail(container); enhanceSafe(container, { reset: true }); }
+          if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); enhanceSafe(container, { reset: true }); }
           consumed = raw.length; tailText = '';
           return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' };
         }
         const part = stable.slice(consumed);
         if (container) {
-          let tailNode = findTail(container);
-          if (part) { const inserted = insertRendered(container, render(part), tailNode, { deferResources: true }); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
-          tailText = tail; updateTail(container, tailText);
+          if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
+          tailText = tail;
         } else { if (part) consumed = stable.length; tailText = tail; }
         return { raw, consumed, tail: tailText, delta: part, closed };
       },
@@ -167,14 +150,14 @@
         raw = next; closed = true;
         let mode = 'noop', reason = '';
         if (container) {
-          const tailNode = findTail(container), canCommitTail = next === previousRaw && previousConsumed <= next.length, finalDelta = next.slice(previousConsumed), finalHtml = render(next), canSkipFullRerender = canCommitTail && (finalMarkupMatchesCurrent(container, finalHtml) || projectedIncrementalFinalMatches(container, finalHtml, finalDelta, render));
-          if (canSkipFullRerender) {
-            if (tailNode) tailNode.remove();
-            if (finalDelta) { restoreStreamingResources(container); const inserted = insertRendered(container, render(finalDelta), null); enhanceSafe(fragmentRootFor(inserted), { final: true, streaming: true }); }
-            else { restoreStreamingResources(container); enhanceSafe(container, { final: true, unchanged: true }); }
+          const canCommitTail = next === previousRaw && previousConsumed <= next.length, finalDelta = next.slice(previousConsumed);
+          if (canCommitTail) {
+            if (finalDelta) { restoreStreamingResources(container); insertRendered(container, render(finalDelta), null); }
+            else restoreStreamingResources(container);
+            enhanceSafe(container, { final: true, streaming: true });
             consumed = raw.length; tailText = ''; mode = 'incremental-final';
           } else {
-            removeTail(container); container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true, reset: true }); mode = 'full-rerender-final'; reason = 'final-text-diverged';
+            container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true, reset: true }); mode = 'full-rerender-final'; reason = 'final-text-diverged';
           }
         } else { consumed = raw.length; tailText = ''; mode = 'no-container'; }
         return { raw, mode, reason, consumed, closed, enhanced: !!container };

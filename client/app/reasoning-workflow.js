@@ -7,20 +7,59 @@
 
     function updateReasoning(e,t,s={}) {
       with (deps) {
-        if(!e)return; if(!state.reasoningMode){forceRemoveReasoning(e); return;} const n=String(t||"");let a=e.querySelector(".reasoning-panel");if(!n&&!s.keepEmpty)return a?.remove(),delete e.dataset.reasoningText,void(e.isConnected&&saveDisplayHistory());n&&(e.dataset.reasoningText=n),s.keepReasoning&&(e.dataset.keepReasoning="1"),a||(a=document.createElement("div"),a.className="reasoning-panel",a.innerHTML=`
+        if(!e)return;
+        if(!state.reasoningMode){forceRemoveReasoning(e); return;}
+        const n=String(t||"");
+        let a=e.querySelector(".reasoning-panel");
+        if(!n&&!s.keepEmpty){
+          a?.remove();
+          delete e.dataset.reasoningText;
+          delete e.dataset.keepReasoning;
+          e.isConnected&&saveDisplayHistory();
+          return;
+        }
+        n&&(e.dataset.reasoningText=n);
+        s.keepReasoning&&(e.dataset.keepReasoning="1");
+        if(!a){
+          a=document.createElement("div");
+          a.className="reasoning-panel";
+          a.innerHTML=`
               <div class="reasoning-head">
-                <div class="reasoning-title">思考中…</div>
-                <button class="reasoning-copy-btn" type="button" title="复制思考内容" aria-label="复制思考内容">
-                  ${COPY_ICON_SVG}
-                </button>
+                <div class="reasoning-title"><span>思考中</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
               </div>
-              <div class="reasoning-content markdown-body"></div>`,a.querySelector(".reasoning-copy-btn")?.addEventListener("click",async()=>{await copyText(e.dataset.reasoningText||a.querySelector(".reasoning-content")?.innerText||""),showCopySuccess(a.querySelector(".reasoning-copy-btn"))}),e.querySelector(".bubble")?.prepend(a)),a.classList.toggle("reasoning-done",!0===s.done),a.querySelector(".reasoning-title").textContent=s.title||s.unavailable?"未返回思考内容":s.done?"思考完成":"思考中…";const i=a.querySelector(".reasoning-copy-btn");i&&(i.hidden=!n);const o=a.querySelector(".reasoning-content");if(o){const e=!0===s.done||!0===s.renderMarkdown;if(e){const e=renderReasoningMarkdown(n);o.innerHTML!==e&&(o.innerHTML=e,bindInlineCopyButtons(a)),delete o.dataset.streamingText}else o.dataset.streamingText!==n&&(o.textContent=n,o.dataset.streamingText=n);o.hidden=!n}scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive}),s.persistSave&&e.isConnected&&saveDisplayHistory()
+              <div class="reasoning-content markdown-body"></div>`;
+          e.querySelector(".bubble")?.prepend(a);
+        }
+        const body=e.querySelector(".content");
+        if(body?.querySelector?.(".pending-feedback")) body.textContent="";
+        const done=!0===s.done;
+        const unavailable=!0===s.unavailable;
+        a.classList.toggle("reasoning-done",done);
+        a.classList.toggle("reasoning-empty",unavailable);
+        const title=a.querySelector(".reasoning-title");
+        if(title){
+          const text=s.title||(unavailable?"未返回思考内容":done?"已完成思考":"思考中");
+          if(done||unavailable||s.title) title.textContent=text;
+          else title.innerHTML=`<span>思考中</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span>`;
+        }
+        const o=a.querySelector(".reasoning-content");
+        if(o){
+          const shouldRenderMarkdown=done||!0===s.renderMarkdown;
+          if(shouldRenderMarkdown){
+            const rendered=renderReasoningMarkdown(n);
+            (s.forceRenderMarkdown||o.innerHTML!==rendered)&&(o.innerHTML=rendered,bindInlineCopyButtons(a));
+            delete o.dataset.streamingText;
+          }else o.dataset.streamingText!==n&&(o.textContent=n,o.dataset.streamingText=n);
+        }
+        o&&(o.hidden=!n);
+        scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive});
+        s.persistSave&&e.isConnected&&saveDisplayHistory()
       }
     }
 
     function finishReasoning(e,t) {
       with (deps) {
-        if(!state.reasoningMode)return void clearReasoning(e);const s=String(t||e?.dataset.reasoningText||"").trim();s?updateReasoning(e,s,{done:!0,persistSave:!0,keepReasoning:!0}):showReasoningUnavailable(e)
+        if(!state.reasoningMode)return void clearReasoning(e);const s=String(t||e?.dataset.reasoningText||"").trim();s?updateReasoning(e,s,{done:!0,persistSave:!0,keepReasoning:!0,renderMarkdown:!0,forceRenderMarkdown:!0}):showReasoningUnavailable(e)
       }
     }
 

@@ -45,6 +45,15 @@
     const log = (level, message, detail) => { try { (root.console?.[level] || root.console?.log || (() => {})).call(root.console, message, detail || ''); } catch {} };
     function markExisting(resource) { const element = doc?.querySelector?.(`[data-markdown-dependency="${resource.id}"]`); if (element && !element.dataset.markdownDependencyLoaded) element.dataset.markdownDependencyLoaded = 'global'; }
     function loadOrder(resource) { const local = resource.local ? [{ url: resource.local, from: 'local' }] : []; const cdn = resource.cdn ? [{ url: resource.cdn, from: 'cdn' }] : []; const list = root.ChatUIMarkdownPreferCdn === true ? cdn.concat(local) : local.concat(cdn); return list.filter((item, index, all) => item.url && all.findIndex(candidate => candidate.url === item.url) === index); }
+    function absoluteUrl(url = '') { try { return new URL(url, doc?.baseURI || root.location?.href).href; } catch { return String(url || ''); } }
+    function findExistingStylesheet(resource) {
+      if (!doc?.querySelectorAll) return null;
+      const urls = new Set(loadOrder(resource).map(item => absoluteUrl(item.url)));
+      const links = [...doc.querySelectorAll('link[rel~="stylesheet"][href]')];
+      return links.find(link => urls.has(absoluteUrl(link.getAttribute('href') || link.href)) || urls.has(absoluteUrl(link.href)))
+        || links.find(link => /\/assets\/chatui\.bundle\.css(?:[?#]|$)/.test(absoluteUrl(link.getAttribute('href') || link.href)))
+        || null;
+    }
     function loadElement(resource, createNode) {
       if (!doc) return Promise.resolve({ id: resource.id, from: 'no-document' });
       if (resource.global && hasGlobal(resource.global, root)) { markExisting(resource); return Promise.resolve({ id: resource.id, from: 'global' }); }
@@ -65,8 +74,8 @@
       }).catch((err) => { loadState.delete(resource.id); throw err; });
       loadState.set(resource.id, promise); return promise;
     }
-    const loadStyle = resource => loadElement(resource, href => { const link = doc.createElement('link'); link.rel = 'stylesheet'; link.href = href; return link; });
-    const loadScript = resource => loadElement(resource, src => { const script = doc.createElement('script'); script.src = src; script.defer = false; return script; });
+    const loadStyle = resource => { const existing = findExistingStylesheet(resource); if (existing) { existing.dataset.markdownDependency = resource.id; existing.dataset.markdownDependencyLoaded = 'existing'; return Promise.resolve({ id: resource.id, from: 'existing' }); } return loadElement(resource, href => { const link = doc.createElement('link'); link.rel = 'stylesheet'; link.href = href; return link; }); };
+    const loadScript = resource => { if (resource.global && hasGlobal(resource.global, root)) { markExisting(resource); return Promise.resolve({ id: resource.id, from: 'bundle' }); } return loadElement(resource, src => { const script = doc.createElement('script'); script.src = src; script.defer = false; return script; }); };
     const loadStyles = () => Promise.allSettled(resources.styles.map(loadStyle)).then(results => results.map(r => r.status === 'fulfilled' ? r.value : { error: r.reason?.message || String(r.reason) }));
     const loadScripts = (filter = () => true) => Promise.all(resources.scripts.filter(filter).map(resource => loadScript(resource).catch(err => { log('warn', `[markdown] optional dependency unavailable: ${resource.id}`, err); return { id: resource.id, error: err.message || String(err) }; })));
     const isCoreScript = resource => resource.id !== 'mermaid';

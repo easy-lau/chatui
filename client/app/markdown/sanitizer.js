@@ -4,8 +4,8 @@ const SAFE_HTML_TAGS = [
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
 ];
 const SAFE_ATTRS = [
-  'target', 'rel', 'class', 'id', 'data-copy-text', 'data-mermaid-rendered', 'data-markdown-streaming-tail', 'aria-hidden', 'aria-label',
-  'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style',
+  'target', 'rel', 'class', 'id', 'data-copy-text', 'data-mermaid-rendered', 'aria-hidden', 'aria-label',
+  'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style', 'open',
 ];
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'button', 'textarea', 'select', 'option'];
 const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|svg\+xml);base64,)/i;

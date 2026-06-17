@@ -180,9 +180,20 @@ function setMermaidToggleState(button, state) {
   button.setAttribute('aria-label', button.title);
 }
 
+function reserveMermaidHeight(block, source = '') {
+  if (!block?.style) return;
+  const existing = Number(block.dataset.mermaidReservedHeight || 0);
+  const lines = Math.max(6, String(source || block.dataset?.mermaidSource || block.textContent || '').split('\n').length);
+  const measured = Math.ceil(block.getBoundingClientRect?.().height || block.offsetHeight || 0);
+  const reserved = Math.max(existing, measured, Math.max(180, Math.min(560, 120 + lines * 18)));
+  block.dataset.mermaidReservedHeight = String(reserved);
+  block.style.setProperty('--mermaid-reserved-height', `${reserved}px`);
+}
+
 async function renderMermaidBlockOnDemand(block, loader = defaultLoadMermaid) {
   if (!block?.parentNode || block.dataset.mermaidRendered === 'rendering') return { ok: false, node: block, stale: true };
   const { codeWrap, source } = ensureMermaidSourceView(block) || {};
+  reserveMermaidHeight(block, source);
   const error = block.querySelector(':scope > .markdown-error');
   if (error) error.remove();
   block.querySelector(':scope > .mermaid')?.remove();
@@ -410,6 +421,7 @@ function restoreMermaidFallback(holder, container, token, error) {
 async function renderSingleMermaidBlock(holder, mermaid) {
   const token = holder.dataset.mermaidToken;
   const source = holder.dataset.mermaidSource || holder.querySelector?.('code.language-mermaid')?.textContent || holder.textContent || '';
+  reserveMermaidHeight(holder, source);
   const renderSource = normalizeBetaMermaidSource(source);
   const container = document.createElement('div');
   const renderId = `${token}-svg`;
@@ -447,7 +459,13 @@ async function renderSingleMermaidBlock(holder, mermaid) {
     holder.classList.remove('markdown-mermaid-pending', 'mermaid-fallback');
     holder.classList.add('mermaid-rendered-block');
     container.dataset.mermaidRendered = '1';
+    const actualHeight = Math.ceil(holder.getBoundingClientRect?.().height || container.getBoundingClientRect?.().height || 0);
+    if (actualHeight > 0) {
+      holder.dataset.mermaidReservedHeight = String(actualHeight);
+      holder.style.setProperty('--mermaid-reserved-height', `${actualHeight}px`);
+    }
     ensureRenderedMermaidToggle(holder);
+    root.ChatUIScrollCoordinator?.notifyLayoutChange?.('mermaid-rendered');
     return { ok: true, node: container, holder };
   } catch (err) {
     console.warn('[markdown] mermaid block failed:', err);
@@ -471,6 +489,7 @@ async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = 
         block.dataset.mermaidSource = source;
       }
       block.classList.add('mermaid-block');
+      reserveMermaidHeight(block, source);
     });
     let mermaid = null;
     try { mermaid = await loader(); } catch (err) { console.warn('[markdown] mermaid load failed:', err); }

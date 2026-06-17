@@ -89,7 +89,10 @@
 .message.user.has-meta .msg-actions{
   align-self:flex-end!important;
 }
-.message:has(.msg-actions){
+.message[data-streaming="1"] .msg-actions{
+  display:none!important;
+}
+.message:has(.msg-actions):not([data-streaming="1"]){
   margin-bottom:18px!important;
 }
 .message.quoted .bubble{
@@ -175,7 +178,7 @@
   .message.user.has-meta .msg-actions{
     margin-top:1px!important;
   }
-  .message:has(.msg-actions){
+  .message:has(.msg-actions):not([data-streaming="1"]){
     margin-bottom:18px!important;
   }
 }
@@ -220,6 +223,28 @@
 .user-attachment-image:hover,
 .generated-thumb:hover{
   filter:saturate(1.04) brightness(.98)!important;
+}
+.markdown-body img[data-markdown-media-bound="1"]{
+  display:block!important;
+  width:var(--markdown-media-w, min(520px,100%))!important;
+  height:var(--markdown-media-h, auto)!important;
+  max-width:100%!important;
+  object-fit:contain!important;
+  background:#f8fafc!important;
+  border-radius:8px!important;
+}
+.markdown-body img[data-markdown-media-pending="1"]{
+  min-height:var(--markdown-media-h, 180px)!important;
+}
+.mermaid-block{
+  min-height:var(--mermaid-reserved-height, auto)!important;
+}
+.mermaid-block[data-mermaid-rendered="rendering"],
+.markdown-mermaid-pending[data-mermaid-rendered="0"]{
+  min-height:var(--mermaid-reserved-height, 220px)!important;
+}
+.long-answer-block{
+  contain-intrinsic-size:1px var(--long-answer-block-intrinsic, 220px)!important;
 }
 @media (max-width:640px){
   .user-attachment-preview-grid,

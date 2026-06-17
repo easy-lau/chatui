@@ -606,24 +606,59 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.ok(!source.includes('},{minIntervalMs:140}),S=createRealtimeRenderer'), 'answer stream renderer should not use the old 140ms cadence');
 }
 
-function testStreamingTailCaretIsVividWithoutDot() {
+function testStreamingTailDoesNotRenderCursor() {
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
-  assert.ok(css.includes('.streaming-tail::before'));
-  assert.ok(css.includes('content: none !important'));
-  assert.ok(css.includes('.streaming-tail::after'));
-  assert.ok(css.includes('width: 3px !important'));
-  assert.ok(css.includes('linear-gradient(180deg'));
-  assert.ok(css.includes('@keyframes streaming-caret-neon'));
+  const renderer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
+  const sanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-sanitizer.js'), 'utf8');
+  assert.ok(!renderer.includes('streaming-tail'));
+  assert.ok(!renderer.includes('data-markdown-streaming-tail'));
+  assert.ok(!sanitizer.includes('data-markdown-streaming-tail'));
+  assert.ok(!css.includes('.streaming-tail'));
+  assert.ok(!css.includes('@keyframes streaming-caret-neon'));
+  assert.ok(!css.includes('animation: streaming-caret-neon'));
 }
 
 
 function testSessionTailFocusPreservesBottomGapDuringDynamicLayout() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
-  assert.ok(source.includes('t.scrollHeight-t.scrollTop-t.clientHeight'), 'layout follow should record the current bottom gap');
-  assert.ok(source.includes('t.scrollHeight-t.clientHeight-k'), 'layout follow should restore scrollTop from the preserved bottom gap');
-  assert.ok(source.includes('.markdown-mermaid-pending,svg,canvas'), 'layout observer should watch chart/svg/canvas height changes');
-  assert.ok(source.includes('viewBox') && source.includes('data-mermaid-rendered'), 'mutation observer should catch chart render attribute changes');
-  assert.ok(source.includes('e.addEventListener("load",()=>{F(),y()}'), 'image load should immediately re-pin the preserved bottom gap');
+  assert.ok(source.includes('session.bottomGap = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)'), 'layout follow should record the current bottom gap');
+  assert.ok(source.includes('el.scrollHeight - el.clientHeight - session.bottomGap'), 'layout follow should restore scrollTop from the preserved bottom gap');
+  assert.ok(source.includes('.markdown-mermaid-pending,svg,canvas,.long-answer-block'), 'layout observer should watch chart/svg/canvas and long-answer height changes');
+  assert.ok(source.includes('viewBox') && source.includes('data-mermaid-rendered') && source.includes('data-markdown-media-pending'), 'mutation observer should catch chart and markdown media render attribute changes');
+  assert.ok(source.includes("img.addEventListener('load', onDone, { once: true })"), 'image load should immediately re-pin the preserved bottom gap');
+  assert.ok(source.includes('stableFramesTarget') && source.includes('layoutPendingCount'), 'layout follow should release only after pending layout work is stable');
+}
+
+function testSessionSwitchFocusesBottom() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
+  const override = fs.readFileSync(path.join(__dirname, '../client/app/session-switch-override.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(source.includes('messages.scrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight)'), 'session switch should position the message list at the bottom');
+  assert.ok(source.includes('function switchSessionToBottom(sessionId)'), 'session list switching should bypass the old restore-scroll path');
+  assert.ok(source.includes("renderActiveSession({ reason: 'switch-bottom', preferDomCache: false })"), 'session switch should render directly to the bottom instead of restoring old scroll');
+  assert.ok(source.includes("messages.style.visibility = 'hidden'"), 'session switch should hide messages until bottom scroll is applied');
+  assert.ok(override.includes("list.addEventListener('click'") && override.includes('event.stopImmediatePropagation()'), 'override should intercept session clicks before legacy restore-scroll handlers');
+  assert.ok(override.includes("root.renderActiveSession?.({ reason: 'switch-bottom', preferDomCache: false })"), 'override should render without restore-scroll');
+  assert.ok(css.includes('scroll-behavior:auto!important;'), 'session switch should disable smooth scroll behavior');
+}
+
+function testStreamingAllowsManualScroll() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  const bootstrap = fs.readFileSync(path.join(__dirname, '../client/app/bootstrap-workflow.js'), 'utf8');
+  assert.ok(source.includes("const directUserGesture = type === 'wheel' || type === 'touchstart' || type === 'touchmove' || pointerEvent"), 'direct user gestures should bypass programmatic scroll suppression');
+  assert.ok(source.includes('const suppressed = !directUserGesture &&'), 'programmatic suppression must not hide user scroll intent');
+  assert.ok(source.includes('const explicitUserAway = wheelUp || touch || pointerEvent'), 'wheel/touch/pointer gestures should immediately release streaming follow');
+  assert.ok(source.includes('userAway = explicitUserAway || !!autoState.userScrolledAway'), 'auto-follow state must not override explicit user scroll intent');
+  assert.ok(bootstrap.includes('bindMessageScrollIntent') && bootstrap.includes('m.addEventListener(t,markManualMessageScroll') && bootstrap.includes('window.addEventListener(t,markManualMessageScroll'), 'message scroll intent must be bound to the scroll container and window gestures');
+}
+
+function testLargeMarkdownInitialRenderIsProgressive() {
+  const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const perf = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
+  assert.ok(message.includes('function addMessageProgressive'), 'message creation should use a progressive render-capable addMessage path');
+  assert.ok(message.includes('renderMarkdownProgressively(node, String(rawText || ""), node.dataset.rawHash)'), 'large initial assistant Markdown should render progressively after DOM insertion');
+  assert.ok(message.includes('addMessage: addMessageProgressive'), 'workflow should export the progressive addMessage implementation');
+  assert.ok(!perf.includes("if (raw.length > 8000 || raw.split('\\n').length > 180) return true;"), 'large Markdown should not be forced into lazy placeholder rendering');
 }
 
 function testEnglishImagePromptExtractionStaysChatWithCurrentImage() {
@@ -941,9 +976,35 @@ function testFileUploadReturnsFocusToComposerSubmitPath() {
 
 function testImageBubblesAreShrinkWrapped() {
   const source = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
-  assert.ok(source.includes('.message .content:has(.user-attachment-preview-grid),\n.message .content:has(.generated-image-grid){\n  width:fit-content!important;'), 'image message content should be shrink-wrapped instead of full-width');
-  assert.ok(source.includes('.message.user .bubble:has(.user-attachment-preview-grid),\n.message.assistant .bubble:has(.generated-image-grid),\n.message.error .bubble:has(.generated-image-grid){\n  width:fit-content!important;'), 'image bubbles should be shrink-wrapped to the image grid');
-  assert.ok(source.includes('width:fit-content!important;\n  max-width:100%!important;\n  min-width:0!important;'), 'image grids should use fit-content width with max-width guard');
+  assert.ok(source.includes('.message .content:has(.user-attachment-preview-grid),') && source.includes('.message .content:has(.generated-image-grid){') && source.includes('width:fit-content!important;'), 'image message content should be shrink-wrapped instead of full-width');
+  assert.ok(source.includes('.message.user .bubble:has(.user-attachment-preview-grid),') && source.includes('.message.assistant .bubble:has(.generated-image-grid),') && source.includes('.message.error .bubble:has(.generated-image-grid){'), 'image bubbles should be shrink-wrapped to the image grid');
+  assert.ok(source.includes('width:fit-content!important;') && source.includes('max-width:100%!important;') && source.includes('min-width:0!important;'), 'image grids should use fit-content width with max-width guard');
+}
+
+function testMarkdownTablesShrinkToContent() {
+  const source = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(source.includes('.markdown-body .table-wrapper') && source.includes('width:100%!important;') && source.includes('overflow-x:auto!important;'), 'table wrapper should fill the message width and scroll when needed');
+  assert.ok(source.includes('.markdown-body table') && source.includes('width:max-content!important;') && source.includes('min-width:100%!important;'), 'tables should fill available width while allowing wider content to scroll');
+}
+
+function testMarkdownDetailsPreserveOpenAttribute() {
+  const browserSanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-sanitizer.js'), 'utf8');
+  const nodeSanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/sanitizer.js'), 'utf8');
+  assert.ok(browserSanitizer.includes("'details', 'summary'") && browserSanitizer.includes("'open'"), 'browser sanitizer should preserve details/summary and open attribute');
+  assert.ok(nodeSanitizer.includes("'details', 'summary'") && nodeSanitizer.includes("'open'"), 'node sanitizer should preserve details/summary and open attribute');
+}
+
+function testStreamingDownloadActionIsDisabled() {
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(css.includes('.message[data-streaming="1"] .download-answer-btn'), 'download button should be hidden while streaming');
+  assert.ok(css.includes('pointer-events:none!important;'), 'streaming actions should not receive pointer events');
+}
+
+function testResumeStreamingDoesNotUseStatusTextAsOffset() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/job-resume-workflow.js'), 'utf8');
+  assert.ok(source.includes('isChatStatusText(e)?"":e'), 'resume offsets should ignore transient status text');
+  assert.ok(source.includes('r();try{const t=getConfig()'), 'resume should immediately paint a non-empty status instead of waiting blank');
+  assert.ok(source.includes('if(!m.content&&!m.reasoning){try{const e=l(await getChatJob(s.id,{resumeOffsets:R()}))'), 'empty compact done events should refetch the final job snapshot');
 }
 
 function testSessionDisplayUpdatesFinalClarificationHtml() {
@@ -993,8 +1054,11 @@ const tests = [
   testRouteOperationTypeDrivesCanonicalMode,
   testRoutePromptUsesEnglishRulesWithChineseEdgeCases,
   testChatAnswerStreamingFlushesQuickly,
-  testStreamingTailCaretIsVividWithoutDot,
+  testStreamingTailDoesNotRenderCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
+  testSessionSwitchFocusesBottom,
+  testStreamingAllowsManualScroll,
+  testLargeMarkdownInitialRenderIsProgressive,
   testEnglishImagePromptExtractionStaysChatWithCurrentImage,
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
   testEmptyAssistantImageContextFallsBackToGeneratedThumbs,
@@ -1012,6 +1076,10 @@ const tests = [
   testResponsesCompactFtIsNeverZero,
   testFileUploadReturnsFocusToComposerSubmitPath,
   testImageBubblesAreShrinkWrapped,
+  testMarkdownTablesShrinkToContent,
+  testMarkdownDetailsPreserveOpenAttribute,
+  testStreamingDownloadActionIsDisabled,
+  testResumeStreamingDoesNotUseStatusTextAsOffset,
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,

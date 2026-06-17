@@ -2,14 +2,6 @@
 
 const { splitStableTail } = require('./stable-boundary');
 
-function defaultTailNode(text = '') {
-  const span = document.createElement('span');
-  span.className = 'streaming-tail';
-  span.dataset.markdownStreamingTail = '1';
-  span.textContent = String(text || '');
-  return span;
-}
-
 function appendHtml(container, html = '') {
   const tpl = document.createElement('template');
   tpl.innerHTML = String(html || '');
@@ -35,15 +27,13 @@ function fragmentRootFor(nodes = []) {
 }
 
 function normalizedHtml(value = '') {
-  return String(value || '').replace(/\sdata-markdown-streaming-tail="1"/g, '').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function finalMarkupMatchesCurrent(container, finalHtml = '') {
   const tpl = document.createElement('template');
   tpl.innerHTML = String(finalHtml || '');
-  const current = container.cloneNode(true);
-  removeTail(current);
-  return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML);
+  return normalizedHtml(container.innerHTML) === normalizedHtml(tpl.innerHTML);
 }
 
 function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) {
@@ -51,28 +41,18 @@ function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta 
   const tpl = document.createElement('template');
   tpl.innerHTML = String(finalHtml || '');
   const current = container.cloneNode(true);
-  removeTail(current);
   const delta = document.createElement('template');
   delta.innerHTML = renderMarkdown(finalDelta);
   current.append(...delta.content.childNodes);
   return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML);
 }
 
-function findTail(container) {
-  return container?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null;
-}
-
-function removeTail(container) {
-  findTail(container)?.remove();
-}
-
-function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {}) {
+function createStreamingRenderer({ renderMarkdown, enhance } = {}) {
   if (typeof renderMarkdown !== 'function') throw new TypeError('createStreamingRenderer requires renderMarkdown');
   let raw = '';
   let consumed = 0;
   let closed = false;
   let tailText = '';
-  const renderTail = renderTailText || defaultTailNode;
 
   function enhanceRoot(root, phase = {}) {
     try { return enhance?.(root, phase); }
@@ -87,7 +67,6 @@ function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {
       if (index < consumed) {
         if (container) {
           container.innerHTML = renderMarkdown(raw);
-          removeTail(container);
           enhanceRoot(container, { reset: true });
         }
         consumed = raw.length;
@@ -96,20 +75,12 @@ function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {
       }
       const delta = stable.slice(consumed);
       if (container) {
-        let tailNode = findTail(container);
         if (delta) {
-          const inserted = insertHtmlBefore(container, renderMarkdown(delta), tailNode);
+          const inserted = insertHtmlBefore(container, renderMarkdown(delta), null);
           consumed = stable.length;
           enhanceRoot(fragmentRootFor(inserted), { streaming: true });
         }
         tailText = tail;
-        tailNode = findTail(container);
-        if (tailText) {
-          if (tailNode) tailNode.textContent = tailText;
-          else container.appendChild(renderTail(tailText));
-        } else if (tailNode) {
-          tailNode.textContent = '';
-        }
       } else {
         if (delta) consumed = stable.length;
         tailText = tail;
@@ -131,16 +102,9 @@ function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {
       let mode = 'noop';
       let reason = '';
       if (container) {
-        const tailNode = findTail(container);
         const canCommitTail = next === previousRaw && previousConsumed <= next.length;
         const finalDelta = next.slice(previousConsumed);
-        const finalHtml = renderMarkdown(next);
-        const canSkipFullRerender = canCommitTail && (
-          finalMarkupMatchesCurrent(container, finalHtml)
-          || projectedIncrementalFinalMatches(container, finalHtml, finalDelta, renderMarkdown)
-        );
-        if (canSkipFullRerender) {
-          if (tailNode) tailNode.remove();
+        if (canCommitTail) {
           if (finalDelta) {
             const inserted = insertHtmlBefore(container, renderMarkdown(finalDelta), null);
             enhanceRoot(fragmentRootFor(inserted), { final: true, streaming: true });
@@ -151,7 +115,6 @@ function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {
           tailText = '';
           mode = 'incremental-final';
         } else {
-          removeTail(container);
           const tpl = document.createElement('template');
           tpl.innerHTML = renderMarkdown(raw);
           container.replaceChildren(...tpl.content.childNodes);

@@ -2,13 +2,300 @@
   'use strict';
 
   function createPerformanceWorkflow(deps = {}) {
-    const { state, getElement, document, window, localStorage, performance, requestAnimationFrame, requestIdleCallback, cancelIdleCallback, setTimeout, clearTimeout, renderMarkdown, bindInlineCopyButtons, enhanceRenderedMarkdown, hydrateMessageMedia, escapeHtml } = deps;
+    const {
+      state,
+      getElement,
+      document,
+      window,
+      localStorage,
+      performance,
+      requestAnimationFrame,
+      requestIdleCallback,
+      cancelIdleCallback,
+      setTimeout,
+      clearTimeout,
+      renderMarkdown,
+      bindInlineCopyButtons,
+      enhanceRenderedMarkdown,
+      hydrateMessageMedia,
+      escapeHtml,
+    } = deps;
 
-function chatuiPerfNow(){return performance?.now?performance.now():Date.now()}function chatuiLogLongTask(e,t,s={}){if(t>=50){const n={stage:e,durationMs:Math.round(t),...s};window.__chatuiPerfLog=window.__chatuiPerfLog||[],window.__chatuiPerfLog.push(n),window.__chatuiPerfLog.length>80&&window.__chatuiPerfLog.shift(),console.warn("[ChatUI perf]",n)}}function chatuiContentHash(e=""){const t=String(e||"");let s=2166136261;for(let e=0;e<t.length;e++)s^=t.charCodeAt(e),s=Math.imul(s,16777619);return`${t.length}:${(s>>>0).toString(36)}`}function chatuiPlainPreview(e=""){const t=String(e||"");return`<div class="plain-text markdown-lazy-placeholder">${escapeHtml(t.slice(0,1600))}${t.length>1600?"\n\n…（滚动到此处后继续渲染 Markdown）":""}</div>`}const chatuiLazyRenderQueue=new Map;let chatuiLazyObserver=null;function chatuiScheduleIdle(e,t=1500){let s=!1,n=null;const a=i=>{if(s)return;s=!0,o&&clearTimeout(o),e(i||{didTimeout:!0,timeRemaining:()=>0})},o=setTimeout(()=>a({didTimeout:!0,timeRemaining:()=>0}),t+100);return typeof requestIdleCallback=='function'?n=requestIdleCallback(a,{timeout:t}):setTimeout(()=>a({didTimeout:!1,timeRemaining:()=>8}),0),{idleHandle:n,fallbackHandle:o}}function chatuiCancelIdle(e){if(!e)return;if(typeof e=='object'){null!=e.idleHandle&&typeof cancelIdleCallback=='function'&&cancelIdleCallback(e.idleHandle),null!=e.fallbackHandle&&clearTimeout(e.fallbackHandle);return}return cancelIdleCallback?cancelIdleCallback(e):clearTimeout(e)}function chatuiGetMessagesRoot(){return getElement("messages")||document.scrollingElement||document.documentElement}function chatuiIsNearViewport(e,t=800){if(!e?.getBoundingClientRect)return!0;const s=e.getBoundingClientRect(),n=chatuiGetMessagesRoot();if(n&&n!==document.scrollingElement&&n!==document.documentElement&&n.getBoundingClientRect){const e=n.getBoundingClientRect();return s.bottom>=e.top-t&&s.top<=e.bottom+t}const a=window.innerHeight||document.documentElement.clientHeight||800;return s.bottom>=-t&&s.top<=a+t}function chatuiEnsureLazyObserver(){if(chatuiLazyObserver||!("IntersectionObserver"in window))return chatuiLazyObserver;chatuiLazyObserver=new IntersectionObserver(e=>{e.forEach(e=>{if(e.isIntersecting||e.intersectionRatio>0)chatuiRenderLazyMessage(e.target)})},{root:chatuiGetMessagesRoot(),rootMargin:"900px 0px",threshold:.01});return chatuiLazyObserver}function chatuiRenderLazyMessage(e,o={}){if(!e?.isConnected)return;const t=chatuiLazyRenderQueue.get(e);t?.idle&&chatuiCancelIdle(t.idle);chatuiLazyRenderQueue.delete(e);chatuiLazyObserver?.unobserve(e);const s=e.querySelector(".content"),n=e.dataset.rawText||"",a=e.dataset.rawHash||chatuiContentHash(n);if(!s||e.dataset.renderedHash===a&&e.dataset.enhancedHash===a)return;if(!chatuiIsNearViewport(e)&&!o?.force&&!t?.force){chatuiQueueLazyMessage(e,n,{force:!1});return}const i=chatuiPerfNow();s.innerHTML=renderMarkdown(n),e.dataset.renderedHash=a,e.dataset.lazyMarkdown="0",bindInlineCopyButtons(e),enhanceRenderedMarkdown(e,{deferMermaid:!0,allowResourceLoad:!0}),hydrateMessageMedia(e,{save:!1}),e.dataset.enhancedHash=a,chatuiLogLongTask("message.lazyRender",chatuiPerfNow()-i,{chars:n.length})}function chatuiQueueLazyMessage(e,t,s={}){if(!e?.isConnected)return;const n=chatuiContentHash(t);e.dataset.rawHash=n;if(e.dataset.renderedHash===n&&e.dataset.enhancedHash===n)return;const a=e.querySelector(".content");if(a&&e.dataset.lazyMarkdown!=="1")a.innerHTML=chatuiPlainPreview(t),e.dataset.lazyMarkdown="1";chatuiLazyRenderQueue.get(e)?.idle&&chatuiCancelIdle(chatuiLazyRenderQueue.get(e).idle);chatuiEnsureLazyObserver()?.observe(e);const i=()=>chatuiRenderLazyMessage(e);if(s.force||chatuiIsNearViewport(e)){const t=chatuiScheduleIdle(i);chatuiLazyRenderQueue.set(e,{idle:t,hash:n})}else{const t=chatuiScheduleIdle(i,Number(s.lazyFallbackMs)||2800);chatuiLazyRenderQueue.set(e,{idle:t,hash:n})}}function chatuiReadBooleanFlag(e,t=!1){try{const s=localStorage.getItem(e);return null===s?t:/^(1|true|yes|on)$/i.test(String(s))}catch{return t}}const CHATUI_ENABLE_VIRTUAL_RENDER=!!(window.CHATUI_ENABLE_VIRTUAL_RENDER||chatuiReadBooleanFlag("chatui:enableVirtualRender",!1));function chatuiShouldLazyRender(e,t,s={}){return!1}const CHATUI_PERF_FLAGS={virtualMessages:CHATUI_ENABLE_VIRTUAL_RENDER&&chatuiReadBooleanFlag("chatui:enableVirtualMessages",!1),lazyMarkdown:CHATUI_ENABLE_VIRTUAL_RENDER&&chatuiReadBooleanFlag("chatui:enableLazyMarkdown",!1),renderCache:CHATUI_ENABLE_VIRTUAL_RENDER&&chatuiReadBooleanFlag("chatui:enableRenderCache",!1),scheduler:CHATUI_ENABLE_VIRTUAL_RENDER&&chatuiReadBooleanFlag("chatui:enableRenderScheduler",!1),virtualRender:CHATUI_ENABLE_VIRTUAL_RENDER};try{window.CHATUI_ENABLE_VIRTUAL_RENDER=CHATUI_ENABLE_VIRTUAL_RENDER}catch{}let chatuiMessageVirtualizer=null,chatuiVirtualizerAttached=!1;function chatuiCancelMessageJobs(e){try{e?.__chatuiEnhanceJob?.cancel?.()}catch{}try{e?.__markdownStreamingRenderer?.reset?.()}catch{}const t=chatuiLazyRenderQueue.get(e);t?.idle&&chatuiCancelIdle(t.idle),chatuiLazyRenderQueue.delete(e),chatuiLazyObserver?.unobserve?.(e)}function chatuiDisconnectVirtualizer(){try{chatuiMessageVirtualizer?.disconnect?.()}catch{}chatuiVirtualizerAttached=!1}function chatuiEnsureVirtualizer(){return CHATUI_PERF_FLAGS.virtualMessages?(chatuiMessageVirtualizer||(chatuiMessageVirtualizer=window.ChatUI?.performance?.createMessageVirtualizer?.({enabled:!0,minMessages:24,unloadMarginPx:2800,rootMargin:"1200px 0px",root:getElement("messages")})||null),chatuiMessageVirtualizer):null}function chatuiAttachVirtualizer(){if(!CHATUI_PERF_FLAGS.virtualMessages)return;const e=getElement("messages"),t=chatuiEnsureVirtualizer();if(!e||!t)return;t.attach(e,{render:(e,t={})=>chatuiRenderLazyMessage(e,{...t,force:!0}),cancel:chatuiCancelMessageJobs}),chatuiVirtualizerAttached=!0,setTimeout(()=>t.refresh?.(),0),requestAnimationFrame(()=>t.refresh?.())}function chatuiRefreshVirtualizer(){if(!CHATUI_PERF_FLAGS.virtualMessages)return;chatuiMessageVirtualizer&&!chatuiVirtualizerAttached&&chatuiAttachVirtualizer(),chatuiMessageVirtualizer?chatuiMessageVirtualizer.refresh?.():chatuiAttachVirtualizer()}function chatuiPerfStats(){const e=getElement("messages"),t=e?[...e.querySelectorAll(".message")]:[];return{flags:CHATUI_PERF_FLAGS,modules:{cache:CHATUI_PERF_FLAGS.renderCache&&!!window.ChatUI?.performance?.renderCache,scheduler:CHATUI_PERF_FLAGS.scheduler&&!!window.ChatUI?.performance?.scheduler,virtualizer:CHATUI_PERF_FLAGS.virtualMessages&&!!chatuiMessageVirtualizer},container:e?{selector:"#messages",children:e.children.length,scrollTop:e.scrollTop,scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,overflowY:window.getComputedStyle(e).overflowY}:null,messages:t.length,lazy:t.filter(e=>e.dataset.lazyMarkdown==="1"||e.dataset.lazy==="1").length,virtualized:t.filter(e=>e.dataset.virtualized==="1").length,rendered:t.filter(e=>e.dataset.renderedHash).length,cache:window.ChatUI?.performance?.renderCache?.stats?.()||null,scheduler:window.ChatUI?.performance?.scheduler?.stats?.()||null,virtualizer:chatuiMessageVirtualizer?.stats?.()||null,perfLog:window.__chatuiPerfLog||[]}}window.ChatUIPerf={getStats:chatuiPerfStats,flags:CHATUI_PERF_FLAGS,attachVirtualizer:chatuiAttachVirtualizer,refreshVirtualizer:chatuiRefreshVirtualizer,renderLazyMessage:chatuiRenderLazyMessage};window.chatuiRenderLazyMessage=chatuiRenderLazyMessage;window.chatuiEnsureVirtualizer=chatuiEnsureVirtualizer;window.chatuiAttachVirtualizer=chatuiAttachVirtualizer;window.chatuiRefreshVirtualizer=chatuiRefreshVirtualizer;
+    function chatuiPerfNow() { return performance?.now ? performance.now() : Date.now(); }
+    function chatuiLogLongTask(stage, durationMs, details = {}) {
+      if (durationMs < 50) return;
+      const entry = { stage, durationMs: Math.round(durationMs), ...details };
+      window.__chatuiPerfLog = window.__chatuiPerfLog || [];
+      window.__chatuiPerfLog.push(entry);
+      if (window.__chatuiPerfLog.length > 120) window.__chatuiPerfLog.shift();
+      console.warn('[ChatUI perf]', entry);
+    }
+    function chatuiContentHash(value = '') {
+      const text = String(value || '');
+      let hash = 2166136261;
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return `${text.length}:${(hash >>> 0).toString(36)}`;
+    }
+    function chatuiPlainPreview(value = '') {
+      const text = String(value || '');
+      return `<div class="plain-text markdown-lazy-placeholder">${escapeHtml(text.slice(0, 1600))}${text.length > 1600 ? '\n\n…（滚动到此处后继续渲染 Markdown）' : ''}</div>`;
+    }
 
+    const chatuiLazyRenderQueue = new Map();
+    let chatuiLazyObserver = null;
+    let chatuiMessageVirtualizer = null;
+    let chatuiVirtualizerAttached = false;
 
+    function chatuiScheduleIdle(callback, timeoutMs = 1500) {
+      let done = false;
+      let idleHandle = null;
+      let fallbackHandle = null;
+      const run = deadline => {
+        if (done) return;
+        done = true;
+        if (fallbackHandle) clearTimeout(fallbackHandle);
+        callback(deadline || { didTimeout: true, timeRemaining: () => 0 });
+      };
+      fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 100);
+      if (typeof requestIdleCallback === 'function') idleHandle = requestIdleCallback(run, { timeout: timeoutMs });
+      else setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
+      return { idleHandle, fallbackHandle };
+    }
+    function chatuiCancelIdle(handle) {
+      if (!handle) return;
+      if (typeof handle === 'object') {
+        if (handle.idleHandle != null && typeof cancelIdleCallback === 'function') cancelIdleCallback(handle.idleHandle);
+        if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
+        return;
+      }
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(handle);
+      else clearTimeout(handle);
+    }
+    function chatuiGetMessagesRoot() { return getElement('messages') || document.scrollingElement || document.documentElement; }
+    function chatuiIsNearViewport(node, margin = 900) {
+      if (!node?.getBoundingClientRect) return true;
+      const rect = node.getBoundingClientRect();
+      const rootNode = chatuiGetMessagesRoot();
+      if (rootNode && rootNode !== document.scrollingElement && rootNode !== document.documentElement && rootNode.getBoundingClientRect) {
+        const rootRect = rootNode.getBoundingClientRect();
+        return rect.bottom >= rootRect.top - margin && rect.top <= rootRect.bottom + margin;
+      }
+      const height = window.innerHeight || document.documentElement.clientHeight || 800;
+      return rect.bottom >= -margin && rect.top <= height + margin;
+    }
+    function chatuiEnsureLazyObserver() {
+      if (chatuiLazyObserver || !('IntersectionObserver' in window)) return chatuiLazyObserver;
+      chatuiLazyObserver = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting || entry.intersectionRatio > 0) chatuiRenderLazyMessage(entry.target, { force: true });
+        });
+      }, { root: chatuiGetMessagesRoot(), rootMargin: '1000px 0px', threshold: 0.01 });
+      return chatuiLazyObserver;
+    }
+    function chatuiReadBooleanFlag(key, fallback = false) {
+      try {
+        const value = localStorage.getItem(key);
+        if (value === null) return fallback;
+        if (/^(0|false|no|off)$/i.test(String(value))) return false;
+        return /^(1|true|yes|on)$/i.test(String(value));
+      } catch { return fallback; }
+    }
 
-    return Object.freeze({ chatuiPerfNow, chatuiLogLongTask, chatuiContentHash, chatuiPlainPreview, chatuiScheduleIdle, chatuiCancelIdle, chatuiGetMessagesRoot, chatuiIsNearViewport, chatuiEnsureLazyObserver, chatuiRenderLazyMessage, chatuiQueueLazyMessage, chatuiReadBooleanFlag, chatuiShouldLazyRender, chatuiCancelMessageJobs, chatuiDisconnectVirtualizer, chatuiEnsureVirtualizer, chatuiAttachVirtualizer, chatuiRefreshVirtualizer, chatuiPerfStats, flags: CHATUI_PERF_FLAGS });
+    const CHATUI_ENABLE_VIRTUAL_RENDER = window.CHATUI_ENABLE_VIRTUAL_RENDER !== false && chatuiReadBooleanFlag('chatui:enableVirtualRender', true);
+    const CHATUI_PERF_FLAGS = {
+      virtualRender: CHATUI_ENABLE_VIRTUAL_RENDER,
+      virtualMessages: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableVirtualMessages', true),
+      lazyMarkdown: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableLazyMarkdown', true),
+      renderCache: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableRenderCache', true),
+      scheduler: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableRenderScheduler', true),
+    };
+    try { window.CHATUI_ENABLE_VIRTUAL_RENDER = CHATUI_ENABLE_VIRTUAL_RENDER; } catch {}
+
+    function messageIsTailCandidate(role, options = {}) {
+      const total = Array.isArray(state?.messages) ? state.messages.length : 0;
+      const rawIndex = role === 'user' ? options.messageIndex : options.responseIndex;
+      const index = Number(rawIndex);
+      if (!Number.isFinite(index) || index < 0 || !total) return false;
+      return total - index <= 10;
+    }
+    function hasComplexMarkdown(text = '') {
+      const raw = String(text || '');
+      return /```|~~~|\|\s*[-:]+\s*\||<img\b|!\[[^\]]*\]\(|\bmermaid\b|\$\$|<table\b|<iframe\b/i.test(raw);
+    }
+    function chatuiShouldLazyRender(role, text, options = {}) {
+      if (!CHATUI_PERF_FLAGS.lazyMarkdown) return false;
+      const normalizedRole = role === 'error' ? 'assistant' : role;
+      if (normalizedRole === 'user') return false;
+      const raw = String(text || '');
+      if (!raw.trim()) return false;
+      const historyRender = options.noScroll || options.deferSave || options.history || options.restore;
+      if (!historyRender && !options.final) return false;
+      if (options.lazy === false || options.noLazy === true || options.forceRender === true) return false;
+      if (options.html || options.streaming || options.streamKind || options.pending || options.deferEnhance) return false;
+      if (messageIsTailCandidate(normalizedRole, options)) return false;
+      if (raw.length > 1600 || raw.split('\n').length > 80) return true;
+      return historyRender && hasComplexMarkdown(raw);
+    }
+
+    function chatuiRenderLazyMessage(node, options = {}) {
+      if (!node?.isConnected) return;
+      const queued = chatuiLazyRenderQueue.get(node);
+      if (queued?.idle) chatuiCancelIdle(queued.idle);
+      chatuiLazyRenderQueue.delete(node);
+      chatuiLazyObserver?.unobserve?.(node);
+      const content = node.querySelector('.content');
+      const raw = node.dataset.rawText || '';
+      const hash = node.dataset.rawHash || chatuiContentHash(raw);
+      if (!content || (node.dataset.renderedHash === hash && node.dataset.enhancedHash === hash)) return;
+      if (!chatuiIsNearViewport(node) && !options.force && !queued?.force) {
+        chatuiQueueLazyMessage(node, raw, { force: false });
+        return;
+      }
+      const started = chatuiPerfNow();
+      const renderJob = () => {
+        content.style.minHeight = '';
+        content.innerHTML = renderMarkdown(raw);
+        node.dataset.renderedHash = hash;
+        node.dataset.lazyMarkdown = '0';
+        bindInlineCopyButtons(node);
+        const enhancePromise = enhanceRenderedMarkdown(node, { deferMermaid: true, allowResourceLoad: true });
+        window.ChatUIScrollCoordinator?.registerLayoutPromise?.(enhancePromise, 'lazy-enhance');
+        hydrateMessageMedia(node, { save: false });
+        node.dataset.enhancedHash = hash;
+        window.ChatUIScrollCoordinator?.notifyLayoutChange?.('lazy-render');
+        chatuiLogLongTask('message.lazyRender', chatuiPerfNow() - started, { chars: raw.length });
+      };
+      const scheduler = CHATUI_PERF_FLAGS.scheduler ? window.ChatUI?.performance?.scheduler : null;
+      if (scheduler?.enqueue && !options.force) scheduler.enqueue(`lazy:${hash}:${node.dataset.displayItemId || node.dataset.responseIndex || ''}`, renderJob, { node });
+      else renderJob();
+    }
+    function chatuiQueueLazyMessage(node, text, options = {}) {
+      if (!node?.isConnected) return;
+      const hash = chatuiContentHash(text);
+      node.dataset.rawHash = hash;
+      if (node.dataset.renderedHash === hash && node.dataset.enhancedHash === hash) return;
+      const content = node.querySelector('.content');
+      if (content && node.dataset.lazyMarkdown !== '1') {
+        const currentHeight = Math.ceil(node.getBoundingClientRect?.().height || 0);
+        if (currentHeight > 40) content.style.minHeight = `${Math.max(48, currentHeight - 8)}px`;
+        content.innerHTML = chatuiPlainPreview(text);
+        node.dataset.lazyMarkdown = '1';
+      }
+      const existing = chatuiLazyRenderQueue.get(node);
+      if (existing?.idle) chatuiCancelIdle(existing.idle);
+      chatuiEnsureLazyObserver()?.observe(node);
+      if (options.force || chatuiIsNearViewport(node)) {
+        const idle = chatuiScheduleIdle(() => chatuiRenderLazyMessage(node, { force: !!options.force }), 1200);
+        chatuiLazyRenderQueue.set(node, { idle, hash, force: !!options.force });
+      } else {
+        chatuiLazyRenderQueue.set(node, { idle: null, hash, force: false });
+      }
+    }
+
+    function chatuiCancelMessageJobs(node) {
+      try { node?.__chatuiEnhanceJob?.cancel?.(); } catch {}
+      try { node?.__markdownStreamingRenderer?.reset?.(); } catch {}
+      const queued = chatuiLazyRenderQueue.get(node);
+      if (queued?.idle) chatuiCancelIdle(queued.idle);
+      chatuiLazyRenderQueue.delete(node);
+      chatuiLazyObserver?.unobserve?.(node);
+    }
+    function chatuiDisconnectVirtualizer() {
+      try { chatuiMessageVirtualizer?.disconnect?.(); } catch {}
+      chatuiVirtualizerAttached = false;
+    }
+    function chatuiEnsureVirtualizer() {
+      if (!CHATUI_PERF_FLAGS.virtualMessages) return null;
+      if (!chatuiMessageVirtualizer) {
+        chatuiMessageVirtualizer = window.ChatUI?.performance?.createMessageVirtualizer?.({
+          enabled: true,
+          minMessages: 48,
+          unloadMarginPx: 3200,
+          rootMargin: '1400px 0px',
+          root: getElement('messages'),
+        }) || null;
+      }
+      return chatuiMessageVirtualizer;
+    }
+    function chatuiAttachVirtualizer() {
+      if (!CHATUI_PERF_FLAGS.virtualMessages) return;
+      const messages = getElement('messages');
+      const virtualizer = chatuiEnsureVirtualizer();
+      if (!messages || !virtualizer) return;
+      const nodes = [...messages.querySelectorAll('.message')];
+      if (nodes.length < 48) return;
+      virtualizer.attach(messages, { render: (node, options = {}) => chatuiRenderLazyMessage(node, { ...options, force: true }), cancel: chatuiCancelMessageJobs });
+      chatuiVirtualizerAttached = true;
+      setTimeout(() => virtualizer.refresh?.(), 0);
+      requestAnimationFrame?.(() => virtualizer.refresh?.());
+    }
+    function chatuiRefreshVirtualizer() {
+      if (!CHATUI_PERF_FLAGS.virtualMessages) return;
+      if (chatuiMessageVirtualizer && !chatuiVirtualizerAttached) chatuiAttachVirtualizer();
+      if (chatuiMessageVirtualizer) chatuiMessageVirtualizer.refresh?.();
+      else chatuiAttachVirtualizer();
+    }
+    function chatuiPerfStats() {
+      const messages = getElement('messages');
+      const nodes = messages ? [...messages.querySelectorAll('.message')] : [];
+      return {
+        flags: CHATUI_PERF_FLAGS,
+        modules: {
+          cache: !!window.ChatUI?.performance?.renderCache,
+          scheduler: !!window.ChatUI?.performance?.scheduler,
+          virtualizer: !!chatuiMessageVirtualizer,
+        },
+        container: messages ? {
+          selector: '#messages',
+          children: messages.children.length,
+          scrollTop: messages.scrollTop,
+          scrollHeight: messages.scrollHeight,
+          clientHeight: messages.clientHeight,
+          overflowY: window.getComputedStyle(messages).overflowY,
+        } : null,
+        messages: nodes.length,
+        lazy: nodes.filter(node => node.dataset.lazyMarkdown === '1' || node.dataset.lazy === '1').length,
+        virtualized: nodes.filter(node => node.dataset.virtualized === '1').length,
+        rendered: nodes.filter(node => node.dataset.renderedHash).length,
+        cache: window.ChatUI?.performance?.renderCache?.stats?.() || null,
+        scheduler: window.ChatUI?.performance?.scheduler?.stats?.() || null,
+        virtualizer: chatuiMessageVirtualizer?.stats?.() || null,
+        scroll: window.ChatUIScrollCoordinator ? { pinned: window.ChatUIScrollCoordinator.isPinned?.(), pending: window.ChatUIScrollCoordinator.pendingCount?.() } : null,
+        perfLog: window.__chatuiPerfLog || [],
+      };
+    }
+
+    window.ChatUIPerf = { getStats: chatuiPerfStats, flags: CHATUI_PERF_FLAGS, attachVirtualizer: chatuiAttachVirtualizer, refreshVirtualizer: chatuiRefreshVirtualizer, renderLazyMessage: chatuiRenderLazyMessage };
+    window.chatuiRenderLazyMessage = chatuiRenderLazyMessage;
+    window.chatuiEnsureVirtualizer = chatuiEnsureVirtualizer;
+    window.chatuiAttachVirtualizer = chatuiAttachVirtualizer;
+    window.chatuiRefreshVirtualizer = chatuiRefreshVirtualizer;
+
+    return Object.freeze({
+      chatuiPerfNow,
+      chatuiLogLongTask,
+      chatuiContentHash,
+      chatuiPlainPreview,
+      chatuiScheduleIdle,
+      chatuiCancelIdle,
+      chatuiGetMessagesRoot,
+      chatuiIsNearViewport,
+      chatuiEnsureLazyObserver,
+      chatuiRenderLazyMessage,
+      chatuiQueueLazyMessage,
+      chatuiReadBooleanFlag,
+      chatuiShouldLazyRender,
+      chatuiCancelMessageJobs,
+      chatuiDisconnectVirtualizer,
+      chatuiEnsureVirtualizer,
+      chatuiAttachVirtualizer,
+      chatuiRefreshVirtualizer,
+      chatuiPerfStats,
+      flags: CHATUI_PERF_FLAGS,
+    });
   }
 
   const api = Object.freeze({ createPerformanceWorkflow });

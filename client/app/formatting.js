@@ -39,7 +39,7 @@
   }
 
   function pendingFeedbackHtml(value) {
-    return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(value)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+    return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(value)}</span></div>`;
   }
 
   function isChatStatusText(value = '') {

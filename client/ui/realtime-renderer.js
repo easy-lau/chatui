@@ -2,17 +2,34 @@
   'use strict';
 
 function createRealtimeRenderer(render, options = {}) {
-  const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 50;
+  const lowerBoundMs = Number(root.CHATUI_MIN_STREAM_RENDER_INTERVAL_MS) || 80;
+  const minIntervalMs = Math.max(lowerBoundMs, Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 80);
   let value = '';
   let pendingValue = '';
   let timer = null;
+  let frame = null;
+  let frameIsTimer = false;
   let lastRenderAt = 0;
   let cancelled = false;
   let finalized = false;
 
+  const clearFrame = () => {
+    if (frame != null) {
+      if (frameIsTimer) clearTimeout(frame);
+      else if (typeof root.cancelAnimationFrame === 'function') root.cancelAnimationFrame(frame);
+    }
+    frame = null;
+    frameIsTimer = false;
+  };
+
   const clearTimer = () => {
     if (timer) clearTimeout(timer);
     timer = null;
+  };
+
+  const clearScheduled = () => {
+    clearTimer();
+    clearFrame();
   };
 
   const renderNow = next => {
@@ -25,9 +42,16 @@ function createRealtimeRenderer(render, options = {}) {
     return true;
   };
 
+  const scheduleFrameRender = () => {
+    if (frame != null) return;
+    const run = () => { frame = null; renderNow(pendingValue); };
+    frameIsTimer = typeof root.requestAnimationFrame !== 'function';
+    frame = frameIsTimer ? setTimeout(run, 0) : root.requestAnimationFrame(run);
+  };
+
   const flushValue = next => {
     if (cancelled || finalized) return false;
-    clearTimer();
+    clearScheduled();
     return renderNow(next === undefined ? pendingValue : next);
   };
 
@@ -37,16 +61,17 @@ function createRealtimeRenderer(render, options = {}) {
       const normalized = String(next || '');
       if (normalized === pendingValue) return;
       pendingValue = normalized;
+      if (frame != null) return;
       const elapsed = Date.now() - lastRenderAt;
       if (elapsed >= minIntervalMs) {
         clearTimer();
-        renderNow(pendingValue);
+        scheduleFrameRender();
         return;
       }
       clearTimer();
       timer = setTimeout(() => {
         timer = null;
-        renderNow(pendingValue);
+        scheduleFrameRender();
       }, Math.max(0, minIntervalMs - elapsed));
     },
     flush(next) {
@@ -54,18 +79,18 @@ function createRealtimeRenderer(render, options = {}) {
     },
     final(next) {
       const rendered = flushValue(next);
-      clearTimer();
+      clearScheduled();
       finalized = true;
       return rendered;
     },
     cancel() {
-      clearTimer();
+      clearScheduled();
       cancelled = true;
       value = '';
       pendingValue = '';
     },
     hasTimer() {
-      return !!timer;
+      return !!timer || frame != null;
     },
   };
 }

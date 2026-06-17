@@ -80,5 +80,8 @@
   const scheduler = createRenderScheduler(global.CHATUI_RENDER_SCHEDULER_OPTIONS || {});
   const api = Object.freeze({ scheduleIdle, cancelIdle, createRenderScheduler, scheduler });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (global && global.CHATUI_ENABLE_VIRTUAL_RENDER === true) global.ChatUI = Object.freeze({ ...(global.ChatUI || {}), performance: Object.freeze({ ...((global.ChatUI || {}).performance || {}), scheduler, scheduleIdle, cancelIdle }) });
+  if (global) {
+    const existing = global.ChatUI || {};
+    global.ChatUI = Object.freeze({ ...existing, performance: Object.freeze({ ...(existing.performance || {}), scheduler, scheduleIdle, cancelIdle, createRenderScheduler }) });
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
