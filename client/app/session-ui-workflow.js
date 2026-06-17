@@ -38,7 +38,6 @@
     const isModelAllowedFor = deps.isModelAllowedFor || (() => true);
     const escapeHtml = deps.escapeHtml || (value => String(value || ''));
     const closeSessionModelPanel = deps.closeSessionModelPanel || (() => {});
-    const captureActiveSessionDom = deps.captureActiveSessionDom || (() => false);
     const sessionConfig = deps.sessionConfig || {};
     const constants = deps.constants || {};
     const CHAT_KEY = constants.CHAT_KEY || 'chat-history';
@@ -59,51 +58,12 @@
         tab.classList.toggle('busy', isSessionBusy(session.id));
         tab.dataset.sessionId = session.id;
         tab.innerHTML = `<span class="session-title" title="${sessionTitleHtml(session)}">${sessionTitleHtml(session)}</span><small>${getSessionReturnCount(session)} 条</small><button class="session-rename-btn" type="button" title="重命名会话" aria-label="重命名会话">✎</button><button class="session-delete-btn" type="button" title="删除会话" aria-label="删除会话">×</button>`;
-        tab.addEventListener('click', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-rename-btn') && !event.target.closest('.session-title-input')) switchSessionToBottom(session.id); });
+        tab.addEventListener('click', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-rename-btn') && !event.target.closest('.session-title-input')) switchSession(session.id); });
         tab.addEventListener('dblclick', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-title-input')) beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-rename-btn')?.addEventListener('click', event => { event.stopPropagation(); beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-delete-btn')?.addEventListener('click', event => { event.stopPropagation(); deleteSession(session.id); });
         list.appendChild(tab);
       });
-    }
-
-    function runWithoutSwitchAnimation(callback) {
-      const messages = $('messages');
-      const previousVisibility = messages?.style.visibility || '';
-      const focusBottom = () => {
-        if (!messages) return;
-        messages.scrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
-      };
-      messages?.classList.add('is-switching-session');
-      if (messages) messages.style.visibility = 'hidden';
-      try { return callback?.(); }
-      finally {
-        const clear = () => { if (messages) messages.style.visibility = previousVisibility; messages?.classList.remove('is-switching-session'); };
-        focusBottom();
-        if (root.requestAnimationFrame) root.requestAnimationFrame(() => { focusBottom(); root.requestAnimationFrame(() => { focusBottom(); clear(); }); });
-        else { setTimeout(focusBottom, 0); setTimeout(() => { focusBottom(); clear(); }, 80); }
-      }
-    }
-
-    function switchSessionToBottom(sessionId) {
-      const state = getState();
-      if (sessionId === state.activeSessionId) return;
-      if (!state.sessions.some(session => session.id === sessionId)) return;
-      const previous = getActiveSession?.();
-      saveActivePromptDraft();
-      try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before switch failed', err); }
-      captureActiveSessionDom(previous?.id);
-      state.editingIndex = null;
-      state.editingNode = null;
-      state.activeSessionId = sessionId;
-      state.activeOutputNode = state.activeOutputSessions?.get?.(sessionId) || null;
-      $('resumeStreamBtn')?.classList.remove('show');
-      localStorageRef.setItem(ACTIVE_SESSION_KEY, sessionId);
-      syncActiveSession({ skipSave: true });
-      runWithoutSwitchAnimation(() => renderActiveSession({ reason: 'switch-bottom', preferDomCache: false }));
-      restorePromptDraft(sessionId);
-      updateSendAvailability();
-      closeSessionDrawer();
     }
 
     function newSession() {
@@ -124,11 +84,10 @@
       $('resumeStreamBtn')?.classList.remove('show');
       $('resumeStreamBtn')?.setAttribute('aria-hidden', 'true');
       saveSessionsMeta();
-      captureActiveSessionDom(session.id);
       localStorageRef.setItem(sessionStorageKey(CHAT_KEY), '[]');
       localStorageRef.setItem(sessionStorageKey(UI_KEY), '[]');
       localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
-      runWithoutSwitchAnimation(renderActiveSession);
+      renderActiveSession();
       updateResumeStreamButton();
       updateSendAvailability();
       closeSessionDrawer();
@@ -159,7 +118,7 @@
         state.activeSessionId = state.sessions[0].id;
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
         syncActiveSession({ skipSave: true });
-        runWithoutSwitchAnimation(renderActiveSession);
+        renderActiveSession();
       }
       saveSessionsMeta();
       renderSessionList();
@@ -208,7 +167,7 @@
       clearAttachments();
       const messages = $('messages');
       if (messages) messages.innerHTML = '';
-      runWithoutSwitchAnimation(renderActiveSession);
+      renderActiveSession();
       updateSendAvailability();
       closeSessionDrawer();
       toast('已清除所有会话');

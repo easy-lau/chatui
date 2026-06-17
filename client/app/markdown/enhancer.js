@@ -503,6 +503,7 @@ async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = 
       }
       results.push(await renderSingleMermaidBlock(holder, mermaid));
     }
+    if (results.some(result => result?.ok)) root.dispatchEvent?.(new CustomEvent('chatui:markdown-layout-settled', { bubbles: true, detail: { reason: 'mermaid-rendered', count: results.filter(result => result?.ok).length } }));
     return results;
   });
 }

@@ -297,25 +297,105 @@
       const hydrate = deps.hydrateMessageMedia || (() => {});
       const content = messageNode?.querySelector?.('.content');
       if (!content) return false;
-      const fragmentRootFor = nodes => ({
-        querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)),
-        querySelector: selector => nodes.find(node => node.nodeType === 1 && node.matches?.(selector)) || nodes.flatMap(node => node.nodeType === 1 ? [...node.querySelectorAll(selector)] : [])[0] || null,
-      });
-      const token = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      const shouldAutoRefocusTail = () => !deps.state?.userScrollLocked && (deps.shouldFollowScroll?.() ?? true);
+      const refocusTailAfterMarkdownLayout = () => {
+        if (!messageNode?.isConnected || !shouldAutoRefocusTail()) return;
+        const root = deps.$?.('messages');
+        if (!root || messageNode !== [...root.querySelectorAll?.('.message') || []].at(-1)) return;
+        const run = () => {
+          if (!messageNode.isConnected || !shouldAutoRefocusTail()) return;
+          deps.state.autoScrollLocked = true;
+          deps.state.programmaticScrollUntil = Math.max(Number(deps.state.programmaticScrollUntil) || 0, Date.now() + 900);
+          try { deps.focusSessionTail?.({ margin: 18, threshold: 12 }); } catch {}
+        };
+        run();
+        requestAnimationFrame?.(run);
+      };
+      const token = Date.now() + ':' + Math.random().toString(36).slice(2);
+      try { messageNode.__progressiveCleanup?.(); } catch {}
       messageNode.dataset.progressiveRenderToken = token;
       messageNode.dataset.progressiveRendering = '1';
+      messageNode.dataset.progressiveOffscreen = '1';
+      if (deps.state && shouldAutoRefocusTail()) deps.state.programmaticScrollUntil = Math.max(Number(deps.state.programmaticScrollUntil) || 0, Date.now() + 1200);
       delete content.__plainStreamingTextNode;
       delete content.__plainStreamingBox;
-      const restoreProgressiveAnchor = deps.state?.activeOutputNode === messageNode && !deps.state?.userScrollLocked
-        ? deps.preserveMessageBottomAnchor?.(messageNode, 72)
-        : null;
-      content.innerHTML = `<div class="markdown-progressive-status">正在分块挂载 Markdown…</div>`;
-      restoreProgressiveAnchor?.();
+
+      const doc = deps.document || document;
+      const body = doc.body || doc.documentElement;
+      const contentWidth = Math.max(320, Math.ceil(content.getBoundingClientRect?.().width || content.clientWidth || messageNode.getBoundingClientRect?.().width || 720));
+      const stageHost = doc.createElement('div');
+      stageHost.className = messageNode.className || 'message assistant';
+      stageHost.dataset.progressiveStage = '1';
+      stageHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + contentWidth + 'px;max-width:' + contentWidth + 'px;visibility:hidden;pointer-events:none;z-index:-1;contain:layout style;';
+      const stageContent = doc.createElement('div');
+      stageContent.className = content.className || 'content';
+      stageHost.appendChild(stageContent);
+      body.appendChild(stageHost);
+
+      let cleaned = false;
+      const cleanupStage = () => {
+        if (cleaned) return;
+        cleaned = true;
+        try { stageContent.__chatuiEnhanceJob?.cancel?.(); } catch {}
+        try { stageHost.remove(); } catch {}
+        if (messageNode.__progressiveCleanup === cleanupStage) delete messageNode.__progressiveCleanup;
+      };
+      messageNode.__progressiveCleanup = cleanupStage;
+
       const chunks = splitMarkdownRenderChunks(text);
       const nodeQueue = [];
       let chunkIndex = 0;
+      let finishing = false;
+      const isCurrent = () => messageNode.isConnected && messageNode.dataset.progressiveRenderToken === token;
+      const schedule = () => {
+        if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
+        else setTimeout(() => run(), 0);
+      };
+      const finish = async () => {
+        if (finishing || !isCurrent()) return;
+        finishing = true;
+        try {
+          resetActions(messageNode);
+          cleanupGeneratedImageNumberArtifacts(stageContent);
+          bindCopy(stageContent);
+          const enhancePromise = enhance(stageContent, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true });
+          await Promise.resolve(enhancePromise).catch(() => []);
+          if (!isCurrent()) return cleanupStage();
+          hydrate(stageContent, { save: false });
+          cleanupGeneratedImageNumberArtifacts(stageContent);
+          const shouldRefocus = shouldAutoRefocusTail();
+          const restoreProgressiveAnchor = shouldRefocus && deps.state?.activeOutputNode === messageNode
+            ? deps.preserveMessageBottomAnchor?.(messageNode, 72)
+            : null;
+          content.replaceChildren(...[...stageContent.childNodes]);
+          messageNode.dataset.renderedHash = hash;
+          messageNode.dataset.enhancedHash = hash;
+          delete messageNode.dataset.progressiveRendering;
+          delete messageNode.dataset.progressiveOffscreen;
+          cleanupGeneratedImageNumberArtifacts(messageNode);
+          hydrate(messageNode, { save: false });
+          resetActions(messageNode);
+          cleanupStage();
+          if (shouldRefocus) {
+            restoreProgressiveAnchor?.();
+            refocusTailAfterMarkdownLayout();
+            Promise.resolve().then(refocusTailAfterMarkdownLayout);
+            requestAnimationFrame?.(() => restoreProgressiveAnchor?.());
+          }
+        } catch (err) {
+          console.warn('[chatui] progressive markdown offscreen render failed', err);
+          if (isCurrent()) {
+            content.innerHTML = render(text);
+            messageNode.dataset.renderedHash = hash;
+            delete messageNode.dataset.progressiveRendering;
+            delete messageNode.dataset.progressiveOffscreen;
+            try { bindCopy(messageNode); enhance(messageNode, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true }); } catch {}
+          }
+          cleanupStage();
+        }
+      };
       const run = deadline => {
-        if (!messageNode.isConnected || messageNode.dataset.progressiveRenderToken !== token) return;
+        if (!isCurrent()) return cleanupStage();
         const started = performance?.now ? performance.now() : Date.now();
         const batch = [];
         while (true) {
@@ -323,46 +403,171 @@
             batch.push(nodeQueue.shift());
             const now = performance?.now ? performance.now() : Date.now();
             const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
-            if (batch.length >= 24 || (now - started) > 8 || (timeLeft && timeLeft < 5)) break;
+            if (batch.length >= 48 || (now - started) > 10 || (timeLeft && timeLeft < 5)) break;
           }
           if (batch.length || chunkIndex >= chunks.length) break;
-          const tpl = document.createElement('template');
+          const tpl = doc.createElement('template');
           tpl.innerHTML = render(chunks[chunkIndex++]);
           nodeQueue.push(...tpl.content.childNodes);
           const now = performance?.now ? performance.now() : Date.now();
           const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
           if ((now - started) > 10 || (timeLeft && timeLeft < 5)) break;
         }
-        content.querySelector('.markdown-progressive-status')?.remove();
-        if (batch.length) {
-          content.append(...batch);
-          const chunkRoot = fragmentRootFor(batch);
-          bindCopy(chunkRoot);
-          enhance(chunkRoot, { deferMermaid: true, progressive: true, allowResourceLoad: true });
-          restoreProgressiveAnchor?.();
-        }
-        if (chunkIndex < chunks.length || nodeQueue.length) {
-          if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
-          else setTimeout(() => run(), 0);
-          return;
-        }
-        delete messageNode.dataset.progressiveRendering;
-        messageNode.dataset.renderedHash = hash;
-        resetActions(messageNode);
-        cleanupGeneratedImageNumberArtifacts(messageNode);
-        hydrate(messageNode, { save: false });
-        messageNode.dataset.enhancedHash = hash;
-        restoreProgressiveAnchor?.();
-        requestAnimationFrame?.(() => restoreProgressiveAnchor?.());
+        if (batch.length) stageContent.append(...batch);
+        if (chunkIndex < chunks.length || nodeQueue.length) return schedule();
+        finish();
       };
-      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
-      else setTimeout(() => run(), 0);
+      schedule();
+      return true;
+    }
+
+    function ensurePlainMarkdownStream(contentNode) {
+      if (!contentNode) return null;
+      let box = contentNode.__plainStreamingBox;
+      if (!box || !box.isConnected) {
+        contentNode.innerHTML = '<pre class="markdown-stream-plain"></pre>';
+        box = contentNode.querySelector('.markdown-stream-plain');
+        const textNode = document.createTextNode('');
+        if (box) box.appendChild(textNode);
+        contentNode.__plainStreamingBox = box;
+        contentNode.__plainStreamingTextNode = textNode;
+      }
+      return box;
+    }
+
+    function updatePlainMarkdownStream(messageNode, contentNode, rawValue = '', incoming = '') {
+      const box = ensurePlainMarkdownStream(contentNode);
+      if (!box) return false;
+      const textNode = contentNode.__plainStreamingTextNode || box.firstChild || document.createTextNode('');
+      if (!textNode.parentNode) box.appendChild(textNode);
+      const previous = String(messageNode.__plainStreamingRaw || '');
+      const next = String(rawValue || '');
+      if (next.startsWith(previous)) {
+        const delta = next.slice(previous.length) || String(incoming || '');
+        if (delta) textNode.data += delta;
+      } else {
+        textNode.data = next;
+      }
+      messageNode.__plainStreamingRaw = next;
+      messageNode.dataset.streamingPlainMarkdown = '1';
       return true;
     }
 
     function updateMessage(e, t, s = {}) {
       with (deps) {
-        const n=e.querySelector(".content"),a=s.noScroll?(state.userScrollLocked?preserveMessageViewport(e):preserveMessageBottomAnchor(e,72)):null,o=String(s.rawText??t??""),r=chatuiContentHash(o),streamingFinalShouldPin=e===state.activeOutputNode&&!state.userScrollLocked;if(e.dataset.rawHash===r&&e.dataset.renderedHash===r&&e.dataset.enhancedHash===r&&!s.html&&!s.metaText){cleanupGeneratedImageNumberArtifacts(e),delete e.dataset.streaming,delete e.dataset.streamKind,delete e.dataset.streamRunToken;return}let i=!1;if(e.__markdownStreamingRenderer?.final&&!s.html&&!e.classList?.contains("user")){try{const o=e.__markdownStreamingRenderer.final(n,String(s.rawText??t??""));i=!!o,e.dataset.renderedHash=r,o?.enhanced&&(e.dataset.enhancedHash=r),e.dataset.markdownFinalEnhanced=o?.enhanced?"1":"",e.dataset.markdownFinalMode=o?.mode||"final";o?.reason&&(e.dataset.markdownFinalReason=o.reason),streamingFinalShouldPin&&pinNodeBottomToTarget(e,{margin:72})}catch{}delete e.__markdownStreamingRenderer}if(delete e.dataset.streaming,delete e.dataset.streamKind,delete e.dataset.streamRunToken,e===state.activeOutputNode&&!s.skipSave&&(state.streamFocusLocked=!1,!state.userScrollLocked&&pinNodeBottomToTarget(e,{margin:72})),e.dataset.rawText=o,e.dataset.rawHash=r,s.skipSave?e.dataset.persist="0":delete e.dataset.persist,void 0!==s.messageIndex&&null!==s.messageIndex&&(e.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(e.dataset.responseIndex=String(s.responseIndex)),!i){if(s.html)n.innerHTML=stripTransientBlobUrlsFromHtml(t),e.dataset.renderedHash=r,delete e.dataset.enhancedHash;else if(chatuiShouldLazyRender(e.classList?.contains("user")?"user":"assistant",o,{...s,final:!0})&&!chatuiIsNearViewport(e))chatuiQueueLazyMessage(e,o);else{const l=chatuiPerfNow();if(!e.classList?.contains("user")&&shouldProgressiveRenderMarkdown(o)){renderMarkdownProgressively(e,o,r)}else{n.innerHTML=e.classList?.contains("user")?renderUserMessageContent(String(t||"")):renderMarkdown(String(t||"")),e.dataset.renderedHash=r}delete e.dataset.enhancedHash,e.dataset.lazyMarkdown="0",chatuiLogLongTask("message.update.renderMarkdown",chatuiPerfNow()-l,{chars:o.length})}}cleanupGeneratedImageNumberArtifacts(e),resetMessageActionStates(e),void 0!==s.metaText&&setMessageMetaText(e,s.metaText);if("1"!==e.dataset.markdownFinalEnhanced&&e.dataset.lazyMarkdown!=="1"&&e.dataset.enhancedHash!==r&&e.dataset.progressiveRendering!=="1"){bindInlineCopyButtons(e),enhanceRenderedMarkdown(e,{deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(e),hydrateMessageMedia(e,{save:!0!==s.skipSave}),e.dataset.enhancedHash=r}if(streamingFinalShouldPin){const pinFinal=()=>pinNodeBottomToTarget(e,{margin:72});requestAnimationFrame?.(pinFinal),setTimeout(pinFinal,120),setTimeout(pinFinal,420)}delete e.dataset.markdownFinalEnhanced,s.noScroll?(state.scrollVersion+=1,cancelScrollTimer(),a&&(a(),requestAnimationFrame(a),setTimeout(a,80)),setTimeout(updateResumeStreamButton,0)):!0===s.followActive||state.activeOutputNode===e?s.forceScroll??!0===s.followActive?!1===s.settleScroll?(cancelScrollTimer(),scrollToActiveOutput(e,{force:!0,active:!0,settle:!1}),cancelScrollTimer()):scrollToActiveOutput(e,{force:!0,active:!0,settle:!0}):(state.activeOutputNode=e,state.scrollVersion+=1,cancelScrollTimer()):scrollToBottom(s.forceScroll??!1)
+        const contentNode = e.querySelector(".content");
+        const restore = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
+        const rawValue = String(s.rawText ?? t ?? "");
+        const rawHash = chatuiContentHash(rawValue);
+        const streamingFinalShouldPin = e === state.activeOutputNode && !state.userScrollLocked;
+        const canAutoFollowNow = () => !state.userScrollLocked && shouldFollowScroll();
+        if (e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.html && !s.metaText) {
+          cleanupGeneratedImageNumberArtifacts(e);
+          delete e.dataset.streaming;
+          delete e.dataset.streamKind;
+          delete e.dataset.streamRunToken;
+          return;
+        }
+
+        let rendered = false;
+        const largeAssistantMarkdown = !s.html && !e.classList?.contains("user") && shouldProgressiveRenderMarkdown(rawValue);
+        if (e.__markdownStreamingRenderer?.final && !s.html && !e.classList?.contains("user")) {
+          try {
+            if (largeAssistantMarkdown) {
+              renderMarkdownProgressively(e, rawValue, rawHash);
+              rendered = true;
+              e.dataset.markdownFinalMode = "progressive-final";
+              delete e.dataset.markdownFinalEnhanced;
+            } else {
+              const result = e.__markdownStreamingRenderer.final(contentNode, rawValue);
+              rendered = !!result;
+              e.dataset.renderedHash = rawHash;
+              if (result?.enhanced) e.dataset.enhancedHash = rawHash;
+              e.dataset.markdownFinalEnhanced = result?.enhanced ? "1" : "";
+              e.dataset.markdownFinalMode = result?.mode || "final";
+              if (result?.reason) e.dataset.markdownFinalReason = result.reason;
+              if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+            }
+          } catch {}
+          delete e.__markdownStreamingRenderer;
+        }
+        if (!rendered && e.dataset.streamingPlainMarkdown === "1" && largeAssistantMarkdown) {
+          renderMarkdownProgressively(e, rawValue, rawHash);
+          rendered = true;
+          e.dataset.markdownFinalMode = "progressive-final";
+        }
+        delete e.__plainStreamingRaw;
+        delete e.dataset.streamingPlainMarkdown;
+
+        delete e.dataset.streaming;
+        delete e.dataset.streamKind;
+        delete e.dataset.streamRunToken;
+        if (e === state.activeOutputNode && !s.skipSave) {
+          state.streamFocusLocked = false;
+          if (canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+        }
+        e.dataset.rawText = rawValue;
+        e.dataset.rawHash = rawHash;
+        if (s.skipSave) e.dataset.persist = "0";
+        else delete e.dataset.persist;
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+
+        if (!rendered) {
+          if (s.html) {
+            contentNode.innerHTML = stripTransientBlobUrlsFromHtml(t);
+            e.dataset.renderedHash = rawHash;
+            delete e.dataset.enhancedHash;
+          } else if (chatuiShouldLazyRender(e.classList?.contains("user") ? "user" : "assistant", rawValue, { ...s, final: true }) && !chatuiIsNearViewport(e)) {
+            chatuiQueueLazyMessage(e, rawValue);
+          } else {
+            const started = chatuiPerfNow();
+            if (largeAssistantMarkdown) {
+              renderMarkdownProgressively(e, rawValue, rawHash);
+              rendered = true;
+            } else {
+              contentNode.innerHTML = e.classList?.contains("user") ? renderUserMessageContent(String(t || "")) : renderMarkdown(String(t || ""));
+              e.dataset.renderedHash = rawHash;
+            }
+            delete e.dataset.enhancedHash;
+            e.dataset.lazyMarkdown = "0";
+            chatuiLogLongTask("message.update.renderMarkdown", chatuiPerfNow() - started, { chars: rawValue.length });
+          }
+        }
+
+        cleanupGeneratedImageNumberArtifacts(e);
+        resetMessageActionStates(e);
+        if (void 0 !== s.metaText) setMessageMetaText(e, s.metaText);
+        if ("1" !== e.dataset.markdownFinalEnhanced && e.dataset.lazyMarkdown !== "1" && e.dataset.enhancedHash !== rawHash && e.dataset.progressiveRendering !== "1") {
+          bindInlineCopyButtons(e);
+          enhanceRenderedMarkdown(e, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true });
+          cleanupGeneratedImageNumberArtifacts(e);
+          hydrateMessageMedia(e, { save: true !== s.skipSave });
+          e.dataset.enhancedHash = rawHash;
+        }
+        if (streamingFinalShouldPin && canAutoFollowNow()) {
+          const pinFinal = () => { if (canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 }); };
+          requestAnimationFrame?.(pinFinal);
+        }
+        delete e.dataset.markdownFinalEnhanced;
+        if (s.noScroll) {
+          state.scrollVersion += 1;
+          cancelScrollTimer();
+          if (restore) { restore(); requestAnimationFrame(restore); setTimeout(restore, 80); }
+          setTimeout(updateResumeStreamButton, 0);
+        } else if (true === s.followActive || state.activeOutputNode === e) {
+          if ((s.forceScroll ?? true === s.followActive) && canAutoFollowNow()) {
+            if (false === s.settleScroll) {
+              cancelScrollTimer();
+              scrollToActiveOutput(e, { force: true, active: true, settle: false });
+              cancelScrollTimer();
+            } else scrollToActiveOutput(e, { force: true, active: true, settle: true });
+          } else {
+            state.activeOutputNode = e;
+            state.scrollVersion += 1;
+            cancelScrollTimer();
+          }
+        } else scrollToBottom(s.forceScroll ?? false);
       }
     }
 
@@ -387,7 +592,11 @@
         if (void 0 !== s.runToken) e.dataset.streamRunToken = s.runToken || '';
         if (s.skipSave) e.dataset.persist = '0';
 
-        if (chatStream) {
+        if (chatStream && shouldProgressiveRenderMarkdown(rawValue)) {
+          delete e.__markdownStreamingRenderer;
+          delete e.dataset.enhancedHash;
+          updatePlainMarkdownStream(e, contentNode, rawValue, t);
+        } else if (chatStream) {
           delete e.dataset.enhancedHash;
           let streamRenderer = e.__markdownStreamingRenderer;
           if (!streamRenderer || s.resetStream) {
@@ -395,7 +604,7 @@
               renderMarkdown,
               enhance: (scopeRoot, phase = {}) => {
                 bindInlineCopyButtons(scopeRoot);
-                enhanceRenderedMarkdown(scopeRoot, { skipMermaid: true, streaming: !!phase.streaming, deferMermaid: true, allowResourceLoad: !!phase.final });
+                enhanceRenderedMarkdown(scopeRoot, { streaming: !!phase.streaming, deferMermaid: true, allowResourceLoad: !!phase.final, autoRenderMermaid: !!phase.final, forceMermaid: !!phase.final });
               },
             });
             e.__markdownStreamingRenderer = streamRenderer;
@@ -427,14 +636,14 @@
         }
 
         if (s.noScroll) restoreViewport && restoreViewport();
-        else scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+        else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         updateResumeStreamButton();
       }
     }
 
     function addMessage(e, t, s = {}) {
       with (deps) {
-        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{skipMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
+        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{autoRenderMermaid:!0,forceMermaid:!0,deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
       }
     }
 
@@ -493,7 +702,7 @@
         else {
           node.dataset.renderedHash = node.dataset.rawHash;
           bindInlineCopyButtons(node);
-          enhanceRenderedMarkdown(node, { skipMermaid: true, allowResourceLoad: true });
+          enhanceRenderedMarkdown(node, { autoRenderMermaid: true, forceMermaid: true, deferMermaid: true, allowResourceLoad: true });
           cleanupGeneratedImageNumberArtifacts(node);
           hydrateMessageMedia(node, { save: !options.skipSave });
           bindSentQuotePreviews(node);

@@ -28,6 +28,8 @@ const responsesStream = require('../server/proxy/responses-stream');
 const appState = require('../client/app/state');
 const sessionDisplay = require('../client/app/session-display');
 const formatting = require('../client/app/formatting');
+const markdownEngine = require('../client/app/markdown/markdown-engine');
+const markdownSourceNormalizer = require('../client/app/markdown/source-normalizer');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -621,42 +623,93 @@ function testStreamingTailDoesNotRenderCursor() {
 
 function testSessionTailFocusPreservesBottomGapDuringDynamicLayout() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
-  assert.ok(source.includes('session.bottomGap = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)'), 'layout follow should record the current bottom gap');
-  assert.ok(source.includes('el.scrollHeight - el.clientHeight - session.bottomGap'), 'layout follow should restore scrollTop from the preserved bottom gap');
-  assert.ok(source.includes('.markdown-mermaid-pending,svg,canvas,.long-answer-block'), 'layout observer should watch chart/svg/canvas and long-answer height changes');
-  assert.ok(source.includes('viewBox') && source.includes('data-mermaid-rendered') && source.includes('data-markdown-media-pending'), 'mutation observer should catch chart and markdown media render attribute changes');
-  assert.ok(source.includes("img.addEventListener('load', onDone, { once: true })"), 'image load should immediately re-pin the preserved bottom gap');
-  assert.ok(source.includes('stableFramesTarget') && source.includes('layoutPendingCount'), 'layout follow should release only after pending layout work is stable');
+  assert.ok(source.includes('function focusSessionTail') && source.includes('activateBottomScrollLock(options)'), 'tail focus should activate the bottom-lock implementation');
+  assert.ok(source.includes('function activateBottomScrollLock') && source.includes('scrollMessagesToBottom') && source.includes('requestBottomScroll'), 'bottom lock should scroll to the real list bottom through a rAF-batched path');
+  assert.ok(source.includes('function scheduleSessionTailFocusAfterLayout'), 'layout-settled tail focus scheduler should exist');
+  assert.ok(source.includes('new ResizeObserver') && source.includes('requestBottomScroll({ reason: "resize-observer", beforePaint: true })'), 'ResizeObserver should keep the bottom locked before paint when async Markdown changes height');
+  assert.ok(source.includes('function syncLockedBottomBeforePaint') && source.includes('heightChanged') && source.includes('writeThreshold: 0'), 'height changes should be compensated synchronously before the next paint to reduce visible jitter');
+  assert.ok(source.includes('.markdown-mermaid-pending,svg,canvas'), 'layout observer should watch chart/svg/canvas height changes');
+  assert.ok(source.includes('viewBox') && source.includes('data-mermaid-rendered'), 'mutation observer should catch chart render attribute changes');
+  assert.ok(!/setTimeout\s*\(/.test(source), 'bottom lock should not depend on hard-coded setTimeout delays');
+  assert.ok(source.includes('requestAnimationFrame') && source.includes('bottomLockRaf'), 'bottom scroll writes should still have a requestAnimationFrame final correction pass');
 }
 
 function testSessionSwitchFocusesBottom() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
-  const override = fs.readFileSync(path.join(__dirname, '../client/app/session-switch-override.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
-  assert.ok(source.includes('messages.scrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight)'), 'session switch should position the message list at the bottom');
-  assert.ok(source.includes('function switchSessionToBottom(sessionId)'), 'session list switching should bypass the old restore-scroll path');
-  assert.ok(source.includes("renderActiveSession({ reason: 'switch-bottom', preferDomCache: false })"), 'session switch should render directly to the bottom instead of restoring old scroll');
-  assert.ok(source.includes("messages.style.visibility = 'hidden'"), 'session switch should hide messages until bottom scroll is applied');
-  assert.ok(override.includes("list.addEventListener('click'") && override.includes('event.stopImmediatePropagation()'), 'override should intercept session clicks before legacy restore-scroll handlers');
-  assert.ok(override.includes("root.renderActiveSession?.({ reason: 'switch-bottom', preferDomCache: false })"), 'override should render without restore-scroll');
+  assert.ok(source.includes('switchSession(session.id)'), 'session tabs should use the normal v1.3.25 switchSession path instead of an extra override layer');
+  assert.ok(!source.includes('switchSessionToBottom'), 'session-ui should not contain the later switch-bottom wrapper');
+  const removedOverride = ['session', 'switch', 'override'].join('-') + '.js';
+  assert.ok(!index.includes(removedOverride), 'the extra capture-phase session switch override should not be loaded');
+  assert.ok(app.includes('scheduleSessionTailFocusAfterLayout') && app.includes('reason:"switch-bottom"'), 'renderActiveSession should still pin the latest tail after a switch');
   assert.ok(css.includes('scroll-behavior:auto!important;'), 'session switch should disable smooth scroll behavior');
+}
+
+function testLegacyWelcomeScreenIsRemoved() {
+  const files = ['../index.html', '../app.js', '../styles.css', '../styles/flat-theme.css'];
+  const legacyNeedles = [
+    ['empty', 'welcome'].join('-'),
+    ['welcome', 'title'].join('-'),
+    ['welcome', 'sub'].join('-'),
+    ['welcome', 'note'].join('-'),
+    ['render', 'Empty', 'Welcome'].join(''),
+    String.fromCodePoint(26497, 31616, 32842, 22825, 24037, 20855),
+    ['ChatUI', String.fromCodePoint(26497, 31616)].join(''),
+    String.fromCodePoint(22885, 21746, 65, 73),
+    String.fromCodePoint(20154, 20026, 32534, 30721, 37327),
+    String.fromCodePoint(19987, 27880, 23545, 35805),
+    String.fromCodePoint(28789, 24863, 29983, 22270),
+  ];
+  for (const rel of files) {
+    const source = fs.readFileSync(path.join(__dirname, rel), 'utf8');
+    for (const needle of legacyNeedles) {
+      assert.ok(!source.includes(needle), `legacy welcome residue should be removed from ${rel}: ${needle}`);
+    }
+  }
+}
+
+function testHistoryRenderLoadsNewestMessagesFirst() {
+  const source = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(source.includes('function renderCanonicalMessagesNewestFirst'), 'history render should have a newest-first loader');
+  assert.ok(source.includes('for(let a=i;a<n.length;a+=1)renderMessageFromCanonical(e,n[a],a)'), 'initial history render should render the latest tail first');
+  assert.ok(source.includes('chooseHistoryTailStart'), 'initial history render should choose a bounded tail window instead of rendering all history');
+  assert.ok(source.includes('requestAnimationFrame?requestAnimationFrame(()=>requestAnimationFrame(u)):u()') && source.includes('addEventListener("scroll",d,{passive:!0})'), 'older history listener should be attached only after initial bottom pin frames settle');
+  assert.ok(source.includes('for(let t=r-1;t>=m;t-=1)prependRenderedCanonicalMessage(renderMessageFromCanonical(e,n[t],t))'), 'older history should be prepended backwards from the current tail start');
+  assert.ok(source.includes('s.scrollTop=q+e'), 'prepended history should compensate scrollTop by the scrollHeight delta');
+  assert.ok(source.includes('const c=()=>') && source.includes('s.innerHTML="",markMessagesSession(e)'), 'history tail render should self-repair if boot-time welcome rendering races it');
+  assert.ok(source.includes('const q=t.role==="user"?t.messageIndex'), 'display cache matching should use canonical message/response indexes, not tail-window offsets');
+  assert.ok(source.includes('renderCanonicalMessagesNewestFirst(t,state.messages),restorePendingDisplayItems'), 'loadChatHistory should use newest-first render instead of full chronological render');
+  assert.ok(source.includes('dataset?.tailFirstHistory==="1")return'), 'canonical repair should not fight tail-first history rendering');
+  assert.ok(source.includes('dataset?.historyBackfill==="1")return'), 'canonical repair should not fight in-progress reverse backfill');
+  const perf = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
+  assert.ok(perf.includes('virtualMessages: false'), 'legacy virtualizer should be disabled for deterministic tail-first history rendering');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(css.includes('min-height:0!important;') && css.includes('height:100%!important;') && css.includes('overflow-y:auto!important;'), 'messages container should be constrained as an internal scroller');
 }
 
 function testStreamingAllowsManualScroll() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
   const bootstrap = fs.readFileSync(path.join(__dirname, '../client/app/bootstrap-workflow.js'), 'utf8');
-  assert.ok(source.includes("const directUserGesture = type === 'wheel' || type === 'touchstart' || type === 'touchmove' || pointerEvent"), 'direct user gestures should bypass programmatic scroll suppression');
-  assert.ok(source.includes('const suppressed = !directUserGesture &&'), 'programmatic suppression must not hide user scroll intent');
-  assert.ok(source.includes('const explicitUserAway = wheelUp || touch || pointerEvent'), 'wheel/touch/pointer gestures should immediately release streaming follow');
-  assert.ok(source.includes('userAway = explicitUserAway || !!autoState.userScrolledAway'), 'auto-follow state must not override explicit user scroll intent');
+  assert.ok(source.includes('event?.type === "wheel"') && source.includes('event?.type === "touchstart"') && source.includes('event?.type === "pointerdown"'), 'wheel/touch/pointer gestures should be treated as manual scroll intent');
+  assert.ok(source.includes('manualAutoFollowSuppressUntil') && source.includes('cancelBottomScrollFrame()'), 'upward manual intent should pause auto-follow immediately so wheel scrolling is not fought by layout corrections');
+  assert.ok(source.includes('now() < state.programmaticScrollUntil'), 'programmatic scroll suppression window should exist');
+  assert.ok(source.includes('manualIntent && event?.type === "scroll" && gap > threshold') && source.includes('releaseBottomScrollLock'), 'scroll events should release or restore the bottom lock by 24px distance');
+  assert.ok(source.includes('state.streamFocusLocked = false') && source.includes('state.userScrollLocked = true'), 'manual scroll should release streaming follow and lock user position');
   assert.ok(bootstrap.includes('bindMessageScrollIntent') && bootstrap.includes('m.addEventListener(t,markManualMessageScroll') && bootstrap.includes('window.addEventListener(t,markManualMessageScroll'), 'message scroll intent must be bound to the scroll container and window gestures');
 }
 
 function testLargeMarkdownInitialRenderIsProgressive() {
   const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
   const perf = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   assert.ok(message.includes('function addMessageProgressive'), 'message creation should use a progressive render-capable addMessage path');
   assert.ok(message.includes('renderMarkdownProgressively(node, String(rawText || ""), node.dataset.rawHash)'), 'large initial assistant Markdown should render progressively after DOM insertion');
+  assert.ok(message.includes('function updatePlainMarkdownStream'), 'large streaming Markdown should have a lightweight plain-text append path');
+  assert.ok(message.includes('chatStream && shouldProgressiveRenderMarkdown(rawValue)'), 'large streaming Markdown should bypass full Markdown rendering while tokens arrive');
+  assert.ok(message.includes('dataset.markdownFinalMode = "progressive-final"'), 'large streaming Markdown finalization should switch to progressive final rendering');
+  assert.ok(css.includes('.markdown-stream-plain') && css.includes('white-space:pre-wrap!important;'), 'plain streaming Markdown should be styled as readable pre-wrapped text');
   assert.ok(message.includes('addMessage: addMessageProgressive'), 'workflow should export the progressive addMessage implementation');
   assert.ok(!perf.includes("if (raw.length > 8000 || raw.split('\\n').length > 180) return true;"), 'large Markdown should not be forced into lazy placeholder rendering');
 }
@@ -936,8 +989,8 @@ function testResponsesDirectDoesNotRegisterManagedChatJob() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(source.includes('useResponsesDirect=shouldUseResponsesReasoning'), 'Responses path should be decided before chat-job allocation');
   assert.ok(source.includes('useManagedChatJob=!useResponsesDirect'), 'Responses direct stream must not use managed chat-job lifecycle');
-  assert.ok(source.includes('let f=useManagedChatJob?makeClientChatJobId():null'), 'chat job id should only exist for managed chat/completions stream');
-  assert.ok(source.includes('if(useResponsesDirect){const Q=async e=>streamChatCompletions'), 'Responses stream should use the direct stream branch');
+  assert.ok(source.includes('let f=useManagedChatJob?(n.clientJobId||u?.jobId||makeClientChatJobId()):null'), 'chat job id should only exist for managed chat/completions stream');
+  assert.ok(source.includes('if(useResponsesDirect){f&&(delete u.jobId,persistSessionDisplay(i),clearChatJob?.(i));const Q=async e=>streamChatCompletions'), 'Responses stream should use the direct stream branch');
   assert.ok(source.includes('N=useResponsesDirect'), 'fallback branch should keep the same transport family and avoid recomputing into another job path');
 }
 
@@ -987,11 +1040,60 @@ function testMarkdownTablesShrinkToContent() {
   assert.ok(source.includes('.markdown-body table') && source.includes('width:max-content!important;') && source.includes('min-width:100%!important;'), 'tables should fill available width while allowing wider content to scroll');
 }
 
+function testMarkdownTableAlignmentUsesRendererSemantics() {
+  const html = markdownEngine.renderMarkdown('| Left | Center | Right |\n|:---|:---:|---:|\n| a | b | c |');
+  assert.ok(html.includes('class="md-align-left"'), 'left-aligned markdown table cells should keep semantic alignment class');
+  assert.ok(html.includes('class="md-align-center"'), 'center-aligned markdown table cells should keep semantic alignment class');
+  assert.ok(html.includes('class="md-align-right"'), 'right-aligned markdown table cells should keep semantic alignment class');
+  assert.ok(!/text-align\s*:/i.test(html), 'renderer should not rely on inline text-align styles after normalization');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(css.includes('.markdown-body th.md-align-center') && css.includes('text-align:center!important;'), 'theme should map md-align-center to centered cells');
+  assert.ok(css.includes('.markdown-body th.md-align-right') && css.includes('text-align:right!important;'), 'theme should map md-align-right to right-aligned cells');
+  assert.ok(css.indexOf('.markdown-body th.md-align-center') < css.indexOf('/* User actions belong under the user bubble'), 'markdown table alignment should live with the table theme rules, not as a late tail override');
+  assert.ok(!css.includes('text-align:left!important;\n  vertical-align:top!important;'), 'theme must not force every markdown table cell to left alignment');
+}
+
 function testMarkdownDetailsPreserveOpenAttribute() {
   const browserSanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-sanitizer.js'), 'utf8');
   const nodeSanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/sanitizer.js'), 'utf8');
   assert.ok(browserSanitizer.includes("'details', 'summary'") && browserSanitizer.includes("'open'"), 'browser sanitizer should preserve details/summary and open attribute');
   assert.ok(nodeSanitizer.includes("'details', 'summary'") && nodeSanitizer.includes("'open'"), 'node sanitizer should preserve details/summary and open attribute');
+}
+
+function testMarkdownDetailsUseNativeCollapsedSemantics() {
+  const shorthand = markdownSourceNormalizer.normalizeMarkdownSource('::: details 点击展开详情\n这里是折叠内容。\n\n- 可以包含 **Markdown**\n:::');
+  assert.ok(shorthand.includes('<details>') && shorthand.includes('<summary>点击展开详情</summary>') && shorthand.includes('</details>'), 'details container shorthand should normalize into native details/summary tags');
+  const html = markdownEngine.renderMarkdown('<details>\n<summary>点击展开详情</summary>\n这里是折叠内容。\n\n- 可以包含 **Markdown**\n</details>');
+  assert.ok(html.includes('<details>') && html.includes('<summary>点击展开详情</summary>'), 'renderer should preserve native details and summary');
+  assert.ok(html.includes('<strong>Markdown</strong>'), 'markdown inside details should still render after normalization inserts the required blank line');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(css.includes('.markdown-body details:not([open]) > :not(summary)') && css.includes('display:none!important;'), 'closed details should hide non-summary children with component semantics');
+}
+
+function testMermaidAutoRenderIsDefaultForFinalMarkdown() {
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const performance = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(workflow.includes('autoRenderMermaid: true'), 'message workflow should request Mermaid auto rendering for final assistant markdown');
+  assert.ok(workflow.includes('forceMermaid: true'), 'final assistant markdown should render all Mermaid diagrams by default, not only visible ones');
+  assert.ok(workflow.includes('autoRenderMermaid: !!phase.final') && workflow.includes('forceMermaid: !!phase.final'), 'streaming renderer should defer Mermaid during streaming and auto render all diagrams on final');
+  assert.ok(performance.includes('autoRenderMermaid: true') && performance.includes('forceMermaid: true'), 'lazy markdown rendering should auto render Mermaid once materialized');
+  assert.ok(app.includes('autoRenderMermaid:!0') && app.includes('forceMermaid:!0'), 'visible markdown rerender should keep Mermaid default rendering behavior');
+  assert.ok(!workflow.includes('enhanceRenderedMarkdown(n,{skipMermaid:!0,allowResourceLoad:!0})'), 'final addMessage path must not hard-disable Mermaid rendering');
+}
+
+function testLargeMarkdownCompletionRefocusesTail() {
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const enhancer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/enhancer.js'), 'utf8');
+  assert.ok(workflow.includes('refocusTailAfterMarkdownLayout'), 'large progressive markdown completion should refocus the session tail');
+  assert.ok(workflow.includes('await Promise.resolve(enhancePromise)') && workflow.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'large markdown final rendering should complete offscreen before one visible replacement');
+  assert.ok(workflow.includes('progressiveOffscreen') && workflow.includes('progressiveStage'), 'large markdown final rendering should use an offscreen stage instead of progressively mutating the visible bubble');
+  assert.ok(workflow.includes('deps.focusSessionTail?.({ margin: 18, threshold: 12 })'), 'tail refocus should use the same visual bottom target as session switching');
+  assert.ok(workflow.includes('shouldAutoRefocusTail') && workflow.includes('!deps.state?.userScrollLocked'), 'progressive markdown completion must not refocus the tail after the user scrolls up');
+  assert.ok(!workflow.includes('deps.state.userScrollLocked = false'), 'progressive markdown completion must not forcibly clear the user scroll lock');
+  assert.ok(!workflow.includes('[80, 220, 520, 1000, 1800, 3200].forEach'), 'progressive markdown completion must not use delayed forced tail refocus timers');
+  assert.ok(!workflow.includes('content.append(...batch)'), 'progressive markdown completion must not append final HTML batches into the visible message content');
+  assert.ok(enhancer.includes("chatui:markdown-layout-settled") && enhancer.includes("reason: 'mermaid-rendered'"), 'Mermaid rendering completion should emit a markdown layout settled event');
 }
 
 function testStreamingDownloadActionIsDisabled() {
@@ -1002,9 +1104,28 @@ function testStreamingDownloadActionIsDisabled() {
 
 function testResumeStreamingDoesNotUseStatusTextAsOffset() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/job-resume-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   assert.ok(source.includes('isChatStatusText(e)?"":e'), 'resume offsets should ignore transient status text');
   assert.ok(source.includes('r();try{const t=getConfig()'), 'resume should immediately paint a non-empty status instead of waiting blank');
   assert.ok(source.includes('if(!m.content&&!m.reasoning){try{const e=l(await getChatJob(s.id,{resumeOffsets:R()}))'), 'empty compact done events should refetch the final job snapshot');
+  assert.ok(app.includes('resumeSessionJobs(t.id)}'), 'session render should always attempt to rebind or resume pending jobs after switch/render');
+  assert.ok(app.includes('state.pageUnloading=!1;const t=loadImageJob'), 'resume should clear stale page-unloading state after refresh/pageshow');
+  assert.ok(app.includes('if(s?.id){if(sessionHasCompletedAssistantForResponse(n,s.responseIndex))return clearChatJob(e);return void setTimeout(()=>resumeChatJob(e),0)}'), 'chat resume should be keyed by the stored job response index, not only by user/assistant counts');
+  assert.ok(app.includes('pendingJob&&resumeSessionJobs(e);try{'), 'foreground refresh should resume pending jobs even when busy state was lost after reload');
+}
+
+function testChatJobIdIsPersistedBeforeRouteResolution() {
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const prepareIndex = submit.indexOf('const prepareManagedChatJobForLiveItem=()=>');
+  const routeIndex = submit.indexOf('routeInfo=await getEffectiveRoute');
+  assert.ok(prepareIndex >= 0 && routeIndex > prepareIndex, 'submit should prepare and persist a managed chat job id before route resolution can be interrupted by refresh');
+  assert.ok(submit.includes('saveChatJob(sessionId,{id:preparedChatJobId,prompt:promptText,startedAt:Date.now(),displayItemId:liveItem.id||"",responseIndex,mode:"chat"})'), 'submit should immediately save the client chat job id with display item and response index');
+  assert.ok(submit.includes('await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacement?.responseIndex,requestBaseMessages,quotedMessage,clientJobId:preparedChatJobId})'), 'sendChat should receive the pre-persisted job id instead of allocating a second id');
+  assert.ok(chat.includes('let f=useManagedChatJob?(n.clientJobId||u?.jobId||makeClientChatJobId()):null'), 'chat workflow should reuse the pre-persisted job id and only allocate a fallback when absent');
+  assert.ok(chat.includes('persistChatJobSnapshot') && chat.includes('deps.saveChatJobWithMedia(sessionId, { ...job, payload })'), 'chat workflow should enrich the same job record with payload once the final payload exists');
+  assert.ok(app.includes('makeClientChatJobId,saveChatJob,clearChatJob,shouldPrepareManagedChatJob'), 'app bootstrap should inject the single chat job id lifecycle into submit workflow');
 }
 
 function testSessionDisplayUpdatesFinalClarificationHtml() {
@@ -1057,6 +1178,8 @@ const tests = [
   testStreamingTailDoesNotRenderCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testSessionSwitchFocusesBottom,
+  testLegacyWelcomeScreenIsRemoved,
+  testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,
   testLargeMarkdownInitialRenderIsProgressive,
   testEnglishImagePromptExtractionStaysChatWithCurrentImage,
@@ -1077,9 +1200,14 @@ const tests = [
   testFileUploadReturnsFocusToComposerSubmitPath,
   testImageBubblesAreShrinkWrapped,
   testMarkdownTablesShrinkToContent,
+  testMarkdownTableAlignmentUsesRendererSemantics,
   testMarkdownDetailsPreserveOpenAttribute,
+  testMarkdownDetailsUseNativeCollapsedSemantics,
+  testMermaidAutoRenderIsDefaultForFinalMarkdown,
+  testLargeMarkdownCompletionRefocusesTail,
   testStreamingDownloadActionIsDisabled,
   testResumeStreamingDoesNotUseStatusTextAsOffset,
+  testChatJobIdIsPersistedBeforeRouteResolution,
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,

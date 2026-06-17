@@ -6,7 +6,7 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.25-opt4" />
+  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.25-bottomlock6" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -72,13 +72,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
     <main class="main">
-      <section id="messages" class="messages">
-        <div class="empty-welcome" aria-hidden="true">
-          <div class="welcome-title"><span class="wc">C</span><span class="wc">h</span><span class="wc">a</span><span class="wc">t</span><span class="wc">U</span><span class="wc">I</span><span class="wc">极</span><span class="wc">简</span><span class="wc">聊</span><span class="wc">天</span><span class="wc">工</span><span class="wc">具</span></div>
-          <div class="welcome-sub">专注对话 · 智能思考 · 灵感生图 · 高效创作</div>
-          <div class="welcome-note">本项目全程使用 OpenClaw 托管开发 · 人为编码量 0</div>
-        </div>
-      </section>
+      <section id="messages" class="messages"></section>
 
       <button id="resumeStreamBtn" class="resume-stream-btn" type="button" aria-label="回到正在输出" title="回到正在输出">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
@@ -388,7 +382,7 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.25-opt4"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.25-bottomlock6"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
@@ -396,13 +390,13 @@
   <link rel="stylesheet" href="./styles/composer.css?v=1.3.0" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.3" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.2" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.1.11" />
-  <script src="./client/app/markdown/source-normalizer.js?v=1.2.65"></script>
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.1.12" />
+  <script src="./client/app/markdown/source-normalizer.js?v=1.2.67"></script>
   <script src="./client/app/markdown/link-policy.js?v=1.2.65"></script>
   <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.65"></script>
   <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.66"></script>
   <script src="./client/app/markdown/browser-engine.js?v=1.2.66"></script>
-  <script src="./client/app/markdown/enhancer.js?v=1.2.81"></script>
+  <script src="./client/app/markdown/enhancer.js?v=1.2.82"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
   <script src="./client/app/image-store.js?v=1.2.65"></script>
   <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.87"></script>
@@ -449,14 +443,14 @@
   <script src="./client/app/image-preview-workflow.js?v=1.2.65"></script>
   <script src="./client/app/custom-select-workflow.js?v=1.2.65"></script>
   <script src="./client/app/composer-layout-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/performance-workflow.js?v=1.2.68"></script>
+  <script src="./client/app/performance-workflow.js?v=1.2.71"></script>
   <script src="./client/app/job-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-result-workflow.js?v=1.2.67"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.66"></script>
   <script src="./client/app/submit-workflow.js?v=1.3.45"></script>
   <script src="./client/app/chat-workflow.js?v=1.3.12"></script>
   <script src="./client/app/image-workflow.js?v=1.3.14"></script>
-  <script src="./client/app/message-workflow.js?v=1.3.19"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.23"></script>
   <script src="./client/app/display-history-workflow.js?v=1.2.80"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.28"></script>
   <script src="./client/app/route-decision-workflow.js?v=1.3.15"></script>
@@ -477,7 +471,7 @@
   <script src="./client/app/media-workflow.js?v=1.2.66"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.65"></script>
   <script src="./client/app/bootstrap-workflow.js?v=1.2.82"></script>
-  <script src="./app.js?v=1.3.25-ds3"></script>
+  <script src="./app.js?v=1.3.25-ds6"></script>
   </template>
 </body>
 </html>

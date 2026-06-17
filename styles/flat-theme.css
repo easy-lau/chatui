@@ -29,7 +29,11 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08) !important;
   --session-sidebar-width: clamp(232px, 21vw, 280px) !important;
   --session-rail-width: 56px !important;
-  --composer-safe-bottom: 168px !important;
+  --composer-safe-bottom: 120px !important;
+}
+
+@media (max-width: 840px) {
+  :root { --composer-safe-bottom: 102px !important; }
 }
 
 /* ═══════════════════════════════════════════
@@ -290,24 +294,6 @@ body {
 
 .messages {
   background: transparent !important;
-}
-
-/* ── Welcome Screen ── */
-.empty-welcome {
-  color: var(--muted) !important;
-}
-.welcome-title {
-  color: var(--text) !important;
-}
-.welcome-title .wc {
-  color: var(--accent) !important;
-  background: none !important;
-}
-.welcome-sub {
-  color: var(--muted) !important;
-}
-.welcome-note {
-  color: #94a3b8 !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -1351,7 +1337,6 @@ button:disabled,
 
 /* Kill text gradients — only unset text-clip, preserve solid backgrounds */
 .session-brand strong,
-.welcome-title .wc,
 .usage-stats-head strong {
   -webkit-background-clip: unset !important;
   background-clip: unset !important;
@@ -1611,7 +1596,10 @@ body{
   background:transparent!important;
   box-sizing:border-box!important;
   width:100%!important;
-  min-height:100%!important;
+  min-height:0!important;
+  height:100%!important;
+  max-height:100%!important;
+  overflow-y:auto!important;
   padding:clamp(40px,6vh,72px) clamp(18px,5vw,72px) calc(var(--composer-safe-bottom,168px) + 28px)!important;
   scroll-padding-bottom:calc(var(--composer-safe-bottom,168px) + 40px)!important;
 }
@@ -1782,40 +1770,6 @@ body{
 .msg-actions svg{
   width:16px!important;
   height:16px!important;
-}
-
-.empty-welcome{
-  width:min(100%,760px)!important;
-  margin:clamp(72px,18vh,168px) auto 0!important;
-  padding:0 12px!important;
-  text-align:center!important;
-  color:var(--ds-muted)!important;
-}
-.welcome-title{
-  display:block!important;
-  margin:0 auto 16px!important;
-  font-size:clamp(32px,5.2vw,52px)!important;
-  line-height:1.1!important;
-  font-weight:780!important;
-  letter-spacing:-.05em!important;
-  color:var(--ds-text)!important;
-}
-.welcome-title .wc{
-  color:var(--ds-text)!important;
-  background:none!important;
-  -webkit-background-clip:initial!important;
-  background-clip:initial!important;
-}
-.welcome-sub{
-  margin:0 auto!important;
-  color:var(--ds-muted)!important;
-  font-size:16px!important;
-  line-height:1.8!important;
-}
-.welcome-note{
-  margin-top:10px!important;
-  color:var(--ds-faint)!important;
-  font-size:13px!important;
 }
 
 /* DeepSeek-like composer surface: centered, calm and not glassy. */
@@ -2236,12 +2190,6 @@ body{
   .msg-actions{
     margin-top:6px!important;
   }
-  .welcome-title{
-    font-size:clamp(28px,10vw,40px)!important;
-  }
-  .empty-welcome{
-    margin-top:clamp(56px,15vh,112px)!important;
-  }
   .markdown-body .code-block{
     margin-left:-2px!important;
     margin-right:-2px!important;
@@ -2583,16 +2531,21 @@ body{
   }
 }
 .markdown-body .table-wrapper{
+  display:block!important;
+  width:100%!important;
+  max-width:100%!important;
   margin:10px 0!important;
-  overflow:auto!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
   border:0!important;
   border-radius:10px!important;
   background:transparent!important;
 }
 .markdown-body table{
-  width:auto!important;
-  min-width:min(100%,560px)!important;
-  max-width:100%!important;
+  width:max-content!important;
+  min-width:100%!important;
+  max-width:none!important;
+  table-layout:auto!important;
   margin:0!important;
   border:0!important;
   border-collapse:collapse!important;
@@ -2606,8 +2559,32 @@ body{
   padding:7px 10px!important;
   border:0!important;
   border-bottom:1px solid #edf0f4!important;
-  text-align:left!important;
+  white-space:normal!important;
+  overflow-wrap:break-word!important;
   vertical-align:top!important;
+}
+.markdown-body th.md-align-left,
+.markdown-body td.md-align-left{
+  text-align:left!important;
+}
+.markdown-body th.md-align-center,
+.markdown-body td.md-align-center{
+  text-align:center!important;
+}
+.markdown-body th.md-align-right,
+.markdown-body td.md-align-right{
+  text-align:right!important;
+}
+.markdown-body details{
+  margin:10px 0!important;
+  padding:0!important;
+}
+.markdown-body summary{
+  cursor:pointer!important;
+  user-select:none!important;
+}
+.markdown-body details:not([open]) > :not(summary){
+  display:none!important;
 }
 .markdown-body th{
   color:#4b5563!important;
@@ -2796,28 +2773,6 @@ body{
   background:var(--msg-action-danger-bg)!important;
 }
 
-/* Tables fill the message width and scroll horizontally only when content is wider. */
-.markdown-body .table-wrapper{
-  display:block!important;
-  width:100%!important;
-  max-width:100%!important;
-  overflow-x:auto!important;
-  overflow-y:hidden!important;
-  margin:10px 0!important;
-}
-.markdown-body table{
-  width:max-content!important;
-  min-width:100%!important;
-  max-width:none!important;
-  table-layout:auto!important;
-  margin:0!important;
-}
-.markdown-body th,
-.markdown-body td{
-  white-space:normal!important;
-  overflow-wrap:break-word!important;
-}
-
 .message[data-streaming="1"] .msg-actions,
 .message[data-streaming="1"] .msg-actions:hover,
 .message[data-streaming="1"] .download-answer-btn,
@@ -2826,4 +2781,72 @@ body{
   visibility:hidden!important;
   opacity:0!important;
   pointer-events:none!important;
+}
+
+/* Tail-first history loading requires the message list to be the only scroller. */
+html,
+body{
+  height:100%!important;
+  max-height:100%!important;
+  overflow:hidden!important;
+}
+.app,
+.shell-app.app{
+  height:100dvh!important;
+  min-height:0!important;
+  max-height:100dvh!important;
+  overflow:hidden!important;
+  grid-template-rows:minmax(0,1fr)!important;
+}
+.main{
+  min-height:0!important;
+  height:100dvh!important;
+  max-height:100dvh!important;
+  overflow:hidden!important;
+  display:grid!important;
+  grid-template-rows:minmax(0,1fr)!important;
+}
+.messages{
+  min-height:0!important;
+  height:100%!important;
+  max-height:100%!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  overscroll-behavior-y:contain!important;
+  overflow-anchor:none!important;
+}
+@media (min-width:841px){
+  .main{
+    height:100vh!important;
+    max-height:100vh!important;
+  }
+}
+@media (max-width:840px){
+  .app,
+  .shell-app.app,
+  .main{
+    height:100dvh!important;
+    max-height:100dvh!important;
+  }
+  .main{
+    margin-left:0!important;
+  }
+}
+.markdown-stream-plain{
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+  color:inherit!important;
+  font:inherit!important;
+  line-height:inherit!important;
+  white-space:pre-wrap!important;
+  word-break:break-word!important;
+  overflow:visible!important;
+  box-shadow:none!important;
+}
+.markdown-progressive-status{
+  color:#64748b!important;
+  font-size:13px!important;
+  padding:4px 0!important;
 }

@@ -107,7 +107,7 @@
     const CHATUI_ENABLE_VIRTUAL_RENDER = window.CHATUI_ENABLE_VIRTUAL_RENDER !== false && chatuiReadBooleanFlag('chatui:enableVirtualRender', true);
     const CHATUI_PERF_FLAGS = {
       virtualRender: CHATUI_ENABLE_VIRTUAL_RENDER,
-      virtualMessages: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableVirtualMessages', true),
+      virtualMessages: false,
       lazyMarkdown: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableLazyMarkdown', true),
       renderCache: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableRenderCache', true),
       scheduler: CHATUI_ENABLE_VIRTUAL_RENDER && chatuiReadBooleanFlag('chatui:enableRenderScheduler', true),
@@ -161,7 +161,7 @@
         node.dataset.renderedHash = hash;
         node.dataset.lazyMarkdown = '0';
         bindInlineCopyButtons(node);
-        const enhancePromise = enhanceRenderedMarkdown(node, { deferMermaid: true, allowResourceLoad: true });
+        const enhancePromise = enhanceRenderedMarkdown(node, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true });
         window.ChatUIScrollCoordinator?.registerLayoutPromise?.(enhancePromise, 'lazy-enhance');
         hydrateMessageMedia(node, { save: false });
         node.dataset.enhancedHash = hash;
