@@ -29,7 +29,94 @@
 
     function saveDisplayHistory(e = {}) {
       with (deps) {
-        const t=!0===e.includeTransient,n=getActiveSession(),nodes=[...$("messages").querySelectorAll(".message")].filter(e=>t||"0"!==e.dataset.persist),snapshotKey=!t&&n?`${n.id||state.activeSessionId||""}|${nodes.length}|${nodes.map(e=>{const c=e.querySelector?.(".content"),m=e.querySelector?.(".message-meta");return[e.dataset.displayItemId||"",e.dataset.rawHash||"",e.dataset.rawText?.length||0,e.dataset.renderedHash||"",e.dataset.enhancedHash||"",e.dataset.markdownFallback||"",e.dataset.persist||"",e.dataset.streaming||"",e.dataset.lazyMarkdown||"",e.dataset.virtualized||"",e.dataset.keepReasoning||"",e.dataset.reasoningText?.length||0,e.dataset.messageIndex||"",e.dataset.responseIndex||"",e.dataset.jobId||"",e.dataset.imageContext?.length||0,e.dataset.attachmentContext?.length||0,e.dataset.quoteContext?.length||0,e.dataset.metaText||m?.textContent||"",c?.innerHTML?.length||0,c?.childElementCount||0,e.querySelectorAll?.("img[data-persisted-src],a[data-persisted-href],button[data-persisted-href]").length||0].join(":")}).join("|")}`:"";if(snapshotKey&&snapshotKey===lastDisplaySnapshotKey)return;const s=nodes.map(e=>{const lazy=e.dataset.lazyMarkdown==="1"||e.dataset.virtualized==="1";let t=lazy?null:e.querySelector(".content")?.cloneNode(!0);t?.querySelectorAll(".reasoning-panel").forEach(e=>e.remove()),t?.querySelectorAll("[data-image-action-clone]").forEach(e=>e.remove()),t?.querySelectorAll("[data-preview-bound]").forEach(e=>e.removeAttribute("data-preview-bound")),t?.querySelectorAll("[data-download-bound]").forEach(e=>e.removeAttribute("data-download-bound")),t?.querySelectorAll("[data-copy-bound],[data-mermaid-toggle-bound],[data-quote-jump-bound]").forEach(e=>{e.removeAttribute("data-copy-bound"),e.removeAttribute("data-mermaid-toggle-bound"),e.removeAttribute("data-quote-jump-bound")}),t?.querySelectorAll("img[data-persisted-src]").forEach(e=>{e.dataset.originalSrc=e.dataset.persistedSrc,e.removeAttribute("src"),e.classList.remove("image-missing"),e.classList.add("image-restoring"),e.removeAttribute("data-object-url")}),t?.querySelectorAll("a[data-persisted-href]").forEach(e=>{e.setAttribute("href",e.dataset.persistedHref),e.removeAttribute("data-object-url")}),t?.querySelectorAll("button[data-persisted-href]").forEach(e=>{e.removeAttribute("data-object-url")});if("0"===e.dataset.persist&&e.__displayItem)return e.__displayItem;const s=state.reasoningMode&&"1"===e.dataset.keepReasoning&&e.dataset.reasoningText||"",n={id:e.dataset.displayItemId||e.__displayItem?.id||makeDisplayItemId(),role:e.classList.contains("user")?"user":e.classList.contains("error")?"error":"assistant",rawText:e.dataset.rawText||"",html:lazy?e.__displayItem?.html||"":t?.innerHTML||"",reasoningText:s,keepReasoning:state.reasoningMode&&"1"===e.dataset.keepReasoning,messageIndex:e.dataset.messageIndex||"",responseIndex:e.dataset.responseIndex||e.__displayItem?.responseIndex||"",jobId:e.dataset.jobId||e.__displayItem?.jobId||"",imageContext:e.dataset.imageContext||e.__displayItem?.imageContext||"",attachmentContext:e.dataset.attachmentContext||e.__displayItem?.attachmentContext||"",quoteContext:e.dataset.quoteContext||t?.querySelector?.(".sent-quote-preview")?.dataset?.quoteContext||e.__displayItem?.quoteContext||"",metaText:readMessageMetaText(e),pending:"0"===e.dataset.persist||"1"===e.__displayItem?.pending?"1":""};return e.__displayItem&&!n.pending?(Object.assign(e.__displayItem,n),e.__displayItem):n}).slice(-80);n.display=compactDisplayItems(s.map(sanitizeStoredDisplayItem)).slice(-80),n.updatedAt=Date.now();try{n.display=safeSetJsonStorage(sessionStorageKey(UI_KEY),n.display,80)||[],saveSessionsMeta(),snapshotKey&&(lastDisplaySnapshotKey=snapshotKey)}catch(e){console.warn("save display history failed",e)}
+        const includeTransient = e.includeTransient === true;
+        const session = getActiveSession();
+        const allNodes = [...$("messages").querySelectorAll(".message")].filter(node => includeTransient || "0" !== node.dataset.persist);
+        const nodes = allNodes.slice(-80);
+        const snapshotKey = !includeTransient && session ? `${session.id || state.activeSessionId || ""}|${allNodes.length}|${nodes.map(node => {
+          const content = node.querySelector?.(".content");
+          const meta = node.querySelector?.(".message-meta");
+          return [
+            node.dataset.displayItemId || "",
+            node.dataset.rawHash || "",
+            node.dataset.rawText?.length || 0,
+            node.dataset.renderedHash || "",
+            node.dataset.enhancedHash || "",
+            node.dataset.markdownFallback || "",
+            node.dataset.persist || "",
+            node.dataset.streaming || "",
+            node.dataset.lazyMarkdown || "",
+            node.dataset.virtualized || "",
+            node.dataset.keepReasoning || "",
+            node.dataset.reasoningText?.length || 0,
+            node.dataset.messageIndex || "",
+            node.dataset.responseIndex || "",
+            node.dataset.jobId || "",
+            node.dataset.imageContext?.length || 0,
+            node.dataset.attachmentContext?.length || 0,
+            node.dataset.quoteContext?.length || 0,
+            node.dataset.metaText || meta?.textContent || "",
+            content?.innerHTML?.length || 0,
+            content?.childElementCount || 0,
+            node.querySelectorAll?.("img[data-persisted-src],a[data-persisted-href],button[data-persisted-href]").length || 0,
+          ].join(":");
+        }).join("|")}` : "";
+        if (snapshotKey && snapshotKey === lastDisplaySnapshotKey) return;
+        const displayItems = nodes.map(node => {
+          const lazy = node.dataset.lazyMarkdown === "1" || node.dataset.virtualized === "1";
+          let content = lazy ? null : node.querySelector(".content")?.cloneNode(true);
+          content?.querySelectorAll(".reasoning-panel").forEach(node => node.remove());
+          content?.querySelectorAll("[data-image-action-clone]").forEach(node => node.remove());
+          content?.querySelectorAll("[data-preview-bound]").forEach(node => node.removeAttribute("data-preview-bound"));
+          content?.querySelectorAll("[data-download-bound]").forEach(node => node.removeAttribute("data-download-bound"));
+          content?.querySelectorAll("[data-copy-bound],[data-mermaid-toggle-bound],[data-quote-jump-bound]").forEach(node => {
+            node.removeAttribute("data-copy-bound");
+            node.removeAttribute("data-mermaid-toggle-bound");
+            node.removeAttribute("data-quote-jump-bound");
+          });
+          content?.querySelectorAll("img[data-persisted-src]").forEach(node => {
+            node.dataset.originalSrc = node.dataset.persistedSrc;
+            node.removeAttribute("src");
+            node.classList.remove("image-missing");
+            node.classList.add("image-restoring");
+            node.removeAttribute("data-object-url");
+          });
+          content?.querySelectorAll("a[data-persisted-href]").forEach(node => {
+            node.setAttribute("href", node.dataset.persistedHref);
+            node.removeAttribute("data-object-url");
+          });
+          content?.querySelectorAll("button[data-persisted-href]").forEach(node => {
+            node.removeAttribute("data-object-url");
+          });
+          if ("0" === node.dataset.persist && node.__displayItem) return node.__displayItem;
+          const reasoningText = state.reasoningMode && "1" === node.dataset.keepReasoning && node.dataset.reasoningText || "";
+          const item = {
+            id: node.dataset.displayItemId || node.__displayItem?.id || makeDisplayItemId(),
+            role: node.classList.contains("user") ? "user" : node.classList.contains("error") ? "error" : "assistant",
+            rawText: node.dataset.rawText || "",
+            html: lazy ? node.__displayItem?.html || "" : content?.innerHTML || "",
+            reasoningText,
+            keepReasoning: state.reasoningMode && "1" === node.dataset.keepReasoning,
+            messageIndex: node.dataset.messageIndex || "",
+            responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || "",
+            jobId: node.dataset.jobId || node.__displayItem?.jobId || "",
+            imageContext: node.dataset.imageContext || node.__displayItem?.imageContext || "",
+            attachmentContext: node.dataset.attachmentContext || node.__displayItem?.attachmentContext || "",
+            quoteContext: node.dataset.quoteContext || content?.querySelector?.(".sent-quote-preview")?.dataset?.quoteContext || node.__displayItem?.quoteContext || "",
+            metaText: readMessageMetaText(node),
+            pending: "0" === node.dataset.persist || "1" === node.__displayItem?.pending ? "1" : "",
+          };
+          return node.__displayItem && !item.pending ? (Object.assign(node.__displayItem, item), node.__displayItem) : item;
+        });
+        session.display = compactDisplayItems(displayItems.map(sanitizeStoredDisplayItem)).slice(-80);
+        session.updatedAt = Date.now();
+        try {
+          session.display = safeSetJsonStorage(sessionStorageKey(UI_KEY), session.display, 80) || [];
+          saveSessionsMeta();
+          if (snapshotKey) lastDisplaySnapshotKey = snapshotKey;
+        } catch (err) {
+          console.warn("save display history failed", err);
+        }
       }
     }
 

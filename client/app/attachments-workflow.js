@@ -47,6 +47,7 @@
     const FileReaderCtor = deps.FileReader || root.FileReader;
     const FileCtor = deps.File || root.File;
     const limits = deps.imageUploadLimits || DEFAULT_IMAGE_UPLOAD_LIMITS;
+    const attachmentService = deps.attachmentService || root.ChatUIServices?.attachments || root.ChatUIAttachmentService || {};
 
     function renderAttachments() {
       const state = getState();
@@ -176,13 +177,18 @@
       let timer = null;
       try {
         if (taskId) timer = startTimedUploadPhase(taskId, '解析文本', 8, 96);
-        const response = await fetch('/api/extract-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: item.name, type: item.type, dataUrl: item.dataUrl }) });
+        const text = attachmentService.extractFileText
+          ? await attachmentService.extractFileText({ item, fetchImpl: root.fetch?.bind(root), parseResponseJson, normalizeError })
+          : await (async () => {
+            const response = await fetch('/api/extract-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: item.name, type: item.type, dataUrl: item.dataUrl }) });
+            const payload = await parseResponseJson(response);
+            if (!response.ok) throw new Error(normalizeError(null, payload));
+            return String(payload.text || '').trim();
+          })();
         if (timer) { clearInterval(timer); timer = null; }
         if (taskId) setUploadPhase(taskId, '解析文本', 97);
-        const payload = await parseResponseJson(response);
-        if (!response.ok) throw new Error(normalizeError(null, payload));
         if (taskId) setUploadPhase(taskId, '解析文本', 100);
-        return String(payload.text || '').trim();
+        return text;
       } catch (err) {
         item.unsupportedReason = `本地解析失败：${err.message || String(err)}。为避免接口报错，不会直接发送二进制原文件。`;
         return '';

@@ -9,6 +9,7 @@
     let resumeButtonRaf = 0;
     let bottomLockObserver = null;
     let bottomLockMutationObserver = null;
+    let bottomLockRefreshRaf = 0;
     let bottomLockObserved = new WeakSet();
     let sessionTailFocusCleanup = null;
     let activeOutputCleanup = null;
@@ -17,6 +18,8 @@
     let lockedBottomSyncing = false;
     let lastLockedScrollHeight = 0;
     let lastLockedClientHeight = 0;
+    let activeOutputRaf = 0;
+    let pendingActiveOutput = null;
 
     const getWindow = () => deps.window || root?.window || root;
     const now = () => Date.now();
@@ -34,6 +37,9 @@
 
     function cancelScrollTimer() {
       cancelBottomScrollFrame();
+      caf(activeOutputRaf);
+      activeOutputRaf = 0;
+      pendingActiveOutput = null;
     }
 
     function messagesBottomGap() {
@@ -134,41 +140,68 @@
       }
     }
 
+    const BOTTOM_LOCK_OBSERVER_SELECTOR = ".message,.bubble-wrap,.bubble,.content,.reasoning-panel,.markdown-body,img,video,iframe,table,pre,.code-block,.mermaid,.mermaid-block,.markdown-mermaid-pending,svg,canvas";
+
+    function observeBottomLockTarget(target) {
+      if (!target || !bottomLockObserver || bottomLockObserved.has(target)) return;
+      try {
+        bottomLockObserved.add(target);
+        bottomLockObserver.observe(target);
+      } catch {}
+    }
+
+    function observeBottomLockTree(rootNode, { includeRoot = true, full = false } = {}) {
+      if (!rootNode || !("ResizeObserver" in window)) return;
+      if (!bottomLockObserver) {
+        bottomLockObserver = new ResizeObserver(() => {
+          if (isBottomLocked()) requestBottomScroll({ reason: "resize-observer", beforePaint: true });
+        });
+      }
+      const rootEl = rootNode.nodeType === 1 ? rootNode : null;
+      if (includeRoot) observeBottomLockTarget(rootNode);
+      if (!rootEl?.querySelectorAll) return;
+      if (full || rootEl.matches?.(BOTTOM_LOCK_OBSERVER_SELECTOR)) observeBottomLockTarget(rootEl);
+      rootEl.querySelectorAll(BOTTOM_LOCK_OBSERVER_SELECTOR).forEach(observeBottomLockTarget);
+    }
+
     function refreshBottomLockObservers() {
       with (deps) {
         const el = $("messages");
         if (!el) return;
-        if (!("ResizeObserver" in window)) return;
-        if (!bottomLockObserver) {
-          bottomLockObserver = new ResizeObserver(() => {
-            if (isBottomLocked()) requestBottomScroll({ reason: "resize-observer", beforePaint: true });
-          });
-        }
-        const targets = [
-          el,
-          ...el.querySelectorAll(".message,.bubble-wrap,.bubble,.content,.reasoning-panel,.markdown-body,img,video,iframe,table,pre,.code-block,.mermaid,.mermaid-block,.markdown-mermaid-pending,svg,canvas")
-        ];
-        for (const target of targets) {
-          try {
-            if (!bottomLockObserved.has(target)) {
-              bottomLockObserved.add(target);
-              bottomLockObserver.observe(target);
-            }
-          } catch {}
+        observeBottomLockTree(el, { includeRoot: true, full: true });
+      }
+    }
+
+    function scheduleBottomLockObserverRefresh() {
+      if (bottomLockRefreshRaf) return;
+      bottomLockRefreshRaf = raf(() => {
+        bottomLockRefreshRaf = 0;
+        refreshBottomLockObservers();
+      });
+    }
+
+    function observeBottomLockMutations(mutations = []) {
+      let needsBottomScroll = false;
+      for (const mutation of mutations) {
+        if (mutation.type === "childList") {
+          mutation.addedNodes?.forEach?.(node => observeBottomLockTree(node, { includeRoot: true, full: false }));
+          needsBottomScroll = needsBottomScroll || (mutation.addedNodes?.length || mutation.removedNodes?.length);
+        } else if (mutation.type === "attributes") {
+          observeBottomLockTree(mutation.target, { includeRoot: true, full: false });
+          needsBottomScroll = true;
         }
       }
+      if (!needsBottomScroll) return;
+      if (isBottomLocked()) requestBottomScroll({ reason: "mutation-observer", beforePaint: true });
     }
 
     function ensureBottomScrollLockObservers() {
       with (deps) {
         const el = $("messages");
         if (!el) return;
-        refreshBottomLockObservers();
+        scheduleBottomLockObserverRefresh();
         if (!bottomLockMutationObserver && "MutationObserver" in window) {
-          bottomLockMutationObserver = new MutationObserver(() => {
-            refreshBottomLockObservers();
-            if (isBottomLocked()) requestBottomScroll({ reason: "mutation-observer", beforePaint: true });
-          });
+          bottomLockMutationObserver = new MutationObserver(observeBottomLockMutations);
           bottomLockMutationObserver.observe(el, {
             childList: true,
             subtree: true,
@@ -181,6 +214,8 @@
 
     function cleanupBottomScrollLock() {
       cancelBottomScrollFrame();
+      caf(bottomLockRefreshRaf);
+      bottomLockRefreshRaf = 0;
       try { bottomLockObserver?.disconnect?.(); } catch {}
       try { bottomLockMutationObserver?.disconnect?.(); } catch {}
       bottomLockObserver = null;
@@ -202,7 +237,7 @@
         ensureBottomScrollLockObservers();
         scrollMessagesToBottom(el, options);
         requestBottomScroll({ ...options, force: true, beforePaint: true, ignoreManualSuppress: true });
-        raf(() => requestBottomScroll({ ...options, force: true, beforePaint: true, ignoreManualSuppress: true, reason: options.reason || "layout" }));
+        raf(() => requestBottomScroll({ ...options, force: false, beforePaint: true, ignoreManualSuppress: false, reason: options.reason || "layout" }));
         return true;
       }
     }
@@ -394,7 +429,13 @@
           // Markdown layout, pause bottom compensation immediately. Otherwise the
           // next ResizeObserver/RAF correction can pull the viewport back before
           // the native scroll event has a chance to create a >24px bottom gap.
-          if (touch || pointer || wheelDelta < -1) {
+          if (wheelDelta < -1 || event?.type === "touchmove") {
+            manualAutoFollowSuppressUntil = now() + 1600;
+            cancelBottomScrollFrame();
+            releaseBottomScrollLock({ bumpVersion: true, suppressMs: 1600 });
+            return;
+          }
+          if (touch || pointer) {
             manualAutoFollowSuppressUntil = now() + 900;
             cancelBottomScrollFrame();
           }
@@ -539,8 +580,17 @@
           updateResumeStreamButton();
           return;
         }
-        if (!state.userScrollLocked) lockToStreamingOutput(node, options);
-        updateResumeStreamButton();
+        pendingActiveOutput = { node, options: { ...options } };
+        if (!activeOutputRaf) {
+          activeOutputRaf = raf(() => {
+            activeOutputRaf = 0;
+            const pending = pendingActiveOutput;
+            pendingActiveOutput = null;
+            if (!pending?.node?.isConnected) return queueResumeButtonUpdate();
+            if (!state.userScrollLocked) lockToStreamingOutput(pending.node, pending.options);
+            queueResumeButtonUpdate();
+          });
+        }
       }
     }
 
@@ -591,13 +641,18 @@
         const button = $("resumeStreamBtn"), node = getActiveOutputForSession(state.activeSessionId);
         if (!button) return;
         const composer = document.querySelector(".composer")?.getBoundingClientRect();
-        if (composer) button.style.setProperty("--resume-stream-left", `${composer.left + composer.width / 2}px`);
+        if (composer) {
+          const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+          button.style.setProperty("--resume-stream-left", `${composer.left + composer.width / 2}px`);
+          button.style.setProperty("--resume-stream-bottom", `${Math.max(0, Math.ceil(viewportHeight - composer.top + 10))}px`);
+        }
         const run = getActiveRun(state.activeSessionId);
         const belongs = node?.isConnected && node.closest("#messages") && node.dataset.sessionId === state.activeSessionId;
         const streaming = !!(belongs && node.dataset.streaming === "1" && (!node.dataset.streamKind || node.dataset.streamKind === "chat") && (!node.dataset.streamRunToken || !run?.token || node.dataset.streamRunToken === run.token) && state.busySessions.has(state.activeSessionId));
         const suppressed = now() < state.resumeButtonSuppressUntil;
         const away = streaming && isNodeAwayFromOutputFocus(node);
-        const show = !!(streaming && !suppressed && (!state.streamFocusLocked || away));
+        const keepVisible = button.classList.contains("show") && streaming && !suppressed && state.userScrollLocked;
+        const show = !!((streaming && !suppressed && state.userScrollLocked && away) || keepVisible);
         button.classList.toggle("show", show);
         button.setAttribute("aria-hidden", show ? "false" : "true");
       }
@@ -607,12 +662,15 @@
       with (deps) {
         const node = getActiveOutputForSession(state.activeSessionId);
         if (!node?.isConnected) return;
-        state.resumeButtonSuppressUntil = now() + 500;
+        const margin = 72;
+        try { window.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
+        state.resumeButtonSuppressUntil = now() + 900;
         state.outputPinSuppressUntil = 0;
         $("resumeStreamBtn")?.classList.remove("show");
         $("resumeStreamBtn")?.setAttribute("aria-hidden", "true");
-        lockToStreamingOutput(node, { margin: 72 });
-        raf(() => lockToStreamingOutput(node, { margin: 72 }));
+        lockToStreamingOutput(node, { margin });
+        settleActiveOutput(node, { margin, frames: 24 });
+        raf(() => lockToStreamingOutput(node, { margin }));
       }
     }
 
@@ -661,6 +719,7 @@
       resumeActiveOutputFocus,
       revealNodeAboveComposer,
       cleanupBottomScrollLock,
+      releaseBottomScrollLock,
       activateBottomScrollLock,
     });
   }

@@ -10,6 +10,8 @@ Output exactly:
 
 Meanings: chat=text/file answer; vision=image-to-text answer; image_generate=new image; image_edit=modify selected existing image; unclear=missing route/resource/selection; unsafe=refuse.
 
+Requests to optimize/rewrite/translate/expand/write an image prompt are text-writing tasks and must route to chat, not image_generate. Only route to image_generate when the user asks to create/render/draw an actual image.
+
 Select resources by image_source and 1-based selected_indexes. If one needed candidate is implied, select it. If multiple candidates fit and user did not identify one, selected_indexes=[] and need_clarification=true. Set need_image_input/need_file_input only when the chosen route lacks required resource. instruction is only for image_generate/image_edit. reply_to_user is only for clarification/refusal.`
 
 const imageRouteContext = root?.ChatUICoreImageRouteContext
@@ -59,6 +61,16 @@ function isImagePromptExtractionInput(input = '') {
 
 function isImplicitImagePromptExtractionInput(input = '') {
   return /(?:反推|逆向|还原|提取|拆解|分析|总结|生成|生图|写|整理).*(?:提示词|prompt|Prompt)|(?:提示词|prompt|Prompt).*(?:反推|逆向|还原|提取|拆解|分析|总结|生成|生图|详细|尽量详细)|(?:reverse[-\s]?engineer|reverse|infer|extract|write|generate|create|make).*(?:prompt)|(?:prompt).*(?:reverse|infer|extract|write|generate|create|detailed|detail)/i.test(String(input || ''));
+}
+
+function isPromptWritingInput(input = '') {
+  const text = String(input || '').trim();
+  if (!text) return false;
+  const promptWord = '(?:提示词|prompt|Prompt|咒语|关键词)';
+  const writingVerb = '(?:优化|润色|改写|重写|扩写|完善|修改|调整|翻译|整理|提炼|生成|写|起草|补全|polish|optimi[sz]e|rewrite|revise|improve|translate|expand|write|draft|create|generate)';
+  const actualImageVerb = /(?:用|按|根据|基于|照着|拿|把).{0,12}(?:提示词|prompt|Prompt).{0,12}(?:画|绘制|生成|创建|做|出|渲染|生图|render|draw|generate|create).{0,8}(?:图|图片|image|picture|photo)|(?:画|绘制|生成|创建|做|出|渲染|生图|render|draw|generate|create).{0,8}(?:图|图片|image|picture|photo).{0,12}(?:用|按|根据|基于).{0,12}(?:提示词|prompt|Prompt)/i;
+  if (actualImageVerb.test(text)) return false;
+  return new RegExp(`${writingVerb}.{0,24}${promptWord}|${promptWord}.{0,24}${writingVerb}`, 'i').test(text);
 }
 
 function imagePromptExtractionRef({ imageCandidates = [], attachments = [], parsed = {} } = {}) {
@@ -265,6 +277,9 @@ function parseRouteResult(text = '', normalizeRoute, options = {}) {
         evidence: '根据图片提取/反推生成提示词属于图片理解，不是直接生图',
       }, 'chat');
     }
+    if (isPromptWritingInput(options.input) && parsed.mode !== 'chat') {
+      return normalize({ mode: 'chat', target: 'none', use_previous_image: false, intent: 'unknown', confidence: 1, evidence: '优化/改写/生成提示词属于文本写作任务，不直接生图' }, 'chat');
+    }
     if (isPlainTextChatInput(options.input, options.attachments)) {
       const selectedReferenceId = String(parsed.selectedReferenceId || '');
       const hasExplicitReference = !!selectedReferenceId && selectedReferenceId !== 'imgref_latest';
@@ -350,6 +365,7 @@ const api = Object.freeze({
   isPlainTextChatInput,
   isImagePromptExtractionInput,
   isImplicitImagePromptExtractionInput,
+  isPromptWritingInput,
   apiRouteToExecutionRoute,
   parseRouteResult,
   buildFileCandidatesFromAttachments,

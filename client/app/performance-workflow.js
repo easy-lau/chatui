@@ -48,6 +48,8 @@
     let chatuiLazyObserver = null;
     let chatuiMessageVirtualizer = null;
     let chatuiVirtualizerAttached = false;
+    let chatuiVirtualizerRefreshFrame = null;
+    let chatuiVirtualizerRefreshTimer = null;
 
     function chatuiScheduleIdle(callback, timeoutMs = 1500) {
       let done = false;
@@ -205,6 +207,14 @@
     }
     function chatuiDisconnectVirtualizer() {
       try { chatuiMessageVirtualizer?.disconnect?.(); } catch {}
+      if (chatuiVirtualizerRefreshFrame != null) {
+        try { window.cancelAnimationFrame?.(chatuiVirtualizerRefreshFrame); } catch {}
+        chatuiVirtualizerRefreshFrame = null;
+      }
+      if (chatuiVirtualizerRefreshTimer != null) {
+        clearTimeout(chatuiVirtualizerRefreshTimer);
+        chatuiVirtualizerRefreshTimer = null;
+      }
       chatuiVirtualizerAttached = false;
     }
     function chatuiEnsureVirtualizer() {
@@ -220,6 +230,23 @@
       }
       return chatuiMessageVirtualizer;
     }
+    function chatuiRunVirtualizerRefresh() {
+      chatuiVirtualizerRefreshFrame = null;
+      chatuiVirtualizerRefreshTimer = null;
+      if (!CHATUI_PERF_FLAGS.virtualMessages) return;
+      if (chatuiMessageVirtualizer && !chatuiVirtualizerAttached) chatuiAttachVirtualizer();
+      if (chatuiMessageVirtualizer) chatuiMessageVirtualizer.refresh?.();
+      else chatuiAttachVirtualizer();
+    }
+    function chatuiScheduleVirtualizerRefresh() {
+      if (!CHATUI_PERF_FLAGS.virtualMessages) return;
+      if (chatuiVirtualizerRefreshFrame != null || chatuiVirtualizerRefreshTimer != null) return;
+      if (typeof requestAnimationFrame === 'function') {
+        chatuiVirtualizerRefreshFrame = requestAnimationFrame(chatuiRunVirtualizerRefresh);
+      } else {
+        chatuiVirtualizerRefreshTimer = setTimeout(chatuiRunVirtualizerRefresh, 0);
+      }
+    }
     function chatuiAttachVirtualizer() {
       if (!CHATUI_PERF_FLAGS.virtualMessages) return;
       const messages = getElement('messages');
@@ -229,14 +256,10 @@
       if (nodes.length < 48) return;
       virtualizer.attach(messages, { render: (node, options = {}) => chatuiRenderLazyMessage(node, { ...options, force: true }), cancel: chatuiCancelMessageJobs });
       chatuiVirtualizerAttached = true;
-      setTimeout(() => virtualizer.refresh?.(), 0);
-      requestAnimationFrame?.(() => virtualizer.refresh?.());
+      chatuiScheduleVirtualizerRefresh();
     }
     function chatuiRefreshVirtualizer() {
-      if (!CHATUI_PERF_FLAGS.virtualMessages) return;
-      if (chatuiMessageVirtualizer && !chatuiVirtualizerAttached) chatuiAttachVirtualizer();
-      if (chatuiMessageVirtualizer) chatuiMessageVirtualizer.refresh?.();
-      else chatuiAttachVirtualizer();
+      chatuiScheduleVirtualizerRefresh();
     }
     function chatuiPerfStats() {
       const messages = getElement('messages');

@@ -39,6 +39,9 @@ body.session-sidebar-collapsed .composer.compact-composer{
   position:relative!important;
   z-index:1!important;
 }
+.resume-stream-btn{
+  bottom:var(--resume-stream-bottom,calc(var(--composer-safe-bottom,168px) - 10px))!important;
+}
 .quote-preview{
   display:grid!important;
   grid-template-columns:auto minmax(0,1fr) auto!important;

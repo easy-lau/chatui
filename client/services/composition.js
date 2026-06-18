@@ -16,6 +16,8 @@
   const routeService = browser.ChatUIRouteService || root.ChatUIRouteService || {};
   const imageGenerationService = browser.ChatUIImageGenerationService || root.ChatUIImageGenerationService || {};
   const imageService = browser.ChatUIImageService || root.ChatUIImageService || {};
+  const attachmentService = browser.ChatUIAttachmentService || root.ChatUIAttachmentService || {};
+  const runtimeService = browser.ChatUIRuntimeService || root.ChatUIRuntimeService || {};
   const clarificationService = browser.ChatUIClarificationService || root.ChatUIClarificationService || {};
 
   function fetchImpl() { return global.fetch.bind(global); }
@@ -49,6 +51,7 @@
     startChatJob: options => jobService.startChatJob(withHttpDeps(options)),
     registerChatStreamJob: options => jobService.registerChatStreamJob(withHttpDeps(options)),
     getJob: options => jobService.getJob(withHttpDeps(options)),
+    abortManagedJob: options => jobService.abortManagedJob(withHttpDeps(options)),
     waitJobEvent: options => jobService.waitJobEvent(options),
     startImageGenerationJob: options => jobService.startImageGenerationJob(withHttpDeps(options)),
   });
@@ -80,7 +83,15 @@
     imageFilesToJobPayload: (list, readFileAsDataURL) => imageService.imageFilesToJobPayload(list, readFileAsDataURL),
   });
 
-  const api = Object.freeze({ models, jobs, chat, route, images, clarification: clarificationService });
+  const attachmentsApi = Object.freeze({
+    extractFileText: options => attachmentService.extractFileText(withHttpDeps(options)),
+  });
+
+  const runtime = Object.freeze({
+    requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options)),
+  });
+
+  const api = Object.freeze({ models, jobs, chat, route, images, attachments: attachmentsApi, runtime, clarification: clarificationService });
   if (typeof window !== 'undefined') {
     window.ChatUIServicesComposition = api;
     window.ChatUIServicesFallback = api;

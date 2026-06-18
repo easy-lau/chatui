@@ -118,20 +118,78 @@
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
   function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown } = {}) {
     let raw = '', consumed = 0, tailText = '', closed = false;
+    let scanOffset = 0, scanStable = 0, scanInFence = false, scanFenceChar = '', scanFenceLen = 0, scanInMath = false;
+    let tailNode = null, tailTextNode = null;
     const htmlToFrag = (html, options = {}) => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); if (options.deferResources) deferStreamingResources(tpl.content); return tpl.content; };
     const insertRendered = (target, html, before, options = {}) => { const frag = htmlToFrag(html, options); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; };
     const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) });
+    const removeTailNode = () => {
+      try { tailNode?.remove?.(); } catch {}
+      tailNode = null;
+      tailTextNode = null;
+    };
+    const ensureTailNode = container => {
+      if (!container?.appendChild) return null;
+      if (tailNode?.parentNode === container) return tailNode;
+      removeTailNode();
+      const doc = container.ownerDocument || document;
+      tailNode = doc.createElement('span');
+      tailNode.className = 'markdown-stream-tail';
+      tailNode.setAttribute('data-markdown-streaming-tail', '1');
+      tailNode.setAttribute('aria-live', 'polite');
+      tailTextNode = doc.createTextNode('');
+      const caret = doc.createElement('span');
+      caret.className = 'markdown-stream-caret';
+      caret.setAttribute('aria-hidden', 'true');
+      tailNode.append(tailTextNode, caret);
+      container.appendChild(tailNode);
+      return tailNode;
+    };
+    const syncTailNode = (container, text = '', options = {}) => {
+      if (!container) return;
+      const next = String(text || '');
+      if (!next && !options.keepCursor) return removeTailNode();
+      const node = ensureTailNode(container);
+      if (!node || !tailTextNode) return;
+      if (tailTextNode.nodeValue !== next) tailTextNode.nodeValue = next;
+      if (node.parentNode === container && node !== container.lastChild) container.appendChild(node);
+    };
     const enhanceSafe = (c, phase = {}) => {
       try {
         if (phase.streaming && !phase.final && !phase.reset) return;
         enhance?.(c, phase);
       } catch (err) { console.warn('[markdown] streaming enhance failed:', err); }
     };
+    const hasInlineMathTailBefore = index => hasConservativeInlineMathTail(raw.slice(0, index));
+    const splitStableTailIncremental = () => {
+      if (scanOffset > raw.length || consumed > raw.length) return splitStableTail(raw);
+      const blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l);
+      while (scanOffset < raw.length) {
+        const nl = raw.indexOf('\n', scanOffset);
+        if (nl < 0) break;
+        const end = nl + 1, line = raw.slice(scanOffset, nl), fence = fenceOfLine(line);
+        if (!scanInMath && fence) {
+          const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim();
+          if (scanInFence) {
+            if (ch === scanFenceChar && marker.length >= scanFenceLen && !info) { scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; scanStable = end; }
+          } else { scanInFence = true; scanFenceChar = ch; scanFenceLen = marker.length; }
+        } else if (!scanInFence && mathFence(line)) {
+          scanInMath = !scanInMath;
+          if (!scanInMath) scanStable = end;
+        } else if (!scanInFence && !scanInMath && blank(line) && !hasInlineMathTailBefore(end)) scanStable = end;
+        scanOffset = end;
+      }
+      let index = scanStable;
+      if (!scanInFence && !scanInMath && raw.endsWith('\n') && !hasConservativeInlineMathTail(raw)) index = Math.max(index, raw.length);
+      if (hasConservativeInlineMathTail(raw)) index = Math.min(index, Math.max(0, raw.lastIndexOf('\n', raw.length - 2) + 1));
+      index = Math.max(consumed, Math.min(index, raw.length));
+      return { stable: raw.slice(0, index), tail: raw.slice(index), index };
+    };
     return {
       append(delta, container) {
         if (closed) return { raw, consumed, tail: tailText, closed };
         raw += String(delta || '');
-        const { stable, tail, index } = splitStableTail(raw);
+        const { stable, tail, index } = splitStableTailIncremental();
         if (index < consumed) {
           if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); enhanceSafe(container, { reset: true }); }
           consumed = raw.length; tailText = '';
@@ -140,6 +198,7 @@
         const part = stable.slice(consumed);
         if (container) {
           if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
+          syncTailNode(container, tail, { keepCursor: raw.length > 0 });
           tailText = tail;
         } else { if (part) consumed = stable.length; tailText = tail; }
         return { raw, consumed, tail: tailText, delta: part, closed };
@@ -152,17 +211,19 @@
         if (container) {
           const canCommitTail = next === previousRaw && previousConsumed <= next.length, finalDelta = next.slice(previousConsumed);
           if (canCommitTail) {
+            removeTailNode();
             if (finalDelta) { restoreStreamingResources(container); insertRendered(container, render(finalDelta), null); }
             else restoreStreamingResources(container);
             enhanceSafe(container, { final: true, streaming: true });
             consumed = raw.length; tailText = ''; mode = 'incremental-final';
           } else {
+            removeTailNode();
             container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true, reset: true }); mode = 'full-rerender-final'; reason = 'final-text-diverged';
           }
         } else { consumed = raw.length; tailText = ''; mode = 'no-container'; }
         return { raw, mode, reason, consumed, closed, enhanced: !!container };
       },
-      getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; if (container) container.innerHTML = ''; }
+      getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; scanOffset = 0; scanStable = 0; scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; scanInMath = false; removeTailNode(); if (container) container.innerHTML = ''; }
     };
   }
 

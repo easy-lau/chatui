@@ -30,6 +30,7 @@ const sessionDisplay = require('../client/app/session-display');
 const formatting = require('../client/app/formatting');
 const markdownEngine = require('../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../client/app/markdown/source-normalizer');
+const sourceAssertions = require('../client/testing/source-assertions');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -170,6 +171,14 @@ function testPendingClarificationCarriesOriginalMultiImageContext() {
   assert.ok(merged.promptText.includes('本轮补充：第一张'));
 }
 
+function testPendingClarificationClearsAfterMergedSend() {
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
+  assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.47'), 'submit workflow cache version should be bumped for pending clarification fix');
+}
+
 function testImageEditPromptFallbackAndValidation() {
   const payload = imageJobs.ensureImageEditPrompt({ model: 'gpt-image-2', prompt: '', editInstruction: '把背景改成红色' }, {});
   assert.strictEqual(payload.prompt, '把背景改成红色');
@@ -289,6 +298,30 @@ function testHistoryFileAttachmentTextIsIncludedInChatContext() {
   assert.strictEqual(base.length, 2);
   assert.ok(base[0].content.includes('[历史附件：mail.txt]'));
   assert.ok(base[0].content.includes('最后一个邮箱：boss@example.com'));
+}
+
+function testGenericAttachmentContextSurvivesCoreNormalizationForRegenerate() {
+  const attachmentContext = {
+    prompt: '提取这个文件里关于图片任务分类的内容',
+    content: '提取这个文件里关于图片任务分类的内容\n\n[file id=att_doc name=ChatUI 人工复测用例文档.md type=text/markdown size=128]',
+    attachments: [{
+      id: 'att_doc',
+      name: 'ChatUI 人工复测用例文档.md',
+      type: 'text/markdown',
+      size: 128,
+      text: '图片任务分类：生图、改图、看图、OCR',
+    }],
+  };
+  const parsed = require('../client/core/attachments').parseImageContext(JSON.stringify(attachmentContext));
+  assert.strictEqual(parsed.content, attachmentContext.content);
+  assert.strictEqual(parsed.attachments[0].id, 'att_doc');
+  assert.strictEqual(parsed.attachments[0].text, '图片任务分类：生图、改图、看图、OCR');
+  const workflow = chatWorkflow.createChatWorkflow({ state: {} });
+  const base = workflow.requestBaseMessagesForSend({}, [
+    { role: 'user', content: parsed.content, rawText: attachmentContext.prompt, attachmentContext: JSON.stringify(parsed) },
+  ]);
+  assert.ok(base[0].content.includes('[历史附件：ChatUI 人工复测用例文档.md]'));
+  assert.ok(base[0].content.includes('图片任务分类：生图、改图、看图、OCR'));
 }
 
 function testHistoryFileCandidatesRouteAsFileQa() {
@@ -421,6 +454,20 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(apiTextImage.mode, 'image');
   assert.strictEqual(apiTextImage.operation.type, 'text_to_image');
   assert.strictEqual(apiTextImage.target, 'new');
+
+  const promptOptimize = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate', instruction: '一只猫坐在窗边，温暖阳光，电影感', confidence: 0.95,
+  }), routeContext.normalizeRoute, { input: '帮我优化这个生图 prompt：一只猫坐在窗边，阳光很好', attachments: [], context: {} });
+  assert.strictEqual(promptOptimize.mode, 'chat');
+  assert.strictEqual(promptOptimize.operation.type, 'plain_chat');
+  assert.strictEqual(promptOptimize.target, 'none');
+
+  const promptGenerate = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate', instruction: '极简蓝色机器人头像，白底', confidence: 0.95,
+  }), routeContext.normalizeRoute, { input: '帮我生成一个机器人头像的生图提示词，不要画图', attachments: [], context: {} });
+  assert.strictEqual(promptGenerate.mode, 'chat');
+  assert.strictEqual(promptGenerate.operation.type, 'plain_chat');
+  assert.strictEqual(promptGenerate.target, 'none');
 
   const apiRefImage = routeService.parseRouteResult(JSON.stringify({
     route: 'image_generate', image_source: 'current', selected_indexes: [1], instruction: '参考当前图片风格生成海报', confidence: 0.9,
@@ -608,16 +655,21 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.ok(!source.includes('},{minIntervalMs:140}),S=createRealtimeRenderer'), 'answer stream renderer should not use the old 140ms cadence');
 }
 
-function testStreamingTailDoesNotRenderCursor() {
+function testStreamingTailRendersLightweightCursor() {
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   const renderer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
   const sanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-sanitizer.js'), 'utf8');
-  assert.ok(!renderer.includes('streaming-tail'));
-  assert.ok(!renderer.includes('data-markdown-streaming-tail'));
-  assert.ok(!sanitizer.includes('data-markdown-streaming-tail'));
-  assert.ok(!css.includes('.streaming-tail'));
-  assert.ok(!css.includes('@keyframes streaming-caret-neon'));
-  assert.ok(!css.includes('animation: streaming-caret-neon'));
+  const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(renderer.includes('markdown-stream-tail') && renderer.includes('data-markdown-streaming-tail'), 'streaming renderer should keep the unstable tail in one lightweight DOM node');
+  assert.ok(renderer.includes('tailTextNode.nodeValue !== next') && renderer.includes('container.appendChild(node)'), 'streaming tail should update a text node and move the caret instead of rerendering the whole tail DOM');
+  assert.ok(renderer.includes('removeTailNode();') && renderer.includes('final(container'), 'streaming cursor should be removed during final render');
+  assert.ok(sanitizer.includes('ALLOW_DATA_ATTR: true'), 'sanitizer should still allow data attributes if streamed Markdown is sanitized elsewhere');
+  assert.ok(css.includes('.markdown-stream-caret') && css.includes('@keyframes markdown-stream-caret-pulse'), 'flat theme should define a visible streaming caret');
+  assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
+  assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
+  assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.25') && index.includes('flat-theme.css?v=2.1.19'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -680,6 +732,8 @@ function testHistoryRenderLoadsNewestMessagesFirst() {
   assert.ok(source.includes('s.scrollTop=q+e'), 'prepended history should compensate scrollTop by the scrollHeight delta');
   assert.ok(source.includes('const c=()=>') && source.includes('s.innerHTML="",markMessagesSession(e)'), 'history tail render should self-repair if boot-time welcome rendering races it');
   assert.ok(source.includes('const q=t.role==="user"?t.messageIndex'), 'display cache matching should use canonical message/response indexes, not tail-window offsets');
+  assert.ok(source.includes('displayLookupCache=new WeakMap') && source.includes('displayLookupForSession'), 'display cache matching should pre-index display items instead of rescanning display for every canonical message');
+  assert.ok(source.includes('data-history-detached-anchor="1"') && !source.includes('forceRenderCanonicalMessages(o);i=[...t?.querySelectorAll?.(".message.user")'), 'history anchor jump should materialize the requested item without a full canonical rebuild');
   assert.ok(source.includes('renderCanonicalMessagesNewestFirst(t,state.messages),restorePendingDisplayItems'), 'loadChatHistory should use newest-first render instead of full chronological render');
   assert.ok(source.includes('dataset?.tailFirstHistory==="1")return'), 'canonical repair should not fight tail-first history rendering');
   assert.ok(source.includes('dataset?.historyBackfill==="1")return'), 'canonical repair should not fight in-progress reverse backfill');
@@ -700,16 +754,174 @@ function testStreamingAllowsManualScroll() {
   assert.ok(bootstrap.includes('bindMessageScrollIntent') && bootstrap.includes('m.addEventListener(t,markManualMessageScroll') && bootstrap.includes('window.addEventListener(t,markManualMessageScroll'), 'message scroll intent must be bound to the scroll container and window gestures');
 }
 
+function testMessageDomainIsFeatureModule() {
+  const domain = require('../client/features/messages/message-domain');
+  assert.strictEqual(domain.messageRoleLabel('user'), '我');
+  assert.strictEqual(domain.messageRoleLabel('assistant'), 'AI');
+  assert.strictEqual(domain.normalizeQuoteText('[图片生成完成] hello   TTFT 1s', 20), 'hello');
+  assert.deepStrictEqual(domain.readQuoteContext({ role: 'assistant', content: ' ok ', responseIndex: 2 }), { role: 'assistant', content: 'ok', responseIndex: '2' });
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesDomain || {}'), 'message workflow should read quote/role helpers from the message domain feature');
+  assert.ok(!workflow.includes('function readQuoteContext(value)'), 'message workflow should not keep a duplicate quote-context parser');
+  assert.ok(!workflow.includes('function normalizeQuoteText(text'), 'message workflow should not keep a duplicate quote text normalizer');
+  assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/app/message-workflow.js'), 'message domain feature should load before message workflow');
+}
+
+function testQuotePreviewIsFeatureModule() {
+  const domain = require('../client/features/messages/message-domain');
+  const quotePreviewFactory = require('../client/features/messages/quote-preview');
+  const quotePreview = quotePreviewFactory.createQuotePreview({
+    readQuoteContext: domain.readQuoteContext,
+    normalizeQuoteText: domain.normalizeQuoteText,
+    escapeHtml: domain.escapeHtmlLocal,
+  });
+  const html = quotePreview.renderSentQuotePreview({ role: 'assistant', content: 'hello <b>', responseIndex: 3 });
+  assert.ok(html.includes('sent-quote-preview'), 'quote preview feature should render the sent quote button');
+  assert.ok(html.includes('hello &lt;b&gt;'), 'quote preview feature should escape quote text');
+  assert.ok(quotePreview.withSentQuotePreview('<p>x</p>', { role: 'user', content: 'quote' }).includes('sent-quote-preview'), 'quote preview feature should prepend preview to user html');
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('ChatUIFeaturesMessagesQuotePreview?.createQuotePreview'), 'message workflow should delegate sent quote preview rendering to the feature module');
+  assert.ok(!workflow.includes('function renderSentQuotePreview(value)'), 'message workflow should not keep duplicate sent quote preview HTML generation');
+  assert.ok(!workflow.includes('classList.add(\'quoted\')') && !workflow.includes('classList.add("quoted")'), 'selecting a quote source should not add a persistent quoted border class');
+  assert.ok(workflow.includes('function scrollQuotedMessageToStart') && workflow.includes("block: 'start'") && !workflow.includes("block: 'center', behavior: 'smooth'"), 'quote preview jumps should align the referenced message start/top, not center it');
+  const messageCss = fs.readFileSync(path.join(__dirname, '../styles/messages.css'), 'utf8');
+  const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(!messageCss.includes('.message.quoted') && !flatCss.includes('.message.quoted'), 'quote source/target styling should use one jump flash path, not a separate quoted border path');
+  assert.ok(messageCss.includes('.message.quote-target-flash .bubble') && !messageCss.includes('quote-target-ring'), 'quote jump target should use a single lightweight flash effect');
+  assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
+}
+
+function testMarkdownFinalRendererIsFeatureModule() {
+  const feature = fs.readFileSync(path.join(__dirname, '../client/features/messages/markdown-final-renderer.js'), 'utf8');
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(feature.includes('function createMarkdownFinalRenderer'), 'large Markdown final renderer should live in the messages feature module');
+  assert.ok(feature.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'feature renderer should still replace visible content only once after offscreen rendering');
+  assert.ok(feature.includes('stageContent.append(...batch)'), 'offscreen stage may batch append final HTML away from the visible message');
+  assert.ok(workflow.includes('ChatUIFeaturesMessagesMarkdownFinalRenderer?.createMarkdownFinalRenderer'), 'message workflow should delegate final Markdown rendering to the feature module');
+  assert.ok(!workflow.includes('function splitMarkdownRenderChunks'), 'message workflow should not keep a duplicate Markdown chunk splitter');
+  assert.ok(!workflow.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'message workflow should not own final Markdown DOM replacement details');
+  assert.ok(index.indexOf('client/features/messages/markdown-final-renderer.js') < index.indexOf('client/app/message-workflow.js'), 'feature renderer should load before message workflow');
+}
+
+function testMarkdownPreviewIsFeatureModule() {
+  const preview = require('../client/features/messages/markdown-preview');
+  const html = preview.renderMarkdownPreview('## 标题\n\n这是一段 **加粗** 内容。\n\n- 第一项\n- 第二项\n\n```js\nconsole.log(1)\n```');
+  assert.ok(html.includes('markdown-preview-lite'), 'large Markdown preview should use a dedicated lightweight preview container');
+  assert.ok(html.includes('<h3>标题</h3>'), 'large Markdown preview should render headings without raw markdown markers');
+  assert.ok(html.includes('<strong>加粗</strong>'), 'large Markdown preview should render common inline emphasis');
+  assert.ok(preview.renderMarkdownPreview('包含 `inline` 代码').includes('<code>inline</code>'), 'large Markdown preview should render inline code without backticks');
+  assert.ok(html.includes('<ul>') && html.includes('<li>第一项</li>'), 'large Markdown preview should render lists without raw list markers');
+  assert.ok(html.includes('<pre class="markdown-preview-code"><code>console.log(1)</code></pre>'), 'large Markdown preview should render fenced code without backtick fences');
+  assert.ok(!html.includes('```'), 'large Markdown preview should not expose code fence markers');
+
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesMarkdownPreview?.renderMarkdownPreview'), 'message workflow should delegate initial large Markdown preview to the feature module');
+  assert.ok(index.indexOf('client/features/messages/markdown-preview.js') < index.indexOf('client/app/message-workflow.js'), 'preview feature should load before message workflow');
+}
+
+function testMarkdownLiveStreamIsFeatureModule() {
+  const feature = fs.readFileSync(path.join(__dirname, '../client/features/messages/markdown-live-stream.js'), 'utf8');
+  const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const browserStreaming = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(feature.includes('function createMarkdownLiveStream'), 'large Markdown live streaming should live in a feature module');
+  assert.ok(feature.includes('createStreamingRenderer') && feature.includes('active.set(next, container)'), 'live stream feature should reuse stable-boundary incremental Markdown renderer');
+  assert.ok(feature.includes('if (phase.final || phase.reset)') && feature.includes('if (phase.streaming && !phase.final'), 'live stream should avoid expensive enhancement while tokens are arriving');
+  assert.ok(message.includes('function updateLiveMarkdownStream'), 'message workflow should use a live Markdown stream path');
+  assert.ok(message.includes('messageNode.__markdownLiveStream') && message.includes('liveStream.append(contentNode, next'), 'large streaming Markdown should incrementally append rendered Markdown, not plain text');
+  assert.ok(message.includes('e.__markdownLiveStream.final(contentNode, rawValue)'), 'large streaming Markdown should finalize through the incremental stream when possible');
+  assert.ok(!message.includes('function updatePlainMarkdownStream'), 'plain-text streaming path should not remain as a duplicate large Markdown implementation');
+  assert.ok(!message.includes('streamingPlainMarkdown'), 'large streaming Markdown should not be marked as plain streaming');
+  assert.ok(browserStreaming.includes('splitStableTailIncremental') && browserStreaming.includes('scanOffset') && browserStreaming.includes('scanInFence'), 'streaming Markdown should scan stable boundaries incrementally instead of rescanning the whole response every frame');
+  assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
+}
+
+function testStreamingOutputSmoothnessOptimizations() {
+  const realtime = fs.readFileSync(path.join(__dirname, '../client/ui/realtime-renderer.js'), 'utf8');
+  const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const scroll = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  assert.ok(realtime.includes('const requestedIntervalMs') && realtime.includes('Math.max(16, requestedIntervalMs)'), 'explicit realtime render intervals such as 40ms should not be clamped back to the old 80ms default');
+  assert.ok(!realtime.includes('Math.max(lowerBoundMs'), 'realtime renderer should not let the default lower bound override a tighter explicit stream interval');
+  assert.ok(message.includes("const rawHash = chatStream ? '' : chatuiContentHash(rawValue)") && message.includes('dataset.streamingRawLength'), 'chat streaming updates should avoid full-response hash calculation on every chunk');
+  assert.ok(scroll.includes('let activeOutputRaf') && scroll.includes('pendingActiveOutput') && scroll.includes('lockToStreamingOutput(pending.node, pending.options)'), 'streaming output scroll follow should be coalesced into one rAF update');
+}
+
+function testResumeStreamButtonAnchorsAboveComposer() {
+  const scroll = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/composer.css'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(scroll.includes('button.style.setProperty("--resume-stream-left"'), 'resume stream button should still align horizontally with the composer');
+  assert.ok(scroll.includes('button.style.setProperty("--resume-stream-bottom"') && scroll.includes('viewportHeight - composer.top + 10'), 'resume stream button should anchor from the live composer top, not a stale safe-area fallback');
+  assert.ok(scroll.includes('state.userScrollLocked && away') && !scroll.includes('!state.streamFocusLocked || away'), 'resume stream button should only show after a real user scroll-away, not flicker during normal streaming auto-follow');
+  assert.ok(css.includes('.resume-stream-btn') && css.includes('bottom:var(--resume-stream-bottom'), 'composer stylesheet should place the resume button above the input composer');
+  assert.ok(index.includes('styles/composer.css?v=1.3.1') && index.includes('scroll-focus-workflow.js?v=1.3.33'), 'cache-busting versions should be bumped for resume button positioning fixes');
+}
+
+function testHistoryAnchorNavFeature() {
+  const feature = require('../client/features/history-anchor-nav');
+  assert.strictEqual(feature.normalizeQuestionTitle('## cursor 返回的以下几种事件...', 40), 'cursor 返回的以下几种事件...', 'question anchors should strip markdown heading markers');
+  assert.strictEqual(feature.normalizeQuestionTitle('```js\nconsole.log(1)\n```\nMYSQL 如何查看表的所有列', 40), 'MYSQL 如何查看表的所有列', 'question anchors should ignore fenced code blocks in titles');
+
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const bootstrap = fs.readFileSync(path.join(__dirname, '../client/app/bootstrap-workflow.js'), 'utf8');
+  const featureSource = fs.readFileSync(path.join(__dirname, '../client/features/history-anchor-nav.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const scroll = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  assert.ok(index.includes('id="historyAnchorNav"'), 'history anchor nav container should be present in the main chat area');
+  assert.ok(index.includes('history-anchor-nav is-empty'), 'history anchor nav should not reuse the legacy .empty placeholder class');
+  assert.ok(index.indexOf('client/features/history-anchor-nav.js') < index.indexOf('client/app/bootstrap-workflow.js'), 'history anchor feature should load before bootstrap starts');
+  assert.ok(bootstrap.includes('window.ChatUIHistoryAnchorNav?.init?.({messages:$(\'messages\'),nav:$(\'historyAnchorNav\')'), 'bootstrap should initialize the history anchor nav with the messages scroller');
+  assert.ok(bootstrap.includes('getItems:()=>historyAnchorItemsFromState()') && bootstrap.includes('ensureItemNode:item=>ensureHistoryAnchorNode(item)'), 'history anchor nav should receive full session history items and a way to render missing nodes before jumping');
+  assert.ok(bootstrap.includes('revealNode:revealNodeAboveComposer'), 'history anchor clicks should use the existing composer-aware reveal helper');
+  assert.ok(featureSource.includes('const getItems = typeof options.getItems') && featureSource.includes('ensureItemNode') && featureSource.includes('fullItems.map'), 'history anchor nav should build the popup from full session history, not only currently rendered DOM nodes');
+  assert.ok(featureSource.includes('isPopupOpen') && featureSource.includes('is-popup-hidden') && featureSource.includes('popupObserver'), 'history anchor nav should hide smoothly while app popups are open and restore after they close');
+  assert.ok(featureSource.includes('const MIN_VISIBLE_ITEMS = 3') && featureSource.includes('items.length >= MIN_VISIBLE_ITEMS'), 'history anchor nav should stay hidden until there are at least three user message groups');
+  assert.ok(featureSource.includes('const RAIL_MAX_HEIGHT_PX = 520') && featureSource.includes('const RAIL_VIEWPORT_RATIO = 0.66') && css.includes('--history-anchor-height:min(66vh,520px)'), 'history anchor nav should be tall enough for longer conversations');
+  assert.ok(featureSource.includes('const railHeight = () => railMaxHeight()') && !featureSource.includes('count * RAIL_ROW_HEIGHT'), 'history anchor nav should use the maximum height as soon as it is visible instead of shrinking by item count');
+  assert.ok(featureSource.includes('const RAIL_ROW_HEIGHT = 28') && featureSource.includes("nav.style.setProperty('--history-anchor-row-height'") && featureSource.includes('syncRailToList') && featureSource.includes('syncListToRail'), 'history anchor rail bars should align one-to-one with popup message rows and stay scroll-synced');
+  assert.ok(featureSource.includes('history-anchor-toggle') && featureSource.includes("pointerenter', () => setExpanded(true)") && featureSource.includes("pointerleave', () => { setExpanded(false); setHover(''); })"), 'history anchor nav should be collapsed by default and expand on hover/focus like a right-side document outline');
+  assert.ok(!featureSource.includes('localStorage') && !featureSource.includes('chatui-history-anchor-open-v1'), 'history anchor nav should not persist expanded state; it should default to the collapsed right rail');
+  assert.ok(featureSource.includes('root.ChatUIScrollDebug?.releaseBottomScrollLock'), 'history anchor jumps should release bottom lock before scrolling to older questions');
+  assert.ok(app.includes('const t=e?.content??e?.rawText??e?.text??""'), 'history anchor titles should prefer canonical user message content before falling back to rawText');
+  assert.ok(featureSource.includes('function normalizeQuestionTitle') && !featureSource.includes('title: ""'), 'history anchor titles should be normalized from real question text instead of empty fallback labels');
+  assert.ok(featureSource.includes('messages.scrollTop = Math.max(0, offsetTopWithin(node) - 18)'), 'history anchor clicks should scroll the messages container directly, not the window');
+  assert.ok(featureSource.includes('history-anchor-scroll-spacer') && featureSource.includes('ensureJumpScrollSpace(node, 18)') && featureSource.includes('setActive = id =>') && !featureSource.includes('id === activeId) return'), 'history anchor jumps should keep enough tail space and refresh active state even when the same id is clicked');
+  assert.ok(featureSource.includes('let jumpScrollToken = 0') && featureSource.includes('cancelPendingJump') && featureSource.includes('clearJumpScrollSpace') && featureSource.includes('token !== jumpScrollToken') && scroll.includes('window.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'resume output focus should cancel any delayed history-anchor scroll corrections and spacer before pinning the active stream');
+  assert.ok(app.includes('cleanupBottomScrollLock:()=>getScrollFocusWorkflow().cleanupBottomScrollLock()'), 'history anchor jumps should be able to clean up bottom-lock observers before scrolling upward');
+  assert.ok(app.includes('releaseBottomScrollLock:e=>getScrollFocusWorkflow().releaseBottomScrollLock(e)'), 'history anchor jumps should be able to release bottom-lock state before scrolling upward');
+  assert.ok(css.includes('--history-anchor-height') && css.includes('height:var(--history-anchor-height)') && css.includes('.history-anchor-nav') && css.includes('.history-anchor-nav.is-expanded .history-anchor-panel') && css.includes('.history-anchor-nav.is-popup-hidden') && css.includes('@media (max-width:840px)'), 'history anchor nav and popup should share identical height, hide smoothly under popups, and be hidden on mobile');
+  assert.ok(featureSource.includes('history-anchor-head') && featureSource.includes('history-anchor-count') && featureSource.includes('消息目录'), 'history anchor popup should include a compact title/count header');
+  assert.ok(css.includes('width:min(238px') && css.includes('border-radius:20px 0 0 20px') && css.includes('.history-anchor-head') && css.includes('.history-anchor-count') && css.includes('backdrop-filter:blur(16px)') && css.includes('--history-anchor-row-height') && css.includes('scrollbar-width:none'), 'history anchor nav should use a compact rounded translucent flat-theme panel with aligned rail rows');
+  assert.ok(featureSource.includes('updateRailAlignment') && featureSource.includes("nav.style.setProperty('--history-anchor-rail-offset'") && featureSource.includes("nav.style.setProperty('--history-anchor-rail-bottom'"), 'history anchor rail should align its first/last bars to the popup list content area below the header');
+  assert.ok(css.includes('--history-anchor-rail-offset') && css.includes('top:var(--history-anchor-rail-offset') && css.includes('bottom:var(--history-anchor-rail-bottom') && css.includes('.history-anchor-list') && css.includes('gap:0;'), 'history anchor rail/list should share the same vertical row grid without gap drift');
+  assert.ok(css.includes('.history-anchor-toggle{') && css.includes('width:22px;') && css.includes('background:transparent;') && css.includes('border-radius:0;') && css.includes('border-radius .20s ease') && css.includes('.history-anchor-nav.is-expanded .history-anchor-toggle') && css.includes('width:30px;') && css.includes('border-radius:0 18px 18px 0'), 'history anchor rail should stay subtle and square while collapsed, then animate into the rounded expanded control');
+  assert.ok(css.includes('.history-anchor-nav.is-expanded{') && !css.includes('.history-anchor-nav.is-expanded{\n  right:'), 'history anchor expansion should not move the fixed right edge, avoiding hover flicker at the rail boundary');
+}
+
 function testLargeMarkdownInitialRenderIsProgressive() {
   const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
   const perf = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   assert.ok(message.includes('function addMessageProgressive'), 'message creation should use a progressive render-capable addMessage path');
   assert.ok(message.includes('renderMarkdownProgressively(node, String(rawText || ""), node.dataset.rawHash)'), 'large initial assistant Markdown should render progressively after DOM insertion');
-  assert.ok(message.includes('function updatePlainMarkdownStream'), 'large streaming Markdown should have a lightweight plain-text append path');
-  assert.ok(message.includes('chatStream && shouldProgressiveRenderMarkdown(rawValue)'), 'large streaming Markdown should bypass full Markdown rendering while tokens arrive');
-  assert.ok(message.includes('dataset.markdownFinalMode = "progressive-final"'), 'large streaming Markdown finalization should switch to progressive final rendering');
-  assert.ok(css.includes('.markdown-stream-plain') && css.includes('white-space:pre-wrap!important;'), 'plain streaming Markdown should be styled as readable pre-wrapped text');
+  assert.ok(message.includes('function renderMarkdownPreviewSnapshot'), 'large initial assistant Markdown should show a lightweight formatted preview immediately');
+  assert.ok(message.includes('else if (progressive) renderMarkdownPreviewSnapshot(content, rawText);'), 'large initial assistant Markdown should not show a waiting/status placeholder before offscreen rendering finishes');
+  assert.ok(!message.includes('正在分块挂载 Markdown'), 'large initial Markdown must not show a visible chunk-mounting status');
+  assert.ok(!message.includes('markdown-progressive-status'), 'large initial Markdown must not use a visible progressive status placeholder');
+  assert.ok(message.includes('function updateLiveMarkdownStream'), 'large streaming Markdown should have a live incremental Markdown path');
+  assert.ok(message.includes('chatStream && shouldProgressiveRenderMarkdown(rawValue)'), 'large streaming Markdown should bypass per-token full Markdown rerendering while tokens arrive');
+  assert.ok(message.includes('e.__markdownLiveStream.final(contentNode, rawValue)'), 'large streaming Markdown finalization should prefer incremental finalization');
+  assert.ok(!message.includes('function updatePlainMarkdownStream'), 'large streaming Markdown should not degrade to a duplicate plain-text stream path');
+  assert.ok(css.includes('.markdown-preview-lite') && css.includes('.markdown-preview-code'), 'lightweight Markdown preview should have dedicated stable preview styles');
+  const scroll = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  assert.ok(scroll.includes('raf(() => requestBottomScroll({ ...options, force: false, beforePaint: true, ignoreManualSuppress: false'), 'delayed bottom-lock correction should respect manual scroll suppression');
+  assert.ok(scroll.includes('if (wheelDelta < -1 || event?.type === "touchmove")'), 'manual upward wheel/touch movement should be detected before async Markdown layout compensation runs');
+  assert.ok(scroll.includes('releaseBottomScrollLock({ bumpVersion: true, suppressMs: 1600 })'), 'manual upward wheel/touch movement should immediately release bottom lock');
   assert.ok(message.includes('addMessage: addMessageProgressive'), 'workflow should export the progressive addMessage implementation');
   assert.ok(!perf.includes("if (raw.length > 8000 || raw.split('\\n').length > 180) return true;"), 'large Markdown should not be forced into lazy placeholder rendering');
 }
@@ -1084,15 +1296,21 @@ function testMermaidAutoRenderIsDefaultForFinalMarkdown() {
 
 function testLargeMarkdownCompletionRefocusesTail() {
   const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const feature = fs.readFileSync(path.join(__dirname, '../client/features/messages/markdown-final-renderer.js'), 'utf8');
   const enhancer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/enhancer.js'), 'utf8');
-  assert.ok(workflow.includes('refocusTailAfterMarkdownLayout'), 'large progressive markdown completion should refocus the session tail');
-  assert.ok(workflow.includes('await Promise.resolve(enhancePromise)') && workflow.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'large markdown final rendering should complete offscreen before one visible replacement');
-  assert.ok(workflow.includes('progressiveOffscreen') && workflow.includes('progressiveStage'), 'large markdown final rendering should use an offscreen stage instead of progressively mutating the visible bubble');
-  assert.ok(workflow.includes('deps.focusSessionTail?.({ margin: 18, threshold: 12 })'), 'tail refocus should use the same visual bottom target as session switching');
-  assert.ok(workflow.includes('shouldAutoRefocusTail') && workflow.includes('!deps.state?.userScrollLocked'), 'progressive markdown completion must not refocus the tail after the user scrolls up');
-  assert.ok(!workflow.includes('deps.state.userScrollLocked = false'), 'progressive markdown completion must not forcibly clear the user scroll lock');
-  assert.ok(!workflow.includes('[80, 220, 520, 1000, 1800, 3200].forEach'), 'progressive markdown completion must not use delayed forced tail refocus timers');
-  assert.ok(!workflow.includes('content.append(...batch)'), 'progressive markdown completion must not append final HTML batches into the visible message content');
+  assert.ok(feature.includes('refocusTailAfterMarkdownLayout'), 'large progressive markdown completion should refocus the session tail from the feature renderer');
+  assert.ok(feature.includes('await Promise.resolve(enhancePromise)') && feature.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'large markdown final rendering should complete offscreen before one visible replacement');
+  assert.ok(feature.includes('progressiveOffscreen') && feature.includes('progressiveStage'), 'large markdown final rendering should use an offscreen stage instead of progressively mutating the visible bubble');
+  assert.ok(feature.includes('deps.focusSessionTail?.({ margin: 18, threshold: 12 })'), 'tail refocus should use the same visual bottom target as session switching');
+  assert.ok(feature.includes('shouldAutoRefocusTail') && feature.includes('!deps.state?.userScrollLocked'), 'progressive markdown completion must not refocus the tail after the user scrolls up');
+  assert.ok(feature.includes('function releaseFollowIfViewportMovedAway'), 'progressive markdown completion should detect when the viewport moved away before final DOM replacement');
+  assert.ok(feature.includes('deps.state.userScrollLocked = true'), 'progressive markdown completion should release auto-follow before final replacement if the user moved away');
+  assert.ok(feature.includes('function preserveDistanceToBottom'), 'progressive markdown completion should preserve distance-to-bottom when user moved away');
+  assert.ok(feature.includes('restoreMovedAwayGap?.()'), 'progressive markdown replacement should restore the moved-away viewport after DOM height changes');
+  assert.ok(!feature.includes('deps.state.userScrollLocked = false'), 'progressive markdown completion must not forcibly clear the user scroll lock');
+  assert.ok(!feature.includes('[80, 220, 520, 1000, 1800, 3200].forEach'), 'progressive markdown completion must not use delayed forced tail refocus timers');
+  assert.ok(!workflow.includes('content.append(...batch)'), 'message workflow must not append final HTML batches into the visible message content');
+  assert.ok(workflow.includes('getMarkdownFinalRenderer().renderProgressively'), 'message workflow should remain a thin final-render facade');
   assert.ok(enhancer.includes("chatui:markdown-layout-settled") && enhancer.includes("reason: 'mermaid-rendered'"), 'Mermaid rendering completion should emit a markdown layout settled event');
 }
 
@@ -1112,6 +1330,69 @@ function testResumeStreamingDoesNotUseStatusTextAsOffset() {
   assert.ok(app.includes('state.pageUnloading=!1;const t=loadImageJob'), 'resume should clear stale page-unloading state after refresh/pageshow');
   assert.ok(app.includes('if(s?.id){if(sessionHasCompletedAssistantForResponse(n,s.responseIndex))return clearChatJob(e);return void setTimeout(()=>resumeChatJob(e),0)}'), 'chat resume should be keyed by the stored job response index, not only by user/assistant counts');
   assert.ok(app.includes('pendingJob&&resumeSessionJobs(e);try{'), 'foreground refresh should resume pending jobs even when busy state was lost after reload');
+}
+
+async function testManagedJobAbortUsesJobService() {
+  const jobService = require('../client/services/job-service');
+  const calls = [];
+  const response = await jobService.abortManagedJob({ kind: 'image', jobId: 'abc/123', fetchImpl: async (...args) => { calls.push(args); return { ok: true, status: 200 }; } });
+  assert.strictEqual(response.ok, true);
+  assert.strictEqual(calls[0][0], '/api/image-jobs/abc%2F123/abort');
+  assert.deepStrictEqual(calls[0][1], { method: 'POST' });
+  await jobService.abortManagedJob({ kind: 'chat', jobId: '', fetchImpl: async () => { throw new Error('should not call fetch'); } });
+  const composition = fs.readFileSync(path.join(__dirname, '../client/services/composition.js'), 'utf8');
+  assert.ok(composition.includes('abortManagedJob: options => jobService.abortManagedJob(withHttpDeps(options))'), 'composition should expose job abort through ChatUIServices.jobs');
+  const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(appSource.includes('window.ChatUIServices?.jobs||window.ChatUIJobService'), 'app abort path should use job service first');
+  assert.ok(appSource.includes('s.abortManagedJob({kind:e,jobId:t,fetchImpl:fetch})'), 'app abort path should delegate to job-service abort API');
+}
+
+async function testAttachmentTextExtractionUsesService() {
+  const attachmentService = require('../client/services/attachment-service');
+  const calls = [];
+  const text = await attachmentService.extractFileText({
+    item: { name: 'demo.pdf', type: 'application/pdf', dataUrl: 'data:application/pdf;base64,abc' },
+    fetchImpl: async (...args) => { calls.push(args); return { ok: true, text: async () => JSON.stringify({ text: ' extracted text ' }) }; },
+  });
+  assert.strictEqual(text, 'extracted text');
+  assert.strictEqual(calls[0][0], '/api/extract-file');
+  assert.strictEqual(calls[0][1].method, 'POST');
+  assert.strictEqual(calls[0][1].headers['Content-Type'], 'application/json');
+  assert.deepStrictEqual(JSON.parse(calls[0][1].body), { filename: 'demo.pdf', type: 'application/pdf', dataUrl: 'data:application/pdf;base64,abc' });
+  assert.strictEqual(await attachmentService.extractFileText({ item: { name: 'empty.pdf' }, fetchImpl: async () => { throw new Error('should not call fetch'); } }), '');
+
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/attachments-workflow.js'), 'utf8');
+  const composition = fs.readFileSync(path.join(__dirname, '../client/services/composition.js'), 'utf8');
+  const browser = fs.readFileSync(path.join(__dirname, '../client/services/browser.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('root.ChatUIServices?.attachments || root.ChatUIAttachmentService'), 'attachments workflow should prefer the attachment service boundary');
+  assert.ok(workflow.includes('attachmentService.extractFileText({ item, fetchImpl: root.fetch?.bind(root), parseResponseJson, normalizeError })'), 'attachment text extraction should delegate to service');
+  assert.ok(composition.includes('attachments: attachmentsApi'), 'service composition should expose attachment APIs');
+  assert.ok(browser.includes('attachments: Object.freeze(attachments)'), 'browser service facade should expose attachments namespace');
+  sourceAssertions.assertInOrder(index, './client/services/attachment-service.js', './client/services/composition.js', 'attachment service should load before service composition');
+  sourceAssertions.assertInOrder(index, './client/services/browser.js', './client/app/attachments-workflow.js', 'service browser facade should load before attachment workflow');
+}
+
+async function testRuntimeVersionUsesService() {
+  const runtimeService = require('../client/services/runtime-service');
+  const calls = [];
+  const version = await runtimeService.requestAppVersion({
+    fetchImpl: async (...args) => { calls.push(args); return { ok: true, json: async () => ({ version: '1.2.3' }) }; },
+  });
+  assert.strictEqual(version, '1.2.3');
+  assert.strictEqual(calls[0][0], '/api/version');
+  assert.deepStrictEqual(calls[0][1], { cache: 'no-store' });
+
+  const runtime = fs.readFileSync(path.join(__dirname, '../client/app/runtime.js'), 'utf8');
+  const composition = fs.readFileSync(path.join(__dirname, '../client/services/composition.js'), 'utf8');
+  const browser = fs.readFileSync(path.join(__dirname, '../client/services/browser.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(runtime.includes('runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService'), 'runtime app should prefer the runtime service boundary');
+  assert.ok(runtime.includes('runtimeService.requestAppVersion({ fetchImpl })'), 'version loading should delegate to runtime service');
+  assert.ok(composition.includes('requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options))'), 'service composition should expose runtime version API');
+  assert.ok(browser.includes('runtime: Object.freeze(runtime)'), 'browser service facade should expose runtime namespace');
+  sourceAssertions.assertInOrder(index, './client/services/runtime-service.js', './client/services/composition.js', 'runtime service should load before service composition');
+  sourceAssertions.assertInOrder(index, './client/services/browser.js', './client/app/runtime.js', 'service browser facade should load before runtime app workflow');
 }
 
 function testChatJobIdIsPersistedBeforeRouteResolution() {
@@ -1142,12 +1423,38 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
   assert.ok(image.includes('if((e&&s&&e!==s)||(t&&a&&t!==a))d=null;'), 'image workflow should reject stale loading nodes from a different display item/response');
 }
 
+function testArchitectureBoundaryScaffolding() {
+  const storageKeys = require('../client/config/storage-keys');
+  const featureFlags = require('../client/config/feature-flags');
+  const domainTypes = require('../client/domain/types');
+  assert.strictEqual(storageKeys.storageKeys.CONFIG_KEY, 'openapi-chat-image-config-v2');
+  assert.strictEqual(storageKeys.storageKeys.CHAT_JOB_KEY, 'openapi-chat-image-chat-job-v1');
+  assert.strictEqual(featureFlags.featureFlags.virtualMessages, false);
+  assert.ok(featureFlags.featureFlags.offscreenMarkdownFinalRender, 'offscreen Markdown final render should be an explicit architecture flag');
+  assert.ok(domainTypes.typeNames.includes('ChatSession') && domainTypes.typeNames.includes('DisplayItem') && domainTypes.typeNames.includes('ChatJob'), 'domain typedef registry should document core client state shapes');
+
+  const index = sourceAssertions.readSource('index.html');
+  sourceAssertions.assertInOrder(index, './client/core/browser.js', './client/config/storage-keys.js', 'config should load after core browser primitives');
+  sourceAssertions.assertInOrder(index, './client/config/storage-keys.js', './client/app/state.js', 'config should load before app state and app bootstrap');
+  sourceAssertions.assertInOrder(index, './client/domain/types.js', './client/app/state.js', 'domain typedefs should load before app state and app bootstrap');
+
+  const app = sourceAssertions.readSource('app.js');
+  sourceAssertions.assertIncludes(app, 'storageKeys=window.ChatUIConfig?.storageKeys||{}', 'app should read storage keys through the config boundary with fallbacks');
+  sourceAssertions.assertIncludes(app, 'CONFIG_KEY=storageKeys.CONFIG_KEY||"openapi-chat-image-config-v2"', 'app should keep literal storage-key fallback for safe rollback');
+}
+
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
   const html = '<div><img src="[attachment-data-omitted]" data-persisted-src="[image-data-omitted]" alt="bad.png"></div>';
   const clean = sessionPersistence.sanitizeStoredDisplayItem({ role: 'user', html }, { stripLargeDataUrlsFromText });
   assert.ok(!clean.html.includes('src="[attachment-data-omitted]"'), 'sanitizer should remove omitted attachment placeholders from img src');
   assert.ok(!clean.html.includes('data-persisted-src="[image-data-omitted]"'), 'sanitizer should remove omitted attachment placeholders from persisted image src');
   assert.ok(!clean.html.includes('attachment-data-omitted') && !clean.html.includes('image-data-omitted'), 'omitted placeholders should not remain in image markup');
+}
+
+function testRegenerateRemovesOldAssistantImmediately() {
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(app.includes('const c=prepareRegeneratedResponse(t,e,l,a,"已收到，马上处理")'), 'regenerate click should remove the old assistant node immediately and insert a fresh live placeholder');
+  assert.ok(!app.includes('prepareReplacementResponse({node:t,responseNode:e,index:n,responseIndex:a},l,"已收到，马上处理",{deferClear:!0})'), 'regenerate should not reuse/update the old assistant node as the loading placeholder');
 }
 
 const tests = [
@@ -1158,12 +1465,14 @@ const tests = [
   testPendingClarificationMergesFollowupSupplements,
   testPendingClarificationCanMergeTextFileAndQuote,
   testPendingClarificationCarriesOriginalMultiImageContext,
+  testPendingClarificationClearsAfterMergedSend,
   testImageEditPromptFallbackAndValidation,
   testStorageSanitizesEmbeddedImageContent,
   testPersistedAttachmentPreviewSurvivesDataUrlStripping,
   testFilePlaceholderSemanticsAndFileUnderstanding,
   testQuotedFileAttachmentTextIsIncluded,
   testHistoryFileAttachmentTextIsIncludedInChatContext,
+  testGenericAttachmentContextSurvivesCoreNormalizationForRegenerate,
   testHistoryFileCandidatesRouteAsFileQa,
   testUserAttachmentContextFallsBackToImageContextForRegenerate,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
@@ -1175,12 +1484,20 @@ const tests = [
   testRouteOperationTypeDrivesCanonicalMode,
   testRoutePromptUsesEnglishRulesWithChineseEdgeCases,
   testChatAnswerStreamingFlushesQuickly,
-  testStreamingTailDoesNotRenderCursor,
+  testStreamingTailRendersLightweightCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testSessionSwitchFocusesBottom,
   testLegacyWelcomeScreenIsRemoved,
   testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,
+  testMessageDomainIsFeatureModule,
+  testQuotePreviewIsFeatureModule,
+  testMarkdownFinalRendererIsFeatureModule,
+  testMarkdownPreviewIsFeatureModule,
+  testMarkdownLiveStreamIsFeatureModule,
+  testStreamingOutputSmoothnessOptimizations,
+  testResumeStreamButtonAnchorsAboveComposer,
+  testHistoryAnchorNavFeature,
   testLargeMarkdownInitialRenderIsProgressive,
   testEnglishImagePromptExtractionStaysChatWithCurrentImage,
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
@@ -1207,10 +1524,15 @@ const tests = [
   testLargeMarkdownCompletionRefocusesTail,
   testStreamingDownloadActionIsDisabled,
   testResumeStreamingDoesNotUseStatusTextAsOffset,
+  testManagedJobAbortUsesJobService,
+  testAttachmentTextExtractionUsesService,
+  testRuntimeVersionUsesService,
   testChatJobIdIsPersistedBeforeRouteResolution,
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
+  testArchitectureBoundaryScaffolding,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
+  testRegenerateRemovesOldAssistantImmediately,
 ];
 
 (async () => {

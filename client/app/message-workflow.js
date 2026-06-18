@@ -20,94 +20,24 @@
       return raw.length > 8000 || raw.split('\n').length > 180;
     }
 
-    function splitMarkdownRenderChunks(text = '') {
-      const src = String(text || '').replace(/\r\n?/g, '\n');
-      const chunks = [];
-      let buf = '', inFence = false, fenceChar = '', fenceLen = 0, inMath = false;
-      const flush = () => { if (buf) { chunks.push(buf); buf = ''; } };
-      for (const line of src.split(/(?<=\n)/)) {
-        const rawLine = line.replace(/\n$/, '');
-        const fence = rawLine.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
-        if (!inMath && fence) {
-          const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim();
-          if (inFence && ch === fenceChar && marker.length >= fenceLen && !info) {
-            inFence = false; fenceChar = ''; fenceLen = 0; buf += line; flush(); continue;
-          }
-          if (!inFence) { inFence = true; fenceChar = ch; fenceLen = marker.length; }
-          buf += line; continue;
-        }
-        if (!inFence && /^\s*\$\$\s*$/.test(rawLine)) {
-          inMath = !inMath; buf += line; if (!inMath) flush(); continue;
-        }
-        buf += line;
-        if (!inFence && !inMath && /^\s*$/.test(rawLine)) flush();
-        if (!inFence && !inMath && buf.length > 8000) flush();
-      }
-      flush();
-      return chunks.length ? chunks : [src];
-    }
-
-    function messageRoleLabel(role = '') {
-      return role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息';
-    }
-
-    function messageRoleFromNode(node) {
-      return node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error';
-    }
-
-    function normalizeQuoteText(text = '', limit = 1200) {
-      return String(text || '')
-        .replace(/\[base64 image\]/gi, '')
-        .replace(/耗时：[^\n]+/g, '')
-        .replace(/RT\s+[^\n]+/gi, '')
-        .replace(/TTFT\s+[^\n]+/gi, '')
-        .replace(/^\[图片(?:生成|编辑|修改)完成\]\s*/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, limit);
-    }
-
-    function escapeHtmlLocal(value = '') {
-      return String(value ?? '').replace(/[&<>\"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch]));
-    }
-
-    function readQuoteContext(value) {
-      if (!value) return null;
-      if (typeof value === 'string') {
-        try { return readQuoteContext(JSON.parse(value)); } catch { return null; }
-      }
-      if (!value || typeof value !== 'object') return null;
-      const hasImageContext = !!(value.imageContext || value.image_context);
-      const content = normalizeQuoteText(value.content ?? value.rawText ?? (hasImageContext ? '[图片消息]' : ''), 1200);
-      if (!content && !hasImageContext) return null;
-      const quote = { role: value.role === 'assistant' ? 'assistant' : 'user', content: content || '[图片消息]' };
-      ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex', 'imageContext', 'attachmentContext'].forEach(key => {
-        const altKey = key === 'imageContext' ? 'image_context' : key === 'attachmentContext' ? 'attachment_context' : key;
-        const raw = value[key] ?? value[altKey];
-        if (raw !== undefined && raw !== null && raw !== '') quote[key] = typeof raw === 'string' ? raw : JSON.stringify(raw);
-      });
-      return quote;
-    }
-
-    function quoteContextJson(value) {
+    const messageDomain = root.ChatUIFeaturesMessagesDomain || {};
+    const messageRoleLabel = messageDomain.messageRoleLabel || (role => role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息');
+    const messageRoleFromNode = messageDomain.messageRoleFromNode || (node => node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error');
+    const normalizeQuoteText = messageDomain.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
+    const escapeHtmlLocal = messageDomain.escapeHtmlLocal || (value => String(value ?? '').replace(/[&<>\"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
+    const readQuoteContext = messageDomain.readQuoteContext || (() => null);
+    const quoteContextJson = messageDomain.quoteContextJson || (value => {
       const quote = readQuoteContext(value);
       return quote ? JSON.stringify(quote) : '';
-    }
+    });
 
-    function renderSentQuotePreview(value) {
-      const quote = readQuoteContext(value);
-      if (!quote) return '';
-      const label = quote.role === 'assistant' ? 'AI' : '用户';
-      const context = escapeHtmlLocal(JSON.stringify(quote));
-      const text = escapeHtmlLocal(normalizeQuoteText(quote.content, 48));
-      return `<button class="sent-quote-preview" type="button" data-quote-context="${context}" title="jump to quoted message"><span class="sent-quote-label">&#24341;&#29992;</span><span class="sent-quote-text">${text}</span></button>`;
-    }
-
-    function withSentQuotePreview(html = '', quoteContext = '') {
-      const preview = renderSentQuotePreview(quoteContext);
-      if (!preview || /class=["'][^"']*sent-quote-preview/.test(String(html || ''))) return String(html || '');
-      return `${preview}${String(html || '')}`;
-    }
+    const quotePreview = (root.ChatUIFeaturesMessagesQuotePreview?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
+      readQuoteContext,
+      normalizeQuoteText,
+      escapeHtml: escapeHtmlLocal,
+    });
+    const renderSentQuotePreview = quotePreview.renderSentQuotePreview;
+    const withSentQuotePreview = quotePreview.withSentQuotePreview;
 
     function findQuotedMessageNode(quote) {
       const ctx = readQuoteContext(quote);
@@ -131,10 +61,33 @@
       return nodes.find(node => messageRoleFromNode(node) === ctx.role && normalizeQuoteText(node.dataset.rawText || node.textContent || '', 1200) === ctx.content) || null;
     }
 
+    function scrollQuotedMessageToStart(target, margin = 18) {
+      if (!target?.isConnected) return false;
+      try { root.ChatUIScrollDebug?.releaseBottomScrollLock?.({ bumpVersion: true, suppressMs: 1800 }); } catch {}
+      try { root.ChatUIScrollDebug?.cleanupBottomScrollLock?.(); } catch {}
+      const messages = deps.$?.('messages') || target.closest?.('#messages,.messages');
+      if (!messages?.getBoundingClientRect) {
+        target.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+        return true;
+      }
+      const applyScroll = () => {
+        if (!target.isConnected) return;
+        const messagesRect = messages.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const top = Math.max(0, messages.scrollTop + targetRect.top - messagesRect.top - margin);
+        if (typeof messages.scrollTo === 'function') messages.scrollTo({ top, behavior: 'auto' });
+        else messages.scrollTop = top;
+      };
+      applyScroll();
+      root.requestAnimationFrame?.(() => { applyScroll(); root.requestAnimationFrame?.(applyScroll); });
+      [80, 180, 360].forEach(ms => root.setTimeout?.(applyScroll, ms));
+      return true;
+    }
+
     function jumpToQuotedMessage(quote) {
       const target = findQuotedMessageNode(quote);
       if (!target) return false;
-      if (!deps.revealNodeAboveComposer?.(target, 18)) target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      scrollQuotedMessageToStart(target, 18);
       target.classList.remove('quote-target-flash');
       void target.offsetWidth;
       target.classList.add('quote-target-flash');
@@ -194,7 +147,6 @@
 
     function clearQuotedMessage() {
       deps.state.quotedMessage = null;
-      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(node => node.classList.remove('quoted'));
       renderComposerQuote();
     }
 
@@ -282,174 +234,89 @@
     function selectQuotedMessage(node) {
       const quote = resolveQuoteContextForNode(node);
       if (!quote) return;
-      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
-      node.classList.add('quoted');
       deps.state.quotedMessage = quote;
       renderComposerQuote();
       deps.$?.('prompt')?.focus?.();
     }
 
+    let markdownFinalRenderer = null;
+
+    function getMarkdownFinalRenderer() {
+      if (markdownFinalRenderer) return markdownFinalRenderer;
+      const factory = root.ChatUIFeaturesMessagesMarkdownFinalRenderer?.createMarkdownFinalRenderer;
+      if (!factory) throw new Error('ChatUIFeaturesMessagesMarkdownFinalRenderer 未加载');
+      markdownFinalRenderer = factory({
+        state: deps.state,
+        document: deps.document || root.document,
+        performance: root.performance,
+        requestIdleCallback: root.requestIdleCallback?.bind?.(root),
+        requestAnimationFrame: root.requestAnimationFrame?.bind?.(root),
+        setTimeout: root.setTimeout?.bind?.(root),
+        $: deps.$,
+        getMessagesRoot: () => deps.$?.('messages'),
+        renderMarkdown: deps.renderMarkdown,
+        resetMessageActionStates: deps.resetMessageActionStates,
+        bindInlineCopyButtons: deps.bindInlineCopyButtons,
+        enhanceRenderedMarkdown: deps.enhanceRenderedMarkdown,
+        hydrateMessageMedia: deps.hydrateMessageMedia,
+        cleanupGeneratedImageNumberArtifacts,
+        shouldFollowScroll: deps.shouldFollowScroll,
+        focusSessionTail: deps.focusSessionTail,
+        preserveMessageBottomAnchor: deps.preserveMessageBottomAnchor,
+      });
+      return markdownFinalRenderer;
+    }
+
     function renderMarkdownProgressively(messageNode, text = '', hash = chatuiContentHash(text)) {
-      const render = deps.renderMarkdown || (value => String(value || ''));
-      const resetActions = deps.resetMessageActionStates || (() => {});
-      const bindCopy = deps.bindInlineCopyButtons || (() => {});
-      const enhance = deps.enhanceRenderedMarkdown || (() => {});
-      const hydrate = deps.hydrateMessageMedia || (() => {});
-      const content = messageNode?.querySelector?.('.content');
-      if (!content) return false;
-      const shouldAutoRefocusTail = () => !deps.state?.userScrollLocked && (deps.shouldFollowScroll?.() ?? true);
-      const refocusTailAfterMarkdownLayout = () => {
-        if (!messageNode?.isConnected || !shouldAutoRefocusTail()) return;
-        const root = deps.$?.('messages');
-        if (!root || messageNode !== [...root.querySelectorAll?.('.message') || []].at(-1)) return;
-        const run = () => {
-          if (!messageNode.isConnected || !shouldAutoRefocusTail()) return;
-          deps.state.autoScrollLocked = true;
-          deps.state.programmaticScrollUntil = Math.max(Number(deps.state.programmaticScrollUntil) || 0, Date.now() + 900);
-          try { deps.focusSessionTail?.({ margin: 18, threshold: 12 }); } catch {}
-        };
-        run();
-        requestAnimationFrame?.(run);
-      };
-      const token = Date.now() + ':' + Math.random().toString(36).slice(2);
-      try { messageNode.__progressiveCleanup?.(); } catch {}
-      messageNode.dataset.progressiveRenderToken = token;
-      messageNode.dataset.progressiveRendering = '1';
-      messageNode.dataset.progressiveOffscreen = '1';
-      if (deps.state && shouldAutoRefocusTail()) deps.state.programmaticScrollUntil = Math.max(Number(deps.state.programmaticScrollUntil) || 0, Date.now() + 1200);
-      delete content.__plainStreamingTextNode;
-      delete content.__plainStreamingBox;
+      return getMarkdownFinalRenderer().renderProgressively(messageNode, text, hash);
+    }
 
-      const doc = deps.document || document;
-      const body = doc.body || doc.documentElement;
-      const contentWidth = Math.max(320, Math.ceil(content.getBoundingClientRect?.().width || content.clientWidth || messageNode.getBoundingClientRect?.().width || 720));
-      const stageHost = doc.createElement('div');
-      stageHost.className = messageNode.className || 'message assistant';
-      stageHost.dataset.progressiveStage = '1';
-      stageHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + contentWidth + 'px;max-width:' + contentWidth + 'px;visibility:hidden;pointer-events:none;z-index:-1;contain:layout style;';
-      const stageContent = doc.createElement('div');
-      stageContent.className = content.className || 'content';
-      stageHost.appendChild(stageContent);
-      body.appendChild(stageHost);
+    function createLiveMarkdownStream() {
+      const factory = root.ChatUIFeaturesMessagesMarkdownLiveStream?.createMarkdownLiveStream;
+      if (factory) return factory({
+        renderMarkdown: deps.renderMarkdown,
+        createStreamingRenderer: root.ChatUIApp?.markdown?.createStreamingRenderer,
+        bindInlineCopyButtons: deps.bindInlineCopyButtons,
+        enhanceRenderedMarkdown: deps.enhanceRenderedMarkdown,
+        now: () => chatuiPerfNow(),
+      });
+      return null;
+    }
 
-      let cleaned = false;
-      const cleanupStage = () => {
-        if (cleaned) return;
-        cleaned = true;
-        try { stageContent.__chatuiEnhanceJob?.cancel?.(); } catch {}
-        try { stageHost.remove(); } catch {}
-        if (messageNode.__progressiveCleanup === cleanupStage) delete messageNode.__progressiveCleanup;
-      };
-      messageNode.__progressiveCleanup = cleanupStage;
-
-      const chunks = splitMarkdownRenderChunks(text);
-      const nodeQueue = [];
-      let chunkIndex = 0;
-      let finishing = false;
-      const isCurrent = () => messageNode.isConnected && messageNode.dataset.progressiveRenderToken === token;
-      const schedule = () => {
-        if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 80 });
-        else setTimeout(() => run(), 0);
-      };
-      const finish = async () => {
-        if (finishing || !isCurrent()) return;
-        finishing = true;
-        try {
-          resetActions(messageNode);
-          cleanupGeneratedImageNumberArtifacts(stageContent);
-          bindCopy(stageContent);
-          const enhancePromise = enhance(stageContent, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true });
-          await Promise.resolve(enhancePromise).catch(() => []);
-          if (!isCurrent()) return cleanupStage();
-          hydrate(stageContent, { save: false });
-          cleanupGeneratedImageNumberArtifacts(stageContent);
-          const shouldRefocus = shouldAutoRefocusTail();
-          const restoreProgressiveAnchor = shouldRefocus && deps.state?.activeOutputNode === messageNode
-            ? deps.preserveMessageBottomAnchor?.(messageNode, 72)
-            : null;
-          content.replaceChildren(...[...stageContent.childNodes]);
-          messageNode.dataset.renderedHash = hash;
-          messageNode.dataset.enhancedHash = hash;
-          delete messageNode.dataset.progressiveRendering;
-          delete messageNode.dataset.progressiveOffscreen;
-          cleanupGeneratedImageNumberArtifacts(messageNode);
-          hydrate(messageNode, { save: false });
-          resetActions(messageNode);
-          cleanupStage();
-          if (shouldRefocus) {
-            restoreProgressiveAnchor?.();
-            refocusTailAfterMarkdownLayout();
-            Promise.resolve().then(refocusTailAfterMarkdownLayout);
-            requestAnimationFrame?.(() => restoreProgressiveAnchor?.());
-          }
-        } catch (err) {
-          console.warn('[chatui] progressive markdown offscreen render failed', err);
-          if (isCurrent()) {
-            content.innerHTML = render(text);
-            messageNode.dataset.renderedHash = hash;
-            delete messageNode.dataset.progressiveRendering;
-            delete messageNode.dataset.progressiveOffscreen;
-            try { bindCopy(messageNode); enhance(messageNode, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true }); } catch {}
-          }
-          cleanupStage();
-        }
-      };
-      const run = deadline => {
-        if (!isCurrent()) return cleanupStage();
-        const started = performance?.now ? performance.now() : Date.now();
-        const batch = [];
-        while (true) {
-          while (nodeQueue.length) {
-            batch.push(nodeQueue.shift());
-            const now = performance?.now ? performance.now() : Date.now();
-            const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
-            if (batch.length >= 48 || (now - started) > 10 || (timeLeft && timeLeft < 5)) break;
-          }
-          if (batch.length || chunkIndex >= chunks.length) break;
-          const tpl = doc.createElement('template');
-          tpl.innerHTML = render(chunks[chunkIndex++]);
-          nodeQueue.push(...tpl.content.childNodes);
-          const now = performance?.now ? performance.now() : Date.now();
-          const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : 0;
-          if ((now - started) > 10 || (timeLeft && timeLeft < 5)) break;
-        }
-        if (batch.length) stageContent.append(...batch);
-        if (chunkIndex < chunks.length || nodeQueue.length) return schedule();
-        finish();
-      };
-      schedule();
+    function renderMarkdownPreviewSnapshot(contentNode, rawValue = '') {
+      if (!contentNode) return false;
+      const preview = root.ChatUIFeaturesMessagesMarkdownPreview?.renderMarkdownPreview;
+      if (!preview) return renderPlainMarkdownSnapshot(contentNode, rawValue);
+      contentNode.innerHTML = preview(String(rawValue || ''));
+      contentNode.classList?.remove('markdown-stream-fallback-text');
       return true;
     }
 
-    function ensurePlainMarkdownStream(contentNode) {
-      if (!contentNode) return null;
-      let box = contentNode.__plainStreamingBox;
-      if (!box || !box.isConnected) {
-        contentNode.innerHTML = '<pre class="markdown-stream-plain"></pre>';
-        box = contentNode.querySelector('.markdown-stream-plain');
-        const textNode = document.createTextNode('');
-        if (box) box.appendChild(textNode);
-        contentNode.__plainStreamingBox = box;
-        contentNode.__plainStreamingTextNode = textNode;
-      }
-      return box;
+    function renderPlainMarkdownSnapshot(contentNode, rawValue = '') {
+      if (!contentNode) return false;
+      const doc = deps.document || root.document;
+      contentNode.textContent = String(rawValue || '');
+      contentNode.classList?.add('markdown-stream-fallback-text');
+      return !!doc;
     }
 
-    function updatePlainMarkdownStream(messageNode, contentNode, rawValue = '', incoming = '') {
-      const box = ensurePlainMarkdownStream(contentNode);
-      if (!box) return false;
-      const textNode = contentNode.__plainStreamingTextNode || box.firstChild || document.createTextNode('');
-      if (!textNode.parentNode) box.appendChild(textNode);
-      const previous = String(messageNode.__plainStreamingRaw || '');
-      const next = String(rawValue || '');
-      if (next.startsWith(previous)) {
-        const delta = next.slice(previous.length) || String(incoming || '');
-        if (delta) textNode.data += delta;
-      } else {
-        textNode.data = next;
+    function updateLiveMarkdownStream(messageNode, contentNode, rawValue = '', incoming = '') {
+      if (!messageNode || !contentNode) return false;
+      let liveStream = messageNode.__markdownLiveStream;
+      if (!liveStream) {
+        liveStream = createLiveMarkdownStream();
+        messageNode.__markdownLiveStream = liveStream;
       }
-      messageNode.__plainStreamingRaw = next;
-      messageNode.dataset.streamingPlainMarkdown = '1';
+      const next = String(rawValue || '');
+      if (!liveStream) {
+        contentNode.textContent = next || String(incoming || '');
+        messageNode.dataset.streamingMarkdownMode = 'text-fallback';
+        return false;
+      }
+      const result = liveStream.append(contentNode, next, { force: !messageNode.dataset.streamingMarkdownMode });
+      messageNode.dataset.streamingMarkdownMode = 'incremental';
+      messageNode.dataset.streamingMarkdownConsumed = String(result?.consumed ?? '');
+      messageNode.dataset.streamingMarkdownTail = String(result?.tail?.length ?? 0);
       return true;
     }
 
@@ -471,9 +338,18 @@
 
         let rendered = false;
         const largeAssistantMarkdown = !s.html && !e.classList?.contains("user") && shouldProgressiveRenderMarkdown(rawValue);
-        if (e.__markdownStreamingRenderer?.final && !s.html && !e.classList?.contains("user")) {
+        if ((e.__markdownLiveStream?.final || e.__markdownStreamingRenderer?.final) && !s.html && !e.classList?.contains("user")) {
           try {
-            if (largeAssistantMarkdown) {
+            if (e.__markdownLiveStream?.final) {
+              const result = e.__markdownLiveStream.final(contentNode, rawValue);
+              rendered = !!result;
+              e.dataset.renderedHash = rawHash;
+              if (result?.enhanced) e.dataset.enhancedHash = rawHash;
+              e.dataset.markdownFinalEnhanced = result?.enhanced ? "1" : "";
+              e.dataset.markdownFinalMode = result?.mode || "incremental-final";
+              if (result?.reason) e.dataset.markdownFinalReason = result.reason;
+              if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+            } else if (largeAssistantMarkdown) {
               renderMarkdownProgressively(e, rawValue, rawHash);
               rendered = true;
               e.dataset.markdownFinalMode = "progressive-final";
@@ -489,15 +365,18 @@
               if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
             }
           } catch {}
+          delete e.__markdownLiveStream;
           delete e.__markdownStreamingRenderer;
         }
-        if (!rendered && e.dataset.streamingPlainMarkdown === "1" && largeAssistantMarkdown) {
+        if (!rendered && e.dataset.streamingMarkdownMode === "text-fallback" && largeAssistantMarkdown) {
           renderMarkdownProgressively(e, rawValue, rawHash);
           rendered = true;
           e.dataset.markdownFinalMode = "progressive-final";
         }
-        delete e.__plainStreamingRaw;
-        delete e.dataset.streamingPlainMarkdown;
+        delete e.dataset.streamingMarkdownMode;
+        delete e.dataset.streamingMarkdownConsumed;
+        delete e.dataset.streamingMarkdownTail;
+        delete e.dataset.lastStreamingRaw;
 
         delete e.dataset.streaming;
         delete e.dataset.streamKind;
@@ -577,8 +456,8 @@
         const contentNode = e?.querySelector('.content');
         if (!contentNode) return;
         const rawValue = String(s.rawText ?? t ?? '');
-        const rawHash = chatuiContentHash(rawValue);
         const chatStream = s.streamKind === 'chat' && !s.html && !e.classList?.contains('user');
+        const rawHash = chatStream ? '' : chatuiContentHash(rawValue);
         if (!s.html && !chatStream && !e.classList?.contains('user') && e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.forceRender) {
           cleanupGeneratedImageNumberArtifacts(e);
           return;
@@ -586,7 +465,19 @@
 
         const restoreViewport = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
         e.dataset.rawText = rawValue;
-        e.dataset.rawHash = rawHash;
+        if (chatStream) {
+          e.dataset.streamingRawLength = String(rawValue.length);
+          if (!e.dataset.rawHash) e.dataset.rawHash = 'streaming';
+          if (e.dataset.lastStreamingRaw === rawValue) {
+            updateResumeStreamButton();
+            return;
+          }
+          e.dataset.lastStreamingRaw = rawValue;
+        } else {
+          e.dataset.rawHash = rawHash;
+          delete e.dataset.streamingRawLength;
+          delete e.dataset.lastStreamingRaw;
+        }
         e.dataset.streaming = '1';
         if (void 0 !== s.streamKind) e.dataset.streamKind = s.streamKind || '';
         if (void 0 !== s.runToken) e.dataset.streamRunToken = s.runToken || '';
@@ -595,7 +486,7 @@
         if (chatStream && shouldProgressiveRenderMarkdown(rawValue)) {
           delete e.__markdownStreamingRenderer;
           delete e.dataset.enhancedHash;
-          updatePlainMarkdownStream(e, contentNode, rawValue, t);
+          updateLiveMarkdownStream(e, contentNode, rawValue, t);
         } else if (chatStream) {
           delete e.dataset.enhancedHash;
           let streamRenderer = e.__markdownStreamingRenderer;
@@ -669,7 +560,7 @@
         const progressive = !options.html && role === "assistant" && shouldProgressiveRenderMarkdown(rawText) && !options.deferEnhance;
         if (options.deferEnhance && role === "assistant" && !options.html) content.innerHTML = "";
         else if (options.html) content.innerHTML = role === "user" ? withSentQuotePreview(stripTransientBlobUrlsFromHtml(text), quote) : stripTransientBlobUrlsFromHtml(text);
-        else if (progressive) content.innerHTML = '<div class="markdown-progressive-status">正在分块挂载 Markdown...</div>';
+        else if (progressive) renderMarkdownPreviewSnapshot(content, rawText);
         else if (lazy) content.innerHTML = chatuiPlainPreview(rawText);
         else content.innerHTML = role === "user" ? withSentQuotePreview(renderUserMessageContent(String(text || "")), quote) : renderMarkdown(String(text || ""));
 

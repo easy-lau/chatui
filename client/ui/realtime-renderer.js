@@ -2,8 +2,10 @@
   'use strict';
 
 function createRealtimeRenderer(render, options = {}) {
-  const lowerBoundMs = Number(root.CHATUI_MIN_STREAM_RENDER_INTERVAL_MS) || 80;
-  const minIntervalMs = Math.max(lowerBoundMs, Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 80);
+  const configuredDefaultMs = Number(root.CHATUI_MIN_STREAM_RENDER_INTERVAL_MS);
+  const defaultIntervalMs = Number.isFinite(configuredDefaultMs) && configuredDefaultMs > 0 ? configuredDefaultMs : 80;
+  const requestedIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : defaultIntervalMs;
+  const minIntervalMs = Math.max(16, requestedIntervalMs);
   let value = '';
   let pendingValue = '';
   let timer = null;

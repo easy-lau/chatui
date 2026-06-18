@@ -39,6 +39,7 @@ function normalizeImageContextForStorage(context = {}) {
     mode: context.mode || '',
     target: context.target || '',
     prompt: context.prompt || '',
+    content: context.content || '',
     usePreviousImage: !!context.usePreviousImage,
     updatedAt: context.updatedAt || context.updated_at || null,
     imageCount: Number(context.imageCount || context.image_count) || (Array.isArray(context.attachments) ? context.attachments.length : 0),
@@ -48,14 +49,18 @@ function normalizeImageContextForStorage(context = {}) {
     selectedImageIds: normalizeSelectedImageIds(context.selectedImageIds || context.selected_image_ids || []),
     attachments: Array.isArray(context.attachments)
       ? context.attachments.map(item => ({
+        id: item.id || item.attachmentId || item.attachment_id || '',
         name: item.name || '',
         type: item.type || '',
         size: Number(item.size) || 0,
         src: item.persistedSrc || item.src || '',
+        text: item.text || '',
+        unsupportedReason: item.unsupportedReason || item.unsupported_reason || '',
+        compressionNote: item.compressionNote || item.compression_note || '',
         imageId: item.imageId || item.image_id || '',
         referenceId: item.referenceId || item.reference_id || '',
         sourceIndex: Number(item.sourceIndex || item.source_index) || 0,
-      })).filter(item => item.src || item.name)
+      })).filter(item => item.src || item.name || item.text)
       : [],
   };
 }

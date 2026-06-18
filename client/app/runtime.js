@@ -23,11 +23,16 @@
     return label;
   }
 
-  async function loadAppVersion({ fetchImpl = fetch, setVersion = setDisplayedVersion, fallback = '1.1.1' } = {}) {
+  async function loadAppVersion({ fetchImpl = fetch, setVersion = setDisplayedVersion, fallback = '1.1.1', runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService } = {}) {
     try {
-      const res = await fetchImpl('/api/version', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return setVersion((await res.json()).version);
+      const version = runtimeService?.requestAppVersion
+        ? await runtimeService.requestAppVersion({ fetchImpl })
+        : await (async () => {
+          const res = await fetchImpl('/api/version', { cache: 'no-store' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()).version;
+        })();
+      return setVersion(version);
     } catch {
       return setVersion(fallback);
     }
