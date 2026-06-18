@@ -1988,21 +1988,48 @@ body{
 .pending-feedback{
   display:inline-flex!important;
   align-items:center!important;
+  flex-wrap:nowrap!important;
+  max-width:100%!important;
   gap:9px!important;
   min-height:34px!important;
   padding:8px 0!important;
   color:var(--ds-muted)!important;
   font-size:15px!important;
+  line-height:1.35!important;
+  white-space:nowrap!important;
 }
 .pending-orb{
   width:9px!important;
   height:9px!important;
+  flex:0 0 9px!important;
   background:var(--ds-accent)!important;
   border-radius:50%!important;
   box-shadow:0 0 0 5px rgba(77,107,254,.1)!important;
 }
+.pending-text,
+.pending-dots{
+  flex:0 0 auto!important;
+  white-space:nowrap!important;
+}
 .pending-dots i{
   background:var(--ds-accent)!important;
+}
+@media (max-width:640px){
+  .pending-feedback{
+    gap:6px!important;
+    font-size:14px!important;
+    min-height:30px!important;
+    padding:5px 0!important;
+  }
+  .pending-orb{
+    width:8px!important;
+    height:8px!important;
+    flex-basis:8px!important;
+    box-shadow:0 0 0 4px rgba(77,107,254,.1)!important;
+  }
+  .pending-dots{
+    gap:2px!important;
+  }
 }
 /* DeepSeek-like thought panel. JS toggles data-collapsed without changing persisted content. */
 .reasoning-panel{
@@ -2668,6 +2695,11 @@ body{
 .message .msg-actions:hover{
   opacity:.95!important;
 }
+@media (max-width:840px){
+  .message .msg-actions:not(:hover){
+    opacity:.52!important;
+  }
+}
 :root{
   --msg-action-fg:#64748b;
   --msg-action-bg:rgba(255,255,255,.74);
@@ -2838,6 +2870,20 @@ body{
   color:#0891b2!important;
   border-color:rgba(8,145,178,.18)!important;
   background:var(--msg-action-bg)!important;
+}
+.msg-actions .mobile-more-btn.icon-action-btn{
+  color:#4d6bfe!important;
+  border-color:rgba(77,107,254,.18)!important;
+  background:var(--msg-action-bg)!important;
+  display:none!important;
+}
+.msg-actions .mobile-more-btn.icon-action-btn:hover,
+.msg-actions .mobile-more-btn.icon-action-btn:focus-visible,
+.msg-actions.is-mobile-open .mobile-more-btn.icon-action-btn{
+  color:#3152d4!important;
+  border-color:rgba(77,107,254,.28)!important;
+  background:var(--msg-action-hover-bg)!important;
+  box-shadow:var(--msg-action-hover-shadow)!important;
 }
 .msg-actions svg{
   color:currentColor!important;
@@ -3247,4 +3293,22 @@ body{
 }
 .msg-actions .force-image-btn.icon-action-btn .force-image-frame {
   opacity: .58 !important;
+}
+
+@media (max-width:840px){
+  .msg-actions{
+    gap:4px!important;
+  }
+  .msg-actions .mobile-more-btn.icon-action-btn{
+    display:inline-flex!important;
+  }
+  .msg-actions:not(.is-mobile-open) .icon-action-btn:not(.mobile-more-btn){
+    display:none!important;
+  }
+  .msg-actions.is-mobile-open{
+    opacity:.98!important;
+  }
+  .msg-actions.is-mobile-open .icon-action-btn:not(.mobile-more-btn){
+    display:inline-flex!important;
+  }
 }

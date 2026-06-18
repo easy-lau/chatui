@@ -538,6 +538,25 @@
       }
     }
 
+    function bindMobileMoreActions(node) {
+      const actions = node?.querySelector?.('.msg-actions');
+      const more = node?.querySelector?.('.mobile-more-btn');
+      if (!actions || !more) return;
+      more.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const expanded = actions.classList.toggle('is-mobile-open');
+        more.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      });
+      actions.addEventListener('click', event => {
+        if (event.target?.closest?.('.mobile-more-btn')) return;
+        if (event.target?.closest?.('button')) {
+          actions.classList.remove('is-mobile-open');
+          more.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
     function addMessageProgressive(role, text, options = {}) {
       with (deps) {
         clearEmpty();
@@ -566,6 +585,7 @@
 
         cleanupGeneratedImageNumberArtifacts(node);
         bindSentQuotePreviews(node);
+        bindMobileMoreActions(node);
         node.querySelector(".quote-btn")?.addEventListener("click", () => selectQuotedMessage(node));
         const edit = node.querySelector(".edit-btn");
         if (role === "user") edit.addEventListener("click", () => editUserMessage(node));
