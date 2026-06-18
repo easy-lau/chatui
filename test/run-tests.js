@@ -176,7 +176,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.47'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.48'), 'submit workflow cache version should be bumped for pending clarification fix');
 }
 
 function testImageEditPromptFallbackAndValidation() {
@@ -679,7 +679,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.26') && index.includes('flat-theme.css?v=2.1.24'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.26') && index.includes('flat-theme.css?v=2.1.25'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -869,6 +869,19 @@ function testResumeStreamButtonAnchorsAboveComposer() {
   assert.ok(scroll.includes('state.userScrollLocked && away') && !scroll.includes('!state.streamFocusLocked || away'), 'resume stream button should only show after a real user scroll-away, not flicker during normal streaming auto-follow');
   assert.ok(css.includes('.resume-stream-btn') && css.includes('bottom:var(--resume-stream-bottom'), 'composer stylesheet should place the resume button above the input composer');
   assert.ok(index.includes('styles/composer.css?v=1.3.1') && index.includes('scroll-focus-workflow.js?v=1.3.33'), 'cache-busting versions should be bumped for resume button positioning fixes');
+}
+
+function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
+  const featureSource = fs.readFileSync(path.join(__dirname, '../client/features/history-anchor-nav.js'), 'utf8');
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  assert.ok(featureSource.includes('const isLastQuestionNode = node =>') && featureSource.includes('const pinLastQuestionToTop = isLastQuestionNode(node)'), 'history anchor should only add tail spacer when the clicked directory item is the last question that needs top pinning');
+  assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
+  assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
+  assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.14') && index.includes('submit-workflow.js?v=1.3.48') && index.includes('chatui.bundle.js?v=1.3.28-arch38'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch38'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -1463,8 +1476,8 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch37'), 'config default change should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch38'), 'config default change should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch38'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1493,8 +1506,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.26') && index.includes('app.js?v=1.3.26-ds11') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch37') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.26') && index.includes('app.js?v=1.3.26-ds11') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch38') && index.includes('chatui.bundle.js?v=1.3.28-arch38') && index.includes('styles/flat-theme.css?v=2.1.25'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch38'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -1510,8 +1523,8 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch38') && index.includes('styles/flat-theme.css?v=2.1.25'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch38'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -1519,6 +1532,7 @@ function testMessageActionButtonsUsePolishedStyle() {
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
   assert.ok(flatCss.includes('Final message action polish: glassy rounded buttons with subtle per-action accents'), 'message actions should document the shared polished style layer');
+  assert.ok(flatCss.includes('.message .msg-actions:not(:hover)') && flatCss.includes('opacity:.34!important') && flatCss.includes('.message:hover .msg-actions') && flatCss.includes('opacity:.95!important'), 'message action groups should stay less visually prominent until the pointer moves over the message');
   assert.ok(flatCss.includes('--msg-action-bg:rgba(255,255,255,.74)') && flatCss.includes('--msg-action-border:rgba(148,163,184,.22)') && flatCss.includes('--msg-action-shadow:0 6px 16px'), 'message actions should use the same glassy button surface as the force-image polish');
   assert.ok(flatCss.includes('backdrop-filter:blur(10px) saturate(145%)') && flatCss.includes('transition:color .14s ease'), 'message action buttons should have refined blur and motion polish');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn{') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn{') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn{') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn,') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn{'), 'all message buttons should be colored in the normal state, not only on hover');
@@ -1526,8 +1540,8 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch37') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch38') && index.includes('chatui.bundle.js?v=1.3.28-arch38') && index.includes('styles/flat-theme.css?v=2.1.25'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch38'"), 'server bundle version should match message action polish cache-busting');
 }
 
 const tests = [
@@ -1570,6 +1584,7 @@ const tests = [
   testMarkdownLiveStreamIsFeatureModule,
   testStreamingOutputSmoothnessOptimizations,
   testResumeStreamButtonAnchorsAboveComposer,
+  testHistoryAnchorLastQuestionSpacerClearsOnSubmit,
   testHistoryAnchorNavFeature,
   testLargeMarkdownInitialRenderIsProgressive,
   testEnglishImagePromptExtractionStaysChatWithCurrentImage,

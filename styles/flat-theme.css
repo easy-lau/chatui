@@ -2660,6 +2660,14 @@ body{
 }
 
 /* Final message action polish: glassy rounded buttons with subtle per-action accents. */
+.message .msg-actions:not(:hover){
+  opacity:.34!important;
+}
+.message:hover .msg-actions,
+.message:focus-within .msg-actions,
+.message .msg-actions:hover{
+  opacity:.95!important;
+}
 :root{
   --msg-action-fg:#64748b;
   --msg-action-bg:rgba(255,255,255,.74);
@@ -2696,7 +2704,6 @@ body{
 .message.error.has-meta .msg-actions,
 .message.error:hover .msg-actions,
 .message.error:focus-within .msg-actions{
-  opacity:1!important;
   filter:none!important;
 }
 .message[data-streaming="1"] .msg-actions,

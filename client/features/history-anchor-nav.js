@@ -247,20 +247,27 @@
       spacer.style.height = `${Math.ceil(needed)}px`;
     };
 
+    const isLastQuestionNode = node => {
+      const users = userQuestionNodes(messages);
+      return !!node && users.length > 0 && users[users.length - 1] === node;
+    };
+
     const jumpToNode = node => {
       if (!node) return;
       cancelPendingJump({ clearSpacer: true });
+      const pinLastQuestionToTop = isLastQuestionNode(node);
       const token = jumpScrollToken;
-      try { markManualScroll?.({ type: 'history-anchor-nav' }); } catch {}
+      try { markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop }); } catch {}
       try { root.cancelSessionTailFocusAfterLayout?.(); } catch {}
       try { root.cancelScrollTimer?.(); } catch {}
       try { root.ChatUIScrollDebug?.releaseBottomScrollLock?.({ bumpVersion: true, suppressMs: 2600 }); } catch {}
       try { root.ChatUIScrollDebug?.cleanupBottomScrollLock?.(); } catch {}
       if (messages) {
-        ensureJumpScrollSpace(node, 18);
+        if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18);
         const applyScroll = () => {
           if (token !== jumpScrollToken) return;
           if (!node.isConnected) return;
+          if (!pinLastQuestionToTop) clearJumpScrollSpace();
           messages.scrollTop = Math.max(0, offsetTopWithin(node) - 18);
         };
         applyScroll();

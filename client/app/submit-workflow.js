@@ -16,6 +16,7 @@
           if(hasPendingUploads())return updateSendAvailability(),void toast("文件还在处理中，请等待完成后再发送");
           state.suppressNextSubmitStop=!1;
           const rawPromptText=$("prompt").value.trim();
+          try { root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
           let promptText=rawPromptText;
           if(!promptText&&!state.attachments.length)return;
           unlockDoneSound(),saveConfig(!0);
