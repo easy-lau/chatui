@@ -669,7 +669,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.25') && index.includes('flat-theme.css?v=2.1.19'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.26') && index.includes('flat-theme.css?v=2.1.19'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -1453,8 +1453,8 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch30'), 'config default change should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch30'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch31'), 'config default change should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch31'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1469,6 +1469,21 @@ function testRegenerateRemovesOldAssistantImmediately() {
   const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   assert.ok(app.includes('const c=prepareRegeneratedResponse(t,e,l,a,"已收到，马上处理")'), 'regenerate click should remove the old assistant node immediately and insert a fresh live placeholder');
   assert.ok(!app.includes('prepareReplacementResponse({node:t,responseNode:e,index:n,responseIndex:a},l,"已收到，马上处理",{deferClear:!0})'), 'regenerate should not reuse/update the old assistant node as the loading placeholder');
+}
+
+function testForceImageButtonOnUserMessages() {
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const messageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  assert.ok(index.includes('class="force-image-btn icon-action-btn"') && index.includes('title="强制生图"'), 'message actions should include a force-image button in the user message button area');
+  assert.ok(messageWorkflow.includes('const forceImage = node.querySelector(".force-image-btn")'), 'message workflow should bind the force-image button');
+  assert.ok(messageWorkflow.includes('if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));') && messageWorkflow.includes('else forceImage?.remove();'), 'force-image button should only be available on user messages');
+  assert.ok(app.includes('forceImageFromUserMessage'), 'app should expose force-image action to the message workflow');
+  assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
+  assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
+  assert.ok(index.includes('message-workflow.js?v=1.3.26') && index.includes('app.js?v=1.3.26-ds11') && index.includes('chatui.bundle.js?v=1.3.28-arch31'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch31'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 const tests = [
@@ -1548,6 +1563,7 @@ const tests = [
   testConfigBaseUrlDefault,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
   testRegenerateRemovesOldAssistantImmediately,
+  testForceImageButtonOnUserMessages,
 ];
 
 (async () => {

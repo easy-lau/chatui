@@ -570,6 +570,9 @@
         const edit = node.querySelector(".edit-btn");
         if (role === "user") edit.addEventListener("click", () => editUserMessage(node));
         else edit.remove();
+        const forceImage = node.querySelector(".force-image-btn");
+        if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));
+        else forceImage?.remove();
         const refresh = node.querySelector(".refresh-btn");
         if (role === "assistant" || role === "error") refresh.addEventListener("click", () => regenerateAssistantMessage(node));
         else refresh.remove();
