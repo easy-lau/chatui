@@ -55,7 +55,6 @@
             if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem()}
             else {
               assistantNode=isTargetActive()?addMessage("assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",skipSave:!0}):null;
-              state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0});
               if(sessionForReply){liveItem=appendSessionDisplayMessage(sessionId,"assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",pending:!0,responseIndex});assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex));prepareManagedChatJobForLiveItem()}
             }
             await prepareUserAttachmentPreviews(attachments);
@@ -127,7 +126,7 @@
           }catch(err){
             run.stopped||"AbortError"===err?.name||showRunError(sessionId,err,liveItem,assistantNode)
           }finally{
-            stopRouteSlowNoticeTimer(),setSessionBusy(sessionId,!1),clearActiveRun(sessionId,run),$("prompt").focus()
+            routeUi?.stopSlowNotice?.(),setSessionBusy(sessionId,!1),clearActiveRun(sessionId,run),$("prompt").focus()
           }
 
       }

@@ -98,7 +98,7 @@
       updateSendAvailability();
     }
     function setUploadTask(id, patch = {}) { const task = (getState().uploadTasks || []).find(item => item.id === id); if (task) { Object.assign(task, patch); renderUploadProgress(); autoResize(); } }
-    function finishUploadProgressSoon() { const state = getState(); clearTimeout(state.uploadProgressTimer); state.uploadProgressTimer = setTimeout(() => { state.uploadTasks = []; renderUploadProgress(); autoResize(); updateSendAvailability(); }, 250); }
+    function finishUploadProgressSoon() { const state = getState(); window.clearTimeout.call(window, state.uploadProgressTimer); state.uploadProgressTimer = window.setTimeout.call(window, () => { state.uploadTasks = []; renderUploadProgress(); autoResize(); updateSendAvailability(); }, 250); }
     function setUploadPhase(id, phase, percent = 0) { setUploadTask(id, { phase, percent: Math.max(0, Math.min(100, Math.round(percent))), status: phase }); }
     function setUploadPhaseProgress(id, phase, loaded, total) { const done = Number(loaded) || 0; const all = Number(total) || 0; setUploadPhase(id, phase, all > 0 ? 100 * done / all : 0); }
     function startTimedUploadPhase(id, phase, start = 8, end = 96, intervalMs = 220) { const started = root.performance?.now ? root.performance.now() : Date.now(); setUploadPhase(id, phase, start); return setInterval(() => { const elapsed = (root.performance?.now ? root.performance.now() : Date.now()) - started; const value = start + (end - start) * (1 - Math.exp(-elapsed / 4200)); setUploadPhase(id, phase, Math.min(end, value)); }, intervalMs); }

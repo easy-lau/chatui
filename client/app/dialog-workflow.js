@@ -16,8 +16,8 @@
       }
       node.textContent = message;
       node.classList.add('show');
-      clearTimeout(node._timer);
-      node._timer = setTimeout(() => node.classList.remove('show'), 1800);
+      window.clearTimeout.call(window, node._timer);
+      node._timer = window.setTimeout.call(window, () => node.classList.remove('show'), 1800);
     }
 
     function showConfirmDialog(options = {}) {
@@ -58,7 +58,7 @@
         dialog.querySelectorAll('[data-confirm-cancel]').forEach(item => item.addEventListener('click', onCancel));
         confirm.addEventListener('click', onConfirm);
         document.addEventListener('keydown', onKeydown);
-        setTimeout(() => confirm.focus(), 30);
+        window.setTimeout.call(window, () => confirm.focus(), 30);
       });
     }
 

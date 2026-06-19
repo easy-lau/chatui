@@ -61,16 +61,16 @@
         if (fallbackHandle) clearTimeout(fallbackHandle);
         callback(deadline || { didTimeout: true, timeRemaining: () => 0 });
       };
-      fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 100);
+      fallbackHandle = window.setTimeout.call(window, () => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 100);
       if (typeof requestIdleCallback === 'function') idleHandle = requestIdleCallback(run, { timeout: timeoutMs });
-      else setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
+      else window.setTimeout.call(window, () => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
       return { idleHandle, fallbackHandle };
     }
     function chatuiCancelIdle(handle) {
       if (!handle) return;
       if (typeof handle === 'object') {
         if (handle.idleHandle != null && typeof cancelIdleCallback === 'function') cancelIdleCallback(handle.idleHandle);
-        if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
+        if (handle.fallbackHandle != null) window.clearTimeout.call(window, handle.fallbackHandle);
         return;
       }
       if (typeof cancelIdleCallback === 'function') cancelIdleCallback(handle);

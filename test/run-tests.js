@@ -78,6 +78,8 @@ function testRouteContextIsCompactAndIndexed() {
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
   assert.ok(payload.messages[0].content.includes('"route":"chat|vision|image_generate|image_edit|unclear|unsafe"'));
   assert.ok(payload.messages[0].content.includes('image_source'));
+  const payloadJson = JSON.stringify(payload);
+  assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking|thinking_budget|thinkingConfig)/i.test(payloadJson), 'route recognition payload should not send thinking/reasoning params');
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
   assert.strictEqual(minimalPayload.messages[1].content, JSON.stringify({ current_input: '解释一下 JavaScript 里的 Promise 是什么。' }));
   assert.ok(minimalPayload.messages[0].content.length < 2600, `route system prompt too large: ${minimalPayload.messages[0].content.length}`);
@@ -176,7 +178,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.53'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.55'), 'submit workflow cache version should be bumped for pending clarification fix');
 }
 
 function testImageEditPromptFallbackAndValidation() {
@@ -880,8 +882,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.14') && index.includes('submit-workflow.js?v=1.3.53') && index.includes('chatui.bundle.js?v=1.3.28-arch43'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.14') && index.includes('submit-workflow.js?v=1.3.55') && index.includes('chatui.bundle.js?v=1.3.28-arch47'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -1476,8 +1478,8 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch43'), 'config default change should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.69') && index.includes('chatui.bundle.js?v=1.3.28-arch47'), 'config default change should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1506,8 +1508,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.27') && index.includes('app.js?v=1.3.26-ds14') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch43') && index.includes('chatui.bundle.js?v=1.3.28-arch43') && index.includes('styles/flat-theme.css?v=2.1.29'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.27') && index.includes('app.js?v=1.3.26-ds16') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -1523,8 +1525,8 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch43') && index.includes('styles/flat-theme.css?v=2.1.29'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -1545,8 +1547,8 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch43') && index.includes('chatui.bundle.js?v=1.3.28-arch43') && index.includes('styles/flat-theme.css?v=2.1.29'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
@@ -1556,8 +1558,8 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(flatCss.includes('.pending-feedback{') && flatCss.includes('flex-wrap:nowrap!important') && flatCss.includes('white-space:nowrap!important'), 'pending feedback should keep waiting text on one line');
   assert.ok(flatCss.includes('.pending-text,') && flatCss.includes('.pending-dots{') && flatCss.includes('flex:0 0 auto!important'), 'pending feedback text and dots should not shrink into wrapped fragments');
   assert.ok(flatCss.includes('@media (max-width:640px)') && flatCss.includes('font-size:14px!important') && flatCss.includes('gap:6px!important'), 'mobile pending feedback should be compact enough to avoid wrapping');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch43') && index.includes('chatui.bundle.js?v=1.3.28-arch43') && index.includes('styles/flat-theme.css?v=2.1.29'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch43'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
@@ -1578,7 +1580,24 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   const imageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/image-workflow.js'), 'utf8');
   assert.ok(imageWorkflow.includes('clearReasoning?.(d)') && imageWorkflow.includes('delete c.reasoningText'), 'image generation should clear route/chat reasoning panel when it starts');
   assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.3.15'), 'image reasoning cleanup should be wired and cache-busted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.53') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.26-ds14') && index.includes('flat-theme.css?v=2.1.29'), 'cache versions should be bumped for route timeout UX');
+  const sessionPanelWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/session-panel-workflow.js'), 'utf8');
+  assert.ok(sessionPanelWorkflow.includes('window.setTimeout.call(window,()=>n.focus(),a||60)'), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
+
+  const configWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
+  const dialogWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/dialog-workflow.js'), 'utf8');
+  const performanceWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
+  const attachmentsWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/attachments-workflow.js'), 'utf8');
+  assert.ok(configWorkflow.includes('window.setTimeout.call(window,()=>getElement("baseUrl")?.focus(),0)'), 'config modal should bind native setTimeout to window');
+  assert.ok(dialogWorkflow.includes('window.setTimeout.call(window') && dialogWorkflow.includes('window.clearTimeout.call(window'), 'dialog workflow should bind native timers to window');
+  assert.ok(performanceWorkflow.includes('window.setTimeout.call(window') && performanceWorkflow.includes('window.clearTimeout.call(window'), 'performance workflow should bind native timers to window');
+  assert.ok(attachmentsWorkflow.includes('window.setTimeout.call(window') && attachmentsWorkflow.includes('window.clearTimeout.call(window'), 'attachments workflow should bind native timers to window');
+
+  assert.ok(index.includes('session-panel-workflow.js?v=1.2.67'), 'session panel Illegal invocation fix should bump cache version');
+  assert.ok(!submitWorkflow.includes('stopRouteSlowNoticeTimer()') && submitWorkflow.includes('routeUi?.stopSlowNotice?.()'), 'submit cleanup should call the shared route UI timer cleanup instead of a removed local helper');
+  assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
+  const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.55') && index.includes('chat-workflow.js?v=1.3.14') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.26-ds16') && index.includes('flat-theme.css?v=2.1.29'), 'cache versions should be bumped for route timeout UX');
 }
 
 const tests = [

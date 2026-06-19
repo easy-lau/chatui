@@ -32,7 +32,7 @@
 
     function saveConfig(e=!1){cleanupLegacyConfigCache();const t=getConfig();localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,apiKey:t.apiKey,headerParams:normalizeHeaderParamConfig(t.headerParams),chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,directMode:!!t.directMode,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal()}
 
-    function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),setTimeout(()=>getElement("baseUrl")?.focus(),0)}
+    function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("baseUrl")?.focus(),0)}
 
     function closeConfigModal(){document.body.classList.remove("modal-open"),getElement("configModal").classList.remove("show"),getElement("configModal").setAttribute("aria-hidden","true")}
 
