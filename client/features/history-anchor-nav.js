@@ -73,6 +73,7 @@
     let popupObserver = null;
     let currentItems = [];
     let jumpScrollToken = 0;
+    let pinnedOpen = false;
 
     const clearJumpScrollSpace = () => {
       messages?.querySelector?.('.history-anchor-scroll-spacer')?.remove?.();
@@ -83,13 +84,15 @@
       if (options.clearSpacer) clearJumpScrollSpace();
     };
 
-    const setExpanded = value => {
+    const setExpanded = (value, options = {}) => {
       expanded = !!value;
+      if (Object.prototype.hasOwnProperty.call(options, 'pinned')) pinnedOpen = !!options.pinned;
       nav.classList.toggle('is-expanded', expanded);
       nav.classList.toggle('is-collapsed', !expanded);
+      nav.classList.toggle('is-pinned', expanded && pinnedOpen);
       nav.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       toggleEl?.setAttribute?.('aria-expanded', expanded ? 'true' : 'false');
-      toggleEl?.setAttribute?.('title', expanded ? '收起目录' : '消息目录');
+      toggleEl?.setAttribute?.('title', expanded ? (pinnedOpen ? '关闭目录' : '移开后收起目录') : '消息目录');
       toggleEl?.setAttribute?.('aria-label', expanded ? '收起历史问题目录' : '展开历史问题目录');
     };
 
@@ -335,7 +338,7 @@
           jumpToNode(nodeForItem(item, { ensure: true }));
           return;
         }
-        setExpanded(!expanded);
+        setExpanded(!expanded || !pinnedOpen, { pinned: !expanded || !pinnedOpen });
       });
       toggleEl.addEventListener('pointerover', event => {
         const bar = event.target?.closest?.('.history-anchor-rail-bar');
@@ -348,10 +351,15 @@
         syncListToRail();
       }, { passive: false });
       nav.addEventListener('pointerenter', () => setExpanded(true));
-      nav.addEventListener('pointerleave', () => { setExpanded(false); setHover(''); });
+      nav.addEventListener('pointerleave', () => { if (!pinnedOpen) setExpanded(false); setHover(''); });
       nav.addEventListener('focusin', () => setExpanded(true));
       nav.addEventListener('focusout', event => {
-        if (!nav.contains(event.relatedTarget)) { setExpanded(false); setHover(''); }
+        if (!nav.contains(event.relatedTarget) && !pinnedOpen) { setExpanded(false); setHover(''); }
+      });
+      doc.addEventListener?.('click', event => {
+        if (!pinnedOpen || nav.contains(event.target)) return;
+        setExpanded(false, { pinned: false });
+        setHover('');
       });
       const panel = doc.createElement('div');
       panel.className = 'history-anchor-panel';
