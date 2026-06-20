@@ -1700,7 +1700,13 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(index.includes('submit-workflow.js?v=1.3.56') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.39'), 'cache versions should be bumped for route timeout UX');
 }
 
+function testDockerfileIncludesSharedRuntimeModules() {
+  const dockerfile = fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8');
+  assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
+}
+
 const tests = [
+  testDockerfileIncludesSharedRuntimeModules,
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
   testImageResultParsingSupportsMultipleImages,

@@ -36,6 +36,7 @@ COPY config ./config
 COPY styles ./styles
 COPY client ./client
 COPY server ./server
+COPY shared ./shared
 COPY vendor ./vendor
 
 USER node
