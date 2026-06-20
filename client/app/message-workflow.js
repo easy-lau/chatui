@@ -21,15 +21,13 @@
     }
 
     const messageDomain = root.ChatUIFeaturesMessagesDomain || {};
+    const messageModel = root.ChatUIFeaturesMessagesModel || messageDomain;
     const messageRoleLabel = messageDomain.messageRoleLabel || (role => role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息');
     const messageRoleFromNode = messageDomain.messageRoleFromNode || (node => node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error');
     const normalizeQuoteText = messageDomain.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
     const escapeHtmlLocal = messageDomain.escapeHtmlLocal || (value => String(value ?? '').replace(/[&<>\"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
-    const readQuoteContext = messageDomain.readQuoteContext || (() => null);
-    const quoteContextJson = messageDomain.quoteContextJson || (value => {
-      const quote = readQuoteContext(value);
-      return quote ? JSON.stringify(quote) : '';
-    });
+    const readQuoteContext = messageDomain.readQuoteContext || (value => messageModel.normalizeQuoteContext?.(value, { normalizeQuoteText }) || null);
+    const quoteContextJson = messageDomain.quoteContextJson || (value => messageModel.quoteContextJson?.(value, { normalizeQuoteText }) || '');
 
     const quotePreview = (root.ChatUIFeaturesMessagesQuotePreview?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
       readQuoteContext,
@@ -91,9 +89,10 @@
       target.classList.remove('quote-target-flash');
       void target.offsetWidth;
       target.classList.add('quote-target-flash');
-      const clearFlash = () => target.classList.remove('quote-target-flash');
+      target.dataset.quoteFlash = String(Date.now());
+      const clearFlash = () => { target.classList.remove('quote-target-flash'); delete target.dataset.quoteFlash; };
       target.addEventListener?.('animationend', clearFlash, { once: true });
-      setTimeout(clearFlash, 2800);
+      setTimeout(clearFlash, 3000);
       return true;
     }
 
@@ -158,9 +157,11 @@
     function displayItemForNode(node) {
       const session = activeSession();
       const display = Array.isArray(session?.display) ? session.display : [];
-      const displayItemId = node?.dataset?.displayItemId || node?.__displayItem?.id || '';
-      const responseIndex = node?.dataset?.responseIndex || node?.__displayItem?.responseIndex || '';
-      const messageIndex = node?.dataset?.messageIndex || node?.__displayItem?.messageIndex || '';
+      const { displayItemId, responseIndex, messageIndex } = messageModel.resolveDisplayItemKey?.(node) || {
+        displayItemId: node?.dataset?.displayItemId || node?.__displayItem?.id || '',
+        responseIndex: node?.dataset?.responseIndex || node?.__displayItem?.responseIndex || '',
+        messageIndex: node?.dataset?.messageIndex || node?.__displayItem?.messageIndex || '',
+      };
       return node?.__displayItem
         || (displayItemId ? display.find(item => item?.id === displayItemId) : null)
         || (responseIndex !== '' ? display.find(item => item?.role === 'assistant' && String(item.responseIndex || '') === String(responseIndex)) : null)
@@ -184,12 +185,22 @@
       return null;
     }
 
-    function hasUsableImageContext(value) {
+    const hasUsableImageContext = messageModel.hasUsableImageContext || (value => {
       if (!value) return false;
       try {
         const context = typeof value === 'string' ? JSON.parse(value) : value;
         return !!(context && typeof context === 'object' && Array.isArray(context.attachments) && context.attachments.length);
       } catch { return false; }
+    });
+
+    function quoteContentTextFromNode(node, displayItem, canonical) {
+      const raw = node?.dataset?.rawText || displayItem?.rawText || canonical?.rawText || canonical?.content || '';
+      if (String(raw || '').trim()) return raw;
+      const contentNode = node?.querySelector?.('.content');
+      if (contentNode) return contentNode.innerText || contentNode.textContent || '';
+      const clone = node?.cloneNode?.(true);
+      clone?.querySelectorAll?.('.reasoning-panel,.reasoning-head,.reasoning-content').forEach(item => item.remove());
+      return clone?.textContent || '';
     }
 
     function resolveQuoteContextForNode(node) {
@@ -198,13 +209,7 @@
       const displayItem = displayItemForNode(node);
       const canonical = canonicalMessageForNode(node, role);
       const content = normalizeQuoteText(
-        node.dataset.rawText
-        || displayItem?.rawText
-        || canonical?.rawText
-        || canonical?.content
-        || node.querySelector?.('.content')?.innerText
-        || node.textContent
-        || ''
+        quoteContentTextFromNode(node, displayItem, canonical)
       );
       let imageContext = node.dataset.imageContext || displayItem?.imageContext || canonical?.imageContext || '';
       if (imageContext && !hasUsableImageContext(imageContext)) imageContext = '';
@@ -219,7 +224,7 @@
       if (!quoteContent && !imageContext && !attachmentContext) return null;
       if (imageContext && !node.dataset.imageContext) node.dataset.imageContext = imageContext;
       if (attachmentContext && !node.dataset.attachmentContext) node.dataset.attachmentContext = attachmentContext;
-      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content: quoteContent, sessionId: deps.state.activeSessionId || '' };
+      const quote = { role: messageModel.normalizeRole?.(role, 'user') || (role === 'assistant' ? 'assistant' : 'user'), content: quoteContent, sessionId: deps.state.activeSessionId || '' };
       const displayItemId = node.dataset.displayItemId || displayItem?.id || canonical?.displayItemId || '';
       const messageIndex = node.dataset.messageIndex || displayItem?.messageIndex || canonical?.messageIndex || '';
       const responseIndex = node.dataset.responseIndex || displayItem?.responseIndex || canonical?.responseIndex || '';
@@ -636,6 +641,10 @@
 
   const api = Object.freeze({ createMessageWorkflow });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIAppMessageWorkflow = api;
+  if (root) {
+    root.ChatUIAppMessageWorkflow = api;
+    root.ChatUIFeaturesMessagesModel = root.ChatUIFeaturesMessagesModel || {};
+    try { if (typeof require === 'function') root.ChatUIFeaturesMessagesModel = require('../features/messages/message-model'); } catch {}
+  }
   if (root?.window) root.window.ChatUIAppMessageWorkflow = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

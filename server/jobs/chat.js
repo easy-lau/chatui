@@ -3,7 +3,8 @@ const { performance } = require('perf_hooks');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
-const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../client/core/context-budget');
+const chatStreamParser = require('./chat-stream-parser');
+const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../shared/config/context-budget');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 
@@ -228,46 +229,12 @@ function notifyChatStreamJob(job) {
   notifyJob(job);
 }
 
-function markFirstToken(job) {
-  if (job.firstTokenMs === null || job.firstTokenMs === undefined) {
-    job.firstTokenMs = elapsedSince(job.serverStartAtMs);
-  }
-}
-
-function updateChatJobFromStreamChunk(job, text, { notify = true } = {}) {
-job.buffer = (job.buffer || '') + text;
-const events = job.buffer.split(/\r?\n\r?\n/);
-job.buffer = events.pop() || '';
-const message = job.data.choices[0].message;
-let chunkContent = '';
-let chunkReasoning = '';
-for (const eventText of events) {
-  const dataText = eventText
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(line => line.startsWith('data:'))
-    .map(line => line.slice(5).trim())
-    .join('\n')
-    .trim();
-  if (!dataText || dataText === '[DONE]') continue;
-  try {
-    const data = JSON.parse(dataText);
-    const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
-    const content = normalizeContentText(delta.content || delta.text || delta.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || '');
-    const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
-    if (content || reasoning) markFirstToken(job);
-    if (content) { message.content += content; chunkContent += content; }
-    if (reasoning) { message.reasoning_content += reasoning; chunkReasoning += reasoning; }
-    job.updatedAt = Date.now();
-    if (notify && (content || reasoning)) notifyChatStreamJob(job);
-  } catch {}
-}
-if (chunkContent || chunkReasoning) {
-  job.streamSeq = (job.streamSeq || 0) + 1;
-  job.streamDelta = { content: chunkContent, reasoning: chunkReasoning };
-  return true;
-}
-return false;
+function updateChatJobFromStreamChunk(job, text, options = {}) {
+  return chatStreamParser.updateChatJobFromStreamChunk(job, text, {
+    ...options,
+    notifyChatStreamJob,
+    elapsedSince,
+  });
 }
 
   return {

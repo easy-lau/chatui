@@ -7,6 +7,7 @@
     const documentRef = deps.document || root.document;
     const localStorageRef = deps.localStorage || root.localStorage;
     const createSession = deps.createSession;
+    const loadReasoningPreference = deps.loadReasoningPreference || (() => {});
     const deriveSessionTitle = deps.deriveSessionTitle;
     const sessionTitleHtml = deps.sessionTitleHtml;
     const getSessionReturnCount = deps.getSessionReturnCount;
@@ -88,6 +89,7 @@
       localStorageRef.setItem(sessionStorageKey(UI_KEY), '[]');
       localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
       renderActiveSession();
+      loadReasoningPreference();
       updateResumeStreamButton();
       updateSendAvailability();
       closeSessionDrawer();
@@ -118,6 +120,7 @@
         state.activeSessionId = state.sessions[0].id;
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
         syncActiveSession({ skipSave: true });
+        loadReasoningPreference();
         renderActiveSession();
       }
       saveSessionsMeta();
@@ -148,6 +151,7 @@
       });
       state.sessions = [createSession()];
       state.activeSessionId = state.sessions[0].id;
+      loadReasoningPreference();
       state.messages = [];
       state.lastGeneratedImage = null;
       state.attachments = [];

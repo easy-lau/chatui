@@ -1,36 +1,52 @@
-function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, publicJob, subscribeJob, startImageJob, getImageJob, startChatJob, getChatJob }) {
-  function abortJobByUrl(req, res, store) {
-    const id = decodeURIComponent(req.url.split('?')[0].split('/').filter(Boolean).at(-2) || '');
+const { getJobIdFromUrl, isAbortJobUrl, isJobEventsUrl } = require('../../jobs/job-url');
+
+function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed, abortJob, publicJob, subscribeJob, startJob, getJob }) {
+  function abortJobByUrl(req, res) {
+    const id = getJobIdFromUrl(req);
     const job = abortJob(store, id);
     if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
     return sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   }
 
-  function routeChatJobs(req, res) {
-    if (req.url === '/api/chat-jobs') {
+  return function routeJob(req, res) {
+    if (req.url === basePath) {
       if (req.method !== 'POST') return sendMethodNotAllowed(res);
-      return startChatJob(req, res);
+      return startJob(req, res);
     }
-    if (!req.url.startsWith('/api/chat-jobs/')) return false;
-    if (req.method === 'POST' && req.url.split('?')[0].endsWith('/abort')) return abortJobByUrl(req, res, chatJobs);
+    if (!req.url.startsWith(`${basePath}/`)) return false;
+    if (req.method === 'POST' && isAbortJobUrl(req.url)) return abortJobByUrl(req, res);
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
-    if (req.url.split('?')[0].endsWith('/events')) return subscribeJob(req, res, chatJobs);
-    return getChatJob(req, res);
-  }
+    if (isJobEventsUrl(req.url)) return subscribeJob(req, res, store);
+    return getJob(req, res);
+  };
+}
 
-  function routeImageJobs(req, res) {
-    if (req.url === '/api/image-jobs') {
-      if (req.method !== 'POST') return sendMethodNotAllowed(res);
-      return startImageJob(req, res);
-    }
-    if (!req.url.startsWith('/api/image-jobs/')) return false;
-    if (req.method === 'POST' && req.url.split('?')[0].endsWith('/abort')) return abortJobByUrl(req, res, imageJobs);
-    if (req.method !== 'GET') return sendMethodNotAllowed(res);
-    if (req.url.split('?')[0].endsWith('/events')) return subscribeJob(req, res, imageJobs);
-    return getImageJob(req, res);
-  }
+function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, publicJob, subscribeJob, startImageJob, getImageJob, startChatJob, getChatJob }) {
+  const routeChatJobs = createJobRouteHandler({
+    basePath: '/api/chat-jobs',
+    store: chatJobs,
+    sendJson,
+    sendMethodNotAllowed,
+    abortJob,
+    publicJob,
+    subscribeJob,
+    startJob: startChatJob,
+    getJob: getChatJob,
+  });
+
+  const routeImageJobs = createJobRouteHandler({
+    basePath: '/api/image-jobs',
+    store: imageJobs,
+    sendJson,
+    sendMethodNotAllowed,
+    abortJob,
+    publicJob,
+    subscribeJob,
+    startJob: startImageJob,
+    getJob: getImageJob,
+  });
 
   return { routeChatJobs, routeImageJobs };
 }
 
-module.exports = { createJobRoutes };
+module.exports = { createJobRoutes, createJobRouteHandler };

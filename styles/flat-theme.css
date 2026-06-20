@@ -2205,10 +2205,31 @@ body{
 .sent-quote-preview:hover{
   background:#edf1f7!important;
 }
+.message.quote-target-flash{
+  position:relative!important;
+}
+.message.quote-target-flash::before{
+  content:""!important;
+  display:block!important;
+  position:absolute!important;
+  top:8px!important;
+  bottom:8px!important;
+  left:-8px!important;
+  width:5px!important;
+  min-height:24px!important;
+  border-radius:999px!important;
+  background:linear-gradient(180deg,#4d6bfe 0%,#14b8a6 100%)!important;
+  opacity:1!important;
+  z-index:3!important;
+  pointer-events:none!important;
+}
+.message.user.quote-target-flash::before{
+  left:auto!important;
+  right:-8px!important;
+}
 .message.quote-target-flash .bubble{
   outline:0!important;
-  box-shadow:0 0 0 3px rgba(77,107,254,.16),0 14px 34px rgba(77,107,254,.18)!important;
-  filter:saturate(1.05)!important;
+  filter:none!important;
 }
 
 .user-attachment-preview-grid,
@@ -3185,9 +3206,9 @@ body{
 }
 .history-anchor-rail-bar.active::before,
 .history-anchor-rail-bar.hover::before{
-  width:20px;
-  height:4px;
-  box-shadow:0 4px 10px rgba(37,99,235,.18);
+  width:16px;
+  height:3px;
+  box-shadow:none;
 }
 .history-anchor-nav.is-expanded .history-anchor-toggle,
 .history-anchor-toggle:hover{
@@ -3295,8 +3316,8 @@ body{
 .history-anchor-item.active{
   color:var(--history-anchor-accent);
   border-left-color:var(--history-anchor-accent);
-  background:linear-gradient(90deg,rgba(239,246,255,.95),rgba(255,255,255,.62));
-  box-shadow:inset 0 0 0 1px rgba(191,219,254,.62);
+  background:rgba(37,99,235,.06);
+  box-shadow:none;
 }
 .history-anchor-text{
   min-width:0;
@@ -3386,4 +3407,16 @@ body{
   .msg-actions.is-mobile-open .icon-action-btn:not(.mobile-more-btn){
     display:inline-flex!important;
   }
+}
+
+
+.markdown-body .code-block .code-action-icon:hover,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .code-block .mermaid-render-toggle:hover,
+.markdown-body .code-block .code-action-icon:active,
+.markdown-body .code-block .code-copy-icon:active,
+.markdown-body .code-block .mermaid-toggle-btn:active,
+.markdown-body .code-block .mermaid-render-toggle:active{
+  transform:none !important;
 }

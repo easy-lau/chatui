@@ -3,34 +3,42 @@ const fs = require('fs');
 const path = require('path');
 
 const routeContext = require('../client/core/image-route-context');
+const routeDecision = require('../client/core/route-decision');
 const routeService = require('../client/services/route-service');
 const imageGeneration = require('../client/services/image-generation-service');
 const imageService = require('../client/services/image-service');
 const imageJobs = require('../server/jobs/image');
+const imageEditPayloadService = require('../server/services/image-edit-payload.service');
 const serverConfig = require('../server/config');
 const clarificationService = require('../client/services/clarification-service');
 const sessionPersistence = require('../client/app/session-persistence');
 const chatWorkflow = require('../client/app/chat-workflow');
 const imageContextWorkflow = require('../client/app/image-context-workflow');
+const messageModel = require('../client/features/messages/message-model');
 const messageWorkflow = require('../client/app/message-workflow');
-const usageRanges = require('../server/usage/ranges');
-const usageExportXlsx = require('../server/usage/export-xlsx');
-const usageStatsFormat = require('../client/ui/usage-stats-format');
-const usageStatsAuth = require('../client/ui/usage-stats-auth');
-const { JobStore } = require('../server/jobs/store');
-const { readBody } = require('../server/http/body');
-const urlPolicy = require('../server/security/url-policy');
+const scrollMetrics = require('../client/ui/scroll-metrics');
 const extractApi = require('../server/extract');
-const { ConcurrencyLimiter } = require('../server/concurrency');
-const safeLog = require('../server/logging/safe-log');
 const officeExtract = require('../server/extract/office');
 const responsesStream = require('../server/proxy/responses-stream');
 const appState = require('../client/app/state');
+const appContext = require('../client/app/app-context');
 const sessionDisplay = require('../client/app/session-display');
 const formatting = require('../client/app/formatting');
 const markdownEngine = require('../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../client/app/markdown/source-normalizer');
 const sourceAssertions = require('../client/testing/source-assertions');
+const usageTests = require('./unit/usage.test');
+const serverHardeningTests = require('./unit/server-hardening.test');
+const staticBundleTests = require('./unit/static-bundle.test');
+const apiContractTests = require('./unit/api-contract.test');
+const jobRouteTests = require('./unit/job-routes.test');
+const chatStreamParserTests = require('./unit/chat-stream-parser.test');
+const imageJobContractTests = require('./unit/image-job-contract.test');
+const imageEditPayloadContractTests = require('./unit/image-edit-payload-contract.test');
+const imageServiceContractTests = require('./unit/image-service-contract.test');
+const clientContractTests = require('./unit/client-contract.test');
+const submitWorkflowHelperTests = require('./unit/submit-workflow-helpers.test');
+const serverSmokeTests = require('./smoke/server-smoke.test');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -178,7 +186,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.55'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.56'), 'submit workflow cache version should be bumped for pending clarification fix');
 }
 
 function testImageEditPromptFallbackAndValidation() {
@@ -194,6 +202,11 @@ function testImageEditPromptFallbackAndValidation() {
 }
 
 function testImageJobTargetsAndMultipartSanitization() {
+  assert.strictEqual(imageJobs.buildImageEditMultipartBody, imageEditPayloadService.buildImageEditMultipartBody, 'image job should keep exporting multipart builder from the service boundary');
+  assert.strictEqual(imageJobs.buildOpenAiImageEditPayload, imageEditPayloadService.buildOpenAiImageEditPayload, 'image job should keep exporting OpenAI edit payload builder from the service boundary');
+  assert.strictEqual(imageEditPayloadService.safeMultipartFilename({ name: '../bad\r\nname.jpg', type: 'image/png' }, 0), 'bad_name.jpg');
+  assert.strictEqual(imageEditPayloadService.safeMultipartFilename({ name: 'data:image/png;base64,AAAA', type: 'image/png' }, 1), 'image-2.png');
+
   assert.strictEqual(imageJobs.imageJobTargetUrl('https://ingress.lfans.cn/v1', 'image', {}), 'https://ingress.lfans.cn/v1/images/generations');
   assert.strictEqual(imageJobs.imageJobTargetUrl('https://ingress.lfans.cn/v1', 'edit_image', {}), 'https://ingress.lfans.cn/v1/images/edits');
 
@@ -521,6 +534,32 @@ function testLightweightIntentClassifierAdapters() {
   assert.ok(multiAmbiguous.clarificationQuestion.includes('第几张'));
 }
 
+function testRouteDecisionHelpersArePureAndReusedByService() {
+  assert.ok(routeDecision.API_ROUTES.has('image_edit'));
+  assert.ok(routeDecision.IMAGE_SOURCES.has('quoted'));
+  assert.strictEqual(routeService.cleanQuotedContent, routeDecision.cleanQuotedContent);
+  assert.strictEqual(routeService.isPromptWritingInput, routeDecision.isPromptWritingInput);
+  assert.strictEqual(routeService.isImagePromptExtractionInput, routeDecision.isImagePromptExtractionInput);
+
+  assert.deepStrictEqual(routeDecision.normalizeSelectedIndexes(['2', 1, 2, 0, -1, 'x', 3.5, 1]), [2, 1]);
+  assert.strictEqual(routeDecision.currentImageCount([{ is_image: true }, { is_image: false }, null, { is_image: true }]), 2);
+  assert.strictEqual(routeDecision.currentFileCount([{ is_image: true }, { is_image: false }, {}, null]), 2);
+  assert.strictEqual(routeDecision.cleanQuotedContent('[图片生成完成] 猫\n\n\n耗时：1s\n[base64 image]').trim(), '猫');
+  assert.ok(routeDecision.isPromptWritingInput('帮我优化这个图片提示词'));
+  assert.strictEqual(routeDecision.isPromptWritingInput('用这个提示词画一张图'), false);
+  assert.ok(routeDecision.isImagePromptExtractionInput('根据这张图片生成提示词'));
+  assert.strictEqual(routeDecision.isPlainTextChatInput('解释一下 Promise 是什么', []), true);
+  assert.strictEqual(routeDecision.isPlainTextChatInput('画一张猫图', []), false);
+
+  const context = { image_candidates: [
+    { index: 1, source: 'quoted', target: 'previous', image_id: 'q1' },
+    { index: 2, source: 'history', target: 'previous', image_id: 'h1', reference_id: 'imgref_h1' },
+  ] };
+  assert.strictEqual(routeDecision.inferSourceFromContext('image_edit', 'none', [], context), 'quoted');
+  assert.deepStrictEqual(routeDecision.contextImageCandidates(context, 'history').map(item => item.image_id), ['h1']);
+  assert.strictEqual(routeDecision.referenceIdForSource('history', routeDecision.contextImageCandidates(context, 'history')), 'imgref_h1');
+}
+
 function testStructuredRouteDecisionCarriesRefs() {
   const imageRoute = routeContext.normalizeRoute({
     mode: 'edit_image',
@@ -681,7 +720,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.27') && index.includes('flat-theme.css?v=2.1.29'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.28') && index.includes('flat-theme.css?v=2.1.39'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -766,6 +805,33 @@ function testStreamingAllowsManualScroll() {
   assert.ok(bootstrap.includes('bindMessageScrollIntent') && bootstrap.includes('m.addEventListener(t,markManualMessageScroll') && bootstrap.includes('window.addEventListener(t,markManualMessageScroll'), 'message scroll intent must be bound to the scroll container and window gestures');
 }
 
+function testScrollMetricsHelpersArePureAndReusedByWorkflow() {
+  const scroller = { scrollHeight: 320, scrollTop: 75, clientHeight: 120 };
+  assert.strictEqual(scrollMetrics.distanceToBottom(scroller), 125);
+  assert.strictEqual(scrollMetrics.distanceToBottom({ scrollHeight: 100, scrollTop: 120, clientHeight: 40 }), 0);
+  assert.strictEqual(scrollMetrics.isNearBottom(scroller, 124), false);
+  assert.strictEqual(scrollMetrics.isNearBottom(scroller, 125), true);
+  assert.strictEqual(scrollMetrics.normalizeThreshold(-10, 24), 0);
+  assert.strictEqual(scrollMetrics.normalizeThreshold(Number.NaN, 24), 24);
+  assert.strictEqual(scrollMetrics.nextScrollTopForBottom({ scrollHeight: 80, clientHeight: 140 }), 0);
+  assert.strictEqual(scrollMetrics.nextScrollTopForBottom(scroller), 200);
+  assert.strictEqual(scrollMetrics.clampScrollTop(260, scroller), 200);
+  assert.strictEqual(scrollMetrics.clampScrollTop(-4, scroller), 0);
+  assert.strictEqual(scrollMetrics.clampScrollTop(12, 30), 12);
+  assert.strictEqual(scrollMetrics.shouldRespectManualScroll({ gap: 25, threshold: 24, manualIntent: true, eventType: 'scroll' }), true);
+  assert.strictEqual(scrollMetrics.shouldRespectManualScroll({ gap: 24, threshold: 24, manualIntent: true, eventType: 'scroll' }), false);
+  assert.strictEqual(scrollMetrics.shouldRespectManualScroll({ gap: 25, threshold: 24, manualIntent: false, eventType: 'scroll' }), false);
+
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('loadScrollMetrics') && workflow.includes('root?.ChatUIScrollMetrics') && workflow.includes("require('../ui/scroll-metrics')"), 'scroll focus workflow should load the pure scroll metrics helper with browser/CommonJS fallback');
+  assert.ok(!workflow.includes('function distanceToBottom(el)'), 'distanceToBottom should be extracted from the workflow body');
+  assert.ok(workflow.includes('nextScrollTopForBottom(el)') && workflow.includes('normalizeThreshold(options.bottomThreshold, BOTTOM_THRESHOLD)'), 'bottom target and threshold math should use the pure helper');
+  assert.ok(workflow.includes('manualIntent && event?.type === "scroll" && gap > threshold'), 'manual scroll release condition should remain visibly unchanged');
+  assert.ok(index.indexOf('client/ui/scroll-metrics.js') < index.indexOf('client/app/scroll-focus-workflow.js'), 'scroll metrics helper should load before scroll focus workflow');
+  assert.ok(index.includes('scroll-focus-workflow.js?v=1.3.33'), 'scroll behavior cache version should remain unchanged for a pure-helper extraction');
+}
+
 function testMessageDomainIsFeatureModule() {
   const domain = require('../client/features/messages/message-domain');
   assert.strictEqual(domain.messageRoleLabel('user'), '我');
@@ -778,6 +844,27 @@ function testMessageDomainIsFeatureModule() {
   assert.ok(!workflow.includes('function readQuoteContext(value)'), 'message workflow should not keep a duplicate quote-context parser');
   assert.ok(!workflow.includes('function normalizeQuoteText(text'), 'message workflow should not keep a duplicate quote text normalizer');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/app/message-workflow.js'), 'message domain feature should load before message workflow');
+}
+
+function testMessageModelHelpersAreFeatureModule() {
+  assert.strictEqual(messageModel.normalizeRole('assistant'), 'assistant');
+  assert.strictEqual(messageModel.normalizeRole('error', 'user'), 'user');
+  assert.deepStrictEqual(messageModel.parseMaybeJsonContext('{"attachments":[{"id":"a"}]}'), { attachments: [{ id: 'a' }] });
+  assert.strictEqual(messageModel.parseMaybeJsonContext('{bad'), null);
+  assert.strictEqual(messageModel.hasUsableImageContext(JSON.stringify({ attachments: [{ name: 'a.png' }] })), true);
+  assert.strictEqual(messageModel.hasUsableImageContext(JSON.stringify({ attachments: [] })), false);
+  assert.deepStrictEqual(messageModel.normalizeQuoteContext({ role: 'assistant', rawText: ' hi ', responseIndex: 4 }, { normalizeQuoteText: value => String(value).trim() }), { role: 'assistant', content: 'hi', responseIndex: '4' });
+  assert.deepStrictEqual(messageModel.normalizeQuoteContext({ role: 'bad', image_context: { attachments: [{ id: 'img' }] } }), { role: 'user', content: '[图片消息]', imageContext: '{"attachments":[{"id":"img"}]}' });
+  assert.deepStrictEqual(messageModel.resolveDisplayItemKey({ dataset: { displayItemId: 'd1' }, __displayItem: { responseIndex: 2, messageIndex: 1 } }), { displayItemId: 'd1', responseIndex: 2, messageIndex: 1 });
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  const domain = fs.readFileSync(path.join(__dirname, '../client/features/messages/message-domain.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesModel || messageDomain'), 'message workflow should use the message model helper facade when available');
+  assert.ok(workflow.includes('messageModel.hasUsableImageContext'), 'image context usability should be delegated to the model helper');
+  assert.ok(workflow.includes('messageModel.resolveDisplayItemKey'), 'display/message key extraction should be delegated to the model helper');
+  assert.ok(!workflow.includes('function hasUsableImageContext(value)'), 'message workflow should not keep a duplicate image-context helper');
+  assert.ok(domain.includes("require('./message-model')") && domain.includes('messageModel.normalizeQuoteContext'), 'message domain should share quote normalization with the model helper');
+  assert.ok(index.indexOf('client/features/messages/message-model.js') < index.indexOf('client/features/messages/message-domain.js'), 'message model should load before message domain');
 }
 
 function testQuotePreviewIsFeatureModule() {
@@ -801,7 +888,13 @@ function testQuotePreviewIsFeatureModule() {
   const messageCss = fs.readFileSync(path.join(__dirname, '../styles/messages.css'), 'utf8');
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   assert.ok(!messageCss.includes('.message.quoted') && !flatCss.includes('.message.quoted'), 'quote source/target styling should use one jump flash path, not a separate quoted border path');
-  assert.ok(messageCss.includes('.message.quote-target-flash .bubble') && !messageCss.includes('quote-target-ring'), 'quote jump target should use a single lightweight flash effect');
+  assert.ok(messageCss.includes('.message.quote-target-flash::before') && messageCss.includes('left:-8px!important') && !messageCss.includes('padding-left:12px!important') && messageCss.includes('linear-gradient(180deg,#4d6bfe 0%,#14b8a6 100%)'), 'quote jump target should use a visible gradient side bar outside the message flow so it does not cover or shift content');
+  assert.ok(!messageCss.includes('.message.quote-target-flash .bubble::after') && !messageCss.includes('content:"引用位置"'), 'quote jump target should not render a label that covers metadata');
+  assert.ok(workflow.includes('setTimeout(clearFlash, 3000)'), 'quote jump target marker should disappear after 3 seconds');
+  assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
+  assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
+  assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
+  assert.ok(index.includes('message-workflow.js?v=1.3.28') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -877,13 +970,13 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   const featureSource = fs.readFileSync(path.join(__dirname, '../client/features/history-anchor-nav.js'), 'utf8');
   const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(featureSource.includes('const isLastQuestionNode = node =>') && featureSource.includes('const pinLastQuestionToTop = isLastQuestionNode(node)'), 'history anchor should only add tail spacer when the clicked directory item is the last question that needs top pinning');
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.14') && index.includes('submit-workflow.js?v=1.3.55') && index.includes('chatui.bundle.js?v=1.3.28-arch47'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.14') && index.includes('submit-workflow.js?v=1.3.56') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -1061,111 +1154,6 @@ function testQuoteResolverUsesCanonicalAndDisplayContext() {
   assert.strictEqual(JSON.parse(quote.attachmentContext).attachments[0].id, 'att_1');
 }
 
-function decodeXmlEntities(value = '') {
-  return String(value || '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
-function inlineCellValues(sheetXml = '') {
-  return [...String(sheetXml).matchAll(/<c[^>]*(?:t="inlineStr")?[^>]*>(?:<is><t>(.*?)<\/t><\/is>|<v>(.*?)<\/v>)<\/c>/g)]
-    .map(match => decodeXmlEntities(match[1] ?? match[2] ?? ''));
-}
-
-async function testDepartmentExportWorkbookShape() {
-  const workbook = await usageExportXlsx.buildDepartmentExportWorkbook(
-    '今日排行',
-    [{ department_id: 'dept-1', department_name: '研发部', total_tokens: 100, prompt_tokens: 60, completion_tokens: 40, prompt_cached_tokens: 20, completion_reasoning_tokens: 5 }],
-    { 'dept-1': [{ username: '张三', total_tokens: 80, prompt_tokens: 50, completion_tokens: 30, prompt_cached_tokens: 10, completion_reasoning_tokens: 2 }] },
-    { start_time: new Date('2026-06-12T00:00:00+08:00'), end_time: new Date('2026-06-12T13:00:05+08:00') }
-  );
-  const JSZip = require('jszip');
-  const zip = await JSZip.loadAsync(workbook);
-  const workbookXml = await zip.file('xl/workbook.xml').async('string');
-  assert.ok(workbookXml.includes('部门今日排行统计'));
-  assert.ok(workbookXml.includes('研发部今日排行统计'));
-  const sheet1 = await zip.file('xl/worksheets/sheet1.xml').async('string');
-  const values = inlineCellValues(sheet1);
-  assert.strictEqual(values.slice(0, 9).join('|'), '序号|部门名称|开始时间|结束时间|总用量|输入|输出|缓存输入|推理输出');
-  assert.strictEqual(values[9], '1');
-  assert.strictEqual(values[10], '研发部');
-  assert.strictEqual(values[11], '2026-06-12 00:00:00');
-  assert.strictEqual(values[12], '2026-06-12 13:00:05');
-  assert.ok(!values.includes('部门主键'));
-  assert.ok(!values.includes('dept-1'));
-}
-
-function testUsageRangesAreCentralized() {
-  assert.deepStrictEqual(usageRanges.PERSONAL_RANGES, ['today', 'yesterday', 'total']);
-  assert.deepStrictEqual(usageRanges.DEPARTMENT_RANGES, ['today', 'yesterday', 'month', 'last_month', 'total']);
-  assert.strictEqual(usageRanges.isPersonalRange('month'), false);
-  assert.strictEqual(usageRanges.isDepartmentRange('month'), true);
-  for (const range of usageRanges.DEPARTMENT_RANGES) {
-    assert.ok(usageRanges.DEPARTMENT_RANGE_FILTERS[range], `missing department filter for ${range}`);
-    assert.ok(usageRanges.DEPARTMENT_RANGE_BOUNDS_SQL[range], `missing department bounds sql for ${range}`);
-    assert.ok(usageRanges.DEPARTMENT_RANGE_LABELS[range], `missing department label for ${range}`);
-  }
-}
-
-function testUsageStatsFrontendHelpers() {
-  assert.strictEqual(usageStatsFormat.formatTokens(1234567), '1.23M');
-  assert.strictEqual(usageStatsFormat.formatPercent(12.3), '12.3%');
-  assert.strictEqual(usageStatsFormat.cachePercent({ prompt_cached_tokens: 25, prompt_tokens: 100 }), 25);
-  assert.strictEqual(usageStatsFormat.escapeHtml('<x>'), '&lt;x&gt;');
-  assert.strictEqual(usageStatsAuth.shouldLoadRanking('abc'), true);
-  assert.strictEqual(usageStatsAuth.shouldLoadRanking('  '), false);
-  const store = new Map();
-  const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
-  storage.setItem(usageStatsAuth.CONFIG_KEY, JSON.stringify({ apiKey: 'key-from-storage' }));
-  assert.strictEqual(usageStatsAuth.currentApiKey({ getElement: () => ({ value: '' }), storage }), 'key-from-storage');
-  usageStatsAuth.setDepartmentPassword('dep-pass', storage);
-  assert.strictEqual(usageStatsAuth.getDepartmentPassword(storage), 'dep-pass');
-  usageStatsAuth.clearDepartmentPassword(storage);
-  assert.strictEqual(usageStatsAuth.getDepartmentPassword(storage), '');
-}
-
-function testServerHardeningHelpers() {
-  assert.strictEqual(urlPolicy.isPrivateHostname('localhost'), true);
-  assert.strictEqual(urlPolicy.normalizeBaseUrl('http://127.0.0.1:8765'), '');
-  assert.strictEqual(urlPolicy.assertAllowedUpstreamUrl('https://api.example.com/v1'), true);
-  assert.ok(safeLog.redactString('Authorization: Bearer sk-secret1234567890').includes('[redacted]'));
-  assert.ok(!safeLog.redactString('data:image/png;base64,' + 'A'.repeat(5000)).includes('data:image'));
-
-  const store = new JobStore('test', { ttlMs: 1000000, runningTtlMs: 10, maxJobs: 1 });
-  let aborted = false;
-  const now = Date.now();
-  store.set('running-old', { status: 'running', createdAt: now - 1000, updatedAt: now - 1000, controller: { abort: () => { aborted = true; } } });
-  store.sweep(now);
-  const expired = store.get('running-old');
-  assert.strictEqual(aborted, true);
-  assert.strictEqual(expired.status, 'error');
-
-  assert.strictEqual(extractApi.fileKind('a.txt', 'text/plain'), 'text');
-  assert.strictEqual(extractApi.fileKind('a.pdf', ''), 'pdf');
-  assert.strictEqual(extractApi.estimateDataUrlBytes('data:text/plain;base64,QUJDRA=='), 6);
-  assert.throws(() => extractApi.assertExtractSizeAllowed('text', 999999999), /文件过大/);
-
-  const limiter = new ConcurrencyLimiter(1, { maxQueue: 0 });
-  return limiter.acquire()
-    .then(() => limiter.acquire().then(() => assert.fail('should reject queue overflow')).catch(err => assert.strictEqual(err.statusCode, 429)))
-    .finally(() => limiter.release());
-}
-
-async function testReadBodyReturns413WithoutDestroyingConnection() {
-  const listeners = {};
-  const req = {
-    setEncoding() {},
-    pause() { this.paused = true; },
-    on(name, fn) { listeners[name] = fn; return this; },
-  };
-  const promise = readBody(req);
-  listeners.data('x'.repeat(51 * 1024 * 1024));
-  await assert.rejects(promise, err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
-}
-
 function testSessionPromptDraftPersistsPerSession() {
   const store = new Map();
   const storage = {
@@ -1233,9 +1221,11 @@ function testResponsesDirectDoesNotRegisterManagedChatJob() {
 
 function testTtftStartsAtServerForwardStart() {
   const serverSource = fs.readFileSync(path.join(__dirname, '../server/jobs/chat.js'), 'utf8');
+  const parserSource = fs.readFileSync(path.join(__dirname, '../server/jobs/chat-stream-parser.js'), 'utf8');
   const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   assert.ok(serverSource.includes('job.serverStartAtMs = performance.now()'), 'managed chat job should record high precision server forward start');
-  assert.ok(serverSource.includes('job.firstTokenMs = elapsedSince(job.serverStartAtMs)'), 'managed chat job first token should be measured from server forward start');
+  assert.ok(serverSource.includes('elapsedSince') && serverSource.includes("require('./chat-stream-parser')"), 'managed chat job should pass elapsedSince into the stream parser boundary');
+  assert.ok(parserSource.includes('job.firstTokenMs = elapsedSince(job.serverStartAtMs)'), 'managed chat job first token should be measured from server forward start');
   assert.ok(appSource.includes('serverFirstTokenMs=a.firstTokenMs'), 'Responses direct stream should preserve server-side firstTokenMs from compact SSE');
   assert.ok(appSource.includes('serverDurationMs=a.durationMs'), 'Responses direct stream should preserve server-side durationMs from compact SSE');
 }
@@ -1448,6 +1438,76 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
   assert.ok(image.includes('if((e&&s&&e!==s)||(t&&a&&t!==a))d=null;'), 'image workflow should reject stale loading nodes from a different display item/response');
 }
 
+function testReasoningPreferenceIsSessionScoped() {
+  const session = appState.createSession('A', () => 1000, () => 0.123456);
+  assert.strictEqual(session.reasoningMode, false);
+  assert.strictEqual(session.reasoningType, 'medium');
+  assert.strictEqual(session.reasoningProvider, 'auto');
+
+  const displaySource = fs.readFileSync(path.join(__dirname, '../client/app/session-display.js'), 'utf8');
+  assert.ok(displaySource.includes('reasoningMode: session.reasoningMode === undefined ? null : !!session.reasoningMode'), 'session metadata should persist reasoningMode per session');
+  assert.ok(displaySource.includes("reasoningType: ['low', 'medium', 'high', 'xhigh'].includes(session.reasoningType) ? session.reasoningType : ''"), 'session metadata should persist reasoningType per session');
+  assert.ok(displaySource.includes('reasoningProvider: String(session.reasoningProvider ||'), 'session metadata should persist reasoningProvider per session');
+
+  const reasoningSource = fs.readFileSync(path.join(__dirname, '../client/app/reasoning-workflow.js'), 'utf8');
+  assert.ok(reasoningSource.includes('session.reasoningMode = state.reasoningMode'), 'reasoning mode changes should write active session');
+  assert.ok(reasoningSource.includes('session.reasoningType = state.reasoningType'), 'reasoning type changes should write active session');
+  assert.ok(reasoningSource.includes('session.reasoningProvider = state.reasoningProvider'), 'reasoning provider changes should write active session');
+  assert.ok(reasoningSource.includes('typeof saveSessionsMeta === "function" && saveSessionsMeta()'), 'reasoning preference changes should save session metadata');
+
+  const uiSource = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
+  assert.ok(uiSource.includes('loadReasoningPreference();\n        renderActiveSession();'), 'switching sessions should reload reasoning preference before rendering active session');
+}
+
+function testReasoningCompletionEmptyStateText() {
+  const reasoningSource = fs.readFileSync(path.join(__dirname, '../client/app/reasoning-workflow.js'), 'utf8');
+  assert.ok(reasoningSource.includes('done?"思考完成":"思考中"'), 'completed reasoning should show 思考完成');
+  assert.ok(reasoningSource.includes('unavailable?"未返回思考内容"'), 'missing reasoning should show 未返回思考内容');
+  assert.ok(reasoningSource.includes('showReasoningUnavailable(e)'), 'finishReasoning should route empty reasoning to unavailable state');
+  assert.ok(reasoningSource.includes('keepEmpty:!0,unavailable:!0'), 'unavailable reasoning state should render immediately even with empty body');
+}
+
+function testReasoningCompletesBeforeAnswerStreaming() {
+  const chatSource = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(chatSource.includes('if(state.reasoningMode&&!s){s=!0;'), 'answer streaming should immediately leave thinking state when answer starts');
+  assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
+  assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.16') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'chat stream reasoning-state fix should bump cache versions');
+}
+
+function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
+  const chatSource = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(chatSource.includes('answerStarted=!0'), 'chat streaming should track when answer content starts');
+  assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
+  assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.16') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'empty-reasoning stream fix should bump cache versions');
+}
+
+function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
+  const reasoningSource = fs.readFileSync(path.join(__dirname, '../client/app/reasoning-workflow.js'), 'utf8');
+  assert.ok(reasoningSource.includes('active&&e.contains?.(active)'), 'closing reasoning menu should detect focused descendants before hiding');
+  assert.ok(reasoningSource.includes('t.focus?.({preventScroll:!0})') && reasoningSource.includes('active.blur?.()'), 'closing reasoning menu should move or clear focus before aria-hidden=true');
+  assert.ok(reasoningSource.indexOf('active&&e.contains?.(active)') < reasoningSource.indexOf('e.setAttribute("aria-hidden","true")'), 'focus should be released before setting aria-hidden on reasoning menu');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'reasoning menu accessibility fix should bump cache versions');
+}
+
+function testCodeActionHoverAndHistoryAnchorActivePolish() {
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(css.includes('.markdown-body .code-block .code-copy-icon:hover') && css.includes('transform:none !important'), 'code block action hover should not move the absolute-positioned button');
+  const activeBlock = css.match(/\.history-anchor-item\.active\{[\s\S]*?\}/)?.[0] || '';
+  assert.ok(activeBlock.includes('background:rgba(37,99,235,.06)'), 'active history item should use a simple subtle background');
+  assert.ok(activeBlock.includes('box-shadow:none'), 'active history item should avoid heavy inset shadow');
+  assert.ok(!activeBlock.includes('linear-gradient'), 'active history item should avoid gradient styling');
+  const railBlock = css.match(/\.history-anchor-rail-bar\.active::before,\n\.history-anchor-rail-bar\.hover::before\{[\s\S]*?\}/)?.[0] || '';
+  assert.ok(railBlock.includes('box-shadow:none'), 'active history rail should avoid glow shadow');
+
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.1.39') && index.includes('assets/chatui.bundle.css?v=1.3.43-arch62'), 'CSS bundle cache versions should be bumped for visual fixes');
+}
+
 function testArchitectureBoundaryScaffolding() {
   const storageKeys = require('../client/config/storage-keys');
   const featureFlags = require('../client/config/feature-flags');
@@ -1466,20 +1526,60 @@ function testArchitectureBoundaryScaffolding() {
   const app = sourceAssertions.readSource('app.js');
   sourceAssertions.assertIncludes(app, 'storageKeys=window.ChatUIConfig?.storageKeys||{}', 'app should read storage keys through the config boundary with fallbacks');
   sourceAssertions.assertIncludes(app, 'CONFIG_KEY=storageKeys.CONFIG_KEY||"openapi-chat-image-config-v2"', 'app should keep literal storage-key fallback for safe rollback');
+
+  const usageRoute = sourceAssertions.readSource('server/api/routes/usage.js');
+  const usageController = sourceAssertions.readSource('server/api/controllers/usage.controller.js');
+  sourceAssertions.assertIncludes(usageRoute, "require('../controllers/usage.controller')", 'usage route should delegate request handling to controller boundary');
+  sourceAssertions.assertIncludes(usageRoute, 'function routeUsage(req, res)', 'usage route should keep only HTTP path dispatch');
+  assert.ok(!usageRoute.includes('usageService.') && !usageRoute.includes('readBody('), 'usage route should not contain business service calls or body parsing');
+  sourceAssertions.assertIncludes(usageController, 'usageService.getRanking', 'usage controller should own usage request handling');
+}
+
+function testAppBootstrapContextHelper() {
+  let soundCreated = 0;
+  const doneSound = { unlockDoneSound() {}, playDoneSound() {} };
+  const deps = appContext.resolveRuntimeDependencies({ ChatUIApp: { runtime: { marker: true, createDoneSound: () => { soundCreated += 1; return doneSound; } } } });
+  assert.strictEqual(deps.runtimeHelpers.marker, true);
+  assert.strictEqual(deps.doneSound, doneSound);
+  assert.strictEqual(soundCreated, 1);
+  assert.deepStrictEqual(appContext.resolveRuntimeDependencies({}).runtimeHelpers, {});
+  assert.strictEqual(appContext.resolveRuntimeDependencies({}).doneSound, null);
+
+  const registryCalls = [];
+  const registry = appContext.createWorkflowRegistry({ alpha: () => { registryCalls.push('alpha'); return { name: 'alpha' }; } });
+  assert.strictEqual(registry.has('alpha'), true);
+  assert.strictEqual(registry.has('missing'), false);
+  assert.strictEqual(registry.get('alpha'), registry.get('alpha'));
+  assert.deepStrictEqual(registryCalls, ['alpha']);
+  assert.throws(() => registry.get('missing'), /not registered/);
+
+  const target = {};
+  let lazyCalls = 0;
+  appContext.defineLazyWorkflowGetter(target, 'workflow', () => ({ id: ++lazyCalls }));
+  assert.strictEqual(target.workflow.id, 1);
+  assert.strictEqual(target.workflow.id, 1);
+  assert.strictEqual(lazyCalls, 1);
+
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(app.includes('appContext=window.ChatUIApp?.appContext||{}'), 'app bootstrap should read the app-context helper without becoming a module');
+  assert.ok(app.includes('appContext.resolveRuntimeDependencies?appContext.resolveRuntimeDependencies(window)'), 'app bootstrap should delegate runtime dependency resolution to app-context when present');
+  sourceAssertions.assertInOrder(index, './client/app/state.js', './client/app/app-context.js', 'app context should load after app state');
+  sourceAssertions.assertInOrder(index, './client/app/app-context.js', './app.js', 'app context should load before app bootstrap');
 }
 
 function testConfigBaseUrlDefault() {
   const configWorkflow = require('../client/app/config-workflow');
   const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.strictEqual(configWorkflow.DEFAULT_BASE_URL, 'https://ingress.lfans.cn/v1', 'config workflow should expose the default Endpoint Base URL');
   assert.strictEqual(configWorkflow.defaults.baseUrl, 'https://ingress.lfans.cn/v1', 'new installs should default Endpoint Base URL to ingress.lfans.cn');
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.69') && index.includes('chatui.bundle.js?v=1.3.28-arch47'), 'config default change should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.69') && index.includes('chatui.bundle.js?v=1.3.43-arch62'), 'config default change should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1500,7 +1600,7 @@ function testForceImageButtonOnUserMessages() {
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   const messageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(index.includes('class="force-image-btn icon-action-btn"') && index.includes('title="强制生图"'), 'message actions should include a force-image button in the user message button area');
   assert.ok(messageWorkflow.includes('const forceImage = node.querySelector(".force-image-btn")'), 'message workflow should bind the force-image button');
   assert.ok(messageWorkflow.includes('if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));') && messageWorkflow.includes('else forceImage?.remove();'), 'force-image button should only be available on user messages');
@@ -1508,8 +1608,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.27') && index.includes('app.js?v=1.3.26-ds16') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.28') && index.includes('app.js?v=1.3.41-ds31') && index.includes('assets/chatui.bundle.css?v=1.3.43-arch62') && index.includes('chatui.bundle.js?v=1.3.43-arch62') && index.includes('styles/flat-theme.css?v=2.1.39'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -1517,7 +1617,7 @@ function testImagePreviewWheelZoom() {
   const css = fs.readFileSync(path.join(__dirname, '../styles.css'), 'utf8');
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(workflow.includes('MIN_PREVIEW_SCALE = 0.5') && workflow.includes('MAX_PREVIEW_SCALE = 5'), 'image preview zoom should clamp wheel scale to a safe range');
   assert.ok(workflow.includes('addEventListener("wheel"') && workflow.includes('event.preventDefault()') && workflow.includes('zoomImagePreview(event.deltaY)') && workflow.includes('{passive:!1}'), 'image preview should handle wheel gestures for zoom without page scrolling');
   assert.ok(workflow.includes('resetPreviewZoom()') && workflow.includes('applyPreviewScale(1)'), 'opening and closing preview should reset zoom state');
@@ -1525,14 +1625,14 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.43-arch62') && index.includes('styles/flat-theme.css?v=2.1.39'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   const messageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
   assert.ok(flatCss.includes('Final message action polish: glassy rounded buttons with subtle per-action accents'), 'message actions should document the shared polished style layer');
   assert.ok(flatCss.includes('.message .msg-actions:not(:hover)') && flatCss.includes('opacity:.34!important') && flatCss.includes('.message:hover .msg-actions') && flatCss.includes('opacity:.95!important'), 'message action groups should stay less visually prominent until the pointer moves over the message');
@@ -1547,19 +1647,19 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.43-arch62') && index.includes('chatui.bundle.js?v=1.3.43-arch62') && index.includes('styles/flat-theme.css?v=2.1.39'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(flatCss.includes('.pending-feedback{') && flatCss.includes('flex-wrap:nowrap!important') && flatCss.includes('white-space:nowrap!important'), 'pending feedback should keep waiting text on one line');
   assert.ok(flatCss.includes('.pending-text,') && flatCss.includes('.pending-dots{') && flatCss.includes('flex:0 0 auto!important'), 'pending feedback text and dots should not shrink into wrapped fragments');
   assert.ok(flatCss.includes('@media (max-width:640px)') && flatCss.includes('font-size:14px!important') && flatCss.includes('gap:6px!important'), 'mobile pending feedback should be compact enough to avoid wrapping');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch47') && index.includes('chatui.bundle.js?v=1.3.28-arch47') && index.includes('styles/flat-theme.css?v=2.1.29'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch47'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.43-arch62') && index.includes('chatui.bundle.js?v=1.3.43-arch62') && index.includes('styles/flat-theme.css?v=2.1.39'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.43-arch62'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
@@ -1597,7 +1697,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.55') && index.includes('chat-workflow.js?v=1.3.14') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.26-ds16') && index.includes('flat-theme.css?v=2.1.29'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.56') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.39'), 'cache versions should be bumped for route timeout UX');
 }
 
 const tests = [
@@ -1620,6 +1720,7 @@ const tests = [
   testUserAttachmentContextFallsBackToImageContextForRegenerate,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
   testLightweightIntentClassifierAdapters,
+  testRouteDecisionHelpersArePureAndReusedByService,
   testStructuredRouteDecisionCarriesRefs,
   testImagePromptExtractionStaysChatWithCurrentImage,
   testImplicitImagePromptExtractionStaysChatWithCurrentImage,
@@ -1633,7 +1734,9 @@ const tests = [
   testLegacyWelcomeScreenIsRemoved,
   testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,
+  testScrollMetricsHelpersArePureAndReusedByWorkflow,
   testMessageDomainIsFeatureModule,
+  testMessageModelHelpersAreFeatureModule,
   testQuotePreviewIsFeatureModule,
   testMarkdownFinalRendererIsFeatureModule,
   testMarkdownPreviewIsFeatureModule,
@@ -1647,11 +1750,18 @@ const tests = [
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
   testEmptyAssistantImageContextFallsBackToGeneratedThumbs,
   testQuoteResolverUsesCanonicalAndDisplayContext,
-  testDepartmentExportWorkbookShape,
-  testUsageRangesAreCentralized,
-  testUsageStatsFrontendHelpers,
-  testServerHardeningHelpers,
-  testReadBodyReturns413WithoutDestroyingConnection,
+  ...usageTests,
+  ...serverHardeningTests,
+  ...staticBundleTests,
+  ...apiContractTests,
+  ...jobRouteTests,
+  ...chatStreamParserTests,
+  ...imageJobContractTests,
+  ...imageEditPayloadContractTests,
+  ...imageServiceContractTests,
+  ...clientContractTests,
+  ...submitWorkflowHelperTests,
+  ...serverSmokeTests,
   testSessionPromptDraftPersistsPerSession,
   testLegacyDocSupportIsRoutedToWordExtractor,
   testResponseMetricsTextIsUnified,
@@ -1674,7 +1784,14 @@ const tests = [
   testChatJobIdIsPersistedBeforeRouteResolution,
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
+  testReasoningPreferenceIsSessionScoped,
+  testReasoningCompletionEmptyStateText,
+  testReasoningCompletesBeforeAnswerStreaming,
+  testReasoningUnavailableWhenAnswerStartsWithoutReasoning,
+  testReasoningMenuCloseReleasesFocusBeforeAriaHidden,
+  testCodeActionHoverAndHistoryAnchorActivePolish,
   testArchitectureBoundaryScaffolding,
+  testAppBootstrapContextHelper,
   testConfigBaseUrlDefault,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
   testRegenerateRemovesOldAssistantImmediately,

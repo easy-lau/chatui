@@ -142,15 +142,30 @@
   font-size:12px!important;
   line-height:1.35!important;
 }
-.message.quote-target-flash .bubble{
+.message.quote-target-flash{
   position:relative!important;
-  animation:quote-target-breathe 2.05s cubic-bezier(.22,.8,.22,1) both!important;
-  outline:0!important;
 }
-@keyframes quote-target-breathe{
-  0%,100%{box-shadow:var(--shadow, 0 18px 50px rgba(15,23,42,.10))!important;transform:translateY(0)!important;filter:none!important;}
-  18%,60%{box-shadow:0 14px 34px rgba(20,184,166,.26),0 0 0 5px rgba(20,184,166,.16)!important;transform:translateY(-1px)!important;filter:saturate(1.06) brightness(1.01)!important;}
-  38%,78%{box-shadow:0 10px 26px rgba(20,184,166,.18),0 0 0 3px rgba(20,184,166,.10)!important;transform:translateY(0)!important;filter:saturate(1.03)!important;}
+.message.quote-target-flash::before{
+  content:""!important;
+  display:block!important;
+  position:absolute!important;
+  top:8px!important;
+  bottom:8px!important;
+  left:-8px!important;
+  width:5px!important;
+  min-height:24px!important;
+  border-radius:999px!important;
+  background:linear-gradient(180deg,#4d6bfe 0%,#14b8a6 100%)!important;
+  opacity:1!important;
+  z-index:3!important;
+  pointer-events:none!important;
+}
+.message.user.quote-target-flash::before{
+  left:auto!important;
+  right:-8px!important;
+}
+.message.quote-target-flash .bubble{
+  outline:0!important;
 }
 @media (max-width:640px){
   .msg-actions,

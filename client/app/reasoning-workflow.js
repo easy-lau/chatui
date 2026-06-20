@@ -10,8 +10,10 @@
         if(!e)return;
         if(!state.reasoningMode){forceRemoveReasoning(e); return;}
         const n=String(t||"");
+        const done=!0===s.done;
+        const unavailable=!0===s.unavailable;
         let a=e.querySelector(".reasoning-panel");
-        if(!n&&!s.keepEmpty){
+        if(!n&&!s.keepEmpty&&!done&&!unavailable){
           a?.remove();
           delete e.dataset.reasoningText;
           delete e.dataset.keepReasoning;
@@ -32,13 +34,11 @@
         }
         const body=e.querySelector(".content");
         if(body?.querySelector?.(".pending-feedback")) body.textContent="";
-        const done=!0===s.done;
-        const unavailable=!0===s.unavailable;
         a.classList.toggle("reasoning-done",done);
         a.classList.toggle("reasoning-empty",unavailable);
         const title=a.querySelector(".reasoning-title");
         if(title){
-          const text=s.title||(unavailable?"未返回思考内容":done?"已完成思考":"思考中");
+          const text=s.title||(unavailable?"未返回思考内容":done?"思考完成":"思考中");
           if(done||unavailable||s.title) title.textContent=text;
           else title.innerHTML=`<span>思考中</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span>`;
         }
@@ -65,7 +65,7 @@
 
     function showReasoningUnavailable(e) {
       with (deps) {
-        if(!state.reasoningMode)return void clearReasoning(e); e&&(updateReasoning(e,"当前模型或接口没有返回可展示的思考内容；已完成回答，但只能展示最终结果。",{done:!0,persistSave:!0,keepReasoning:!0,unavailable:!0}),e.querySelector(".reasoning-panel")?.classList.add("reasoning-empty"))
+        if(!state.reasoningMode)return void clearReasoning(e); e&&(updateReasoning(e,"",{done:!0,persistSave:!0,keepReasoning:!0,keepEmpty:!0,unavailable:!0}),e.querySelector(".reasoning-panel")?.classList.add("reasoning-empty"))
       }
     }
 
@@ -149,25 +149,52 @@
 
     function loadReasoningPreference() {
       with (deps) {
-        state.reasoningMode="1"===localStorage.getItem(REASONING_MODE_KEY),state.reasoningType=localStorage.getItem(REASONING_TYPE_KEY)||state.reasoningType||"medium",state.reasoningProvider=normalizeReasoningProvider(localStorage.getItem(REASONING_PROVIDER_KEY)||state.reasoningProvider||"auto"),state.reasoningPersist="0"!==localStorage.getItem(REASONING_PERSIST_KEY),updateReasoningControls()
+        const session = typeof getActiveSession === "function" ? getActiveSession() : null;
+        const hasSessionMode = session && session.reasoningMode !== undefined && session.reasoningMode !== null;
+        const hasSessionType = session && ["low","medium","high","xhigh"].includes(session.reasoningType);
+        const hasSessionProvider = session && String(session.reasoningProvider || "").trim();
+        state.reasoningMode = hasSessionMode ? !!session.reasoningMode : "1" === localStorage.getItem(REASONING_MODE_KEY);
+        state.reasoningType = hasSessionType ? session.reasoningType : localStorage.getItem(REASONING_TYPE_KEY) || state.reasoningType || "medium";
+        state.reasoningProvider = normalizeReasoningProvider(hasSessionProvider ? session.reasoningProvider : localStorage.getItem(REASONING_PROVIDER_KEY) || state.reasoningProvider || "auto");
+        state.reasoningPersist = "0" !== localStorage.getItem(REASONING_PERSIST_KEY);
+        if (session) {
+          session.reasoningMode = state.reasoningMode;
+          session.reasoningType = state.reasoningType;
+          session.reasoningProvider = state.reasoningProvider;
+          typeof saveSessionsMeta === "function" && saveSessionsMeta();
+        }
+        updateReasoningControls()
+      }
+    }
+
+    function saveActiveReasoningPreference() {
+      with (deps) {
+        const session = typeof getActiveSession === "function" ? getActiveSession() : null;
+        if (session) {
+          session.reasoningMode = !!state.reasoningMode;
+          session.reasoningType = state.reasoningType || "medium";
+          session.reasoningProvider = normalizeReasoningProvider(state.reasoningProvider || "auto");
+          typeof saveSessionsMeta === "function" && saveSessionsMeta();
+        }
+        localStorage.setItem(REASONING_MODE_KEY,state.reasoningMode?"1":"0"),localStorage.setItem(REASONING_TYPE_KEY,state.reasoningType||"medium"),localStorage.setItem(REASONING_PROVIDER_KEY,state.reasoningProvider||"auto")
       }
     }
 
     function setReasoningMode(e) {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能切换思考模式");state.reasoningMode=!!e,localStorage.setItem(REASONING_MODE_KEY,state.reasoningMode?"1":"0"),state.reasoningMode||clearAllReasoningDisplays(),updateReasoningControls()
+        if(isReasoningControlLocked())return toast("输出过程中不能切换思考模式");state.reasoningMode=!!e,saveActiveReasoningPreference(),state.reasoningMode||clearAllReasoningDisplays(),updateReasoningControls()
       }
     }
 
     function setReasoningType(e="medium") {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningType=["low","medium","high","xhigh"].includes(e)?e:"medium",localStorage.setItem(REASONING_TYPE_KEY,state.reasoningType),updateReasoningControls()
+        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningType=["low","medium","high","xhigh"].includes(e)?e:"medium",saveActiveReasoningPreference(),updateReasoningControls()
       }
     }
 
     function setReasoningProvider(e="auto") {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningProvider=normalizeReasoningProvider(e),localStorage.setItem(REASONING_PROVIDER_KEY,state.reasoningProvider),updateReasoningControls()
+        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningProvider=normalizeReasoningProvider(e),saveActiveReasoningPreference(),updateReasoningControls()
       }
     }
 
@@ -179,7 +206,12 @@
 
     function closeReasoningMenu() {
       with (deps) {
-        const e=$("reasoningMenu"),t=$("reasoningMenuBtn");e&&(e.classList.remove("show"),e.setAttribute("aria-hidden","true"),t?.setAttribute("aria-expanded","false"))
+        const e=$("reasoningMenu"),t=$("reasoningMenuBtn");
+        if(e){
+          const active=document?.activeElement;
+          active&&e.contains?.(active)&&(t&&!t.disabled?t.focus?.({preventScroll:!0}):active.blur?.());
+          e.classList.remove("show"),e.setAttribute("aria-hidden","true"),t?.setAttribute("aria-expanded","false")
+        }
       }
     }
 

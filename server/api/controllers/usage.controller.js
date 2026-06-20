@@ -1,0 +1,184 @@
+const { readBody, parseJson } = require('../../http/body');
+const usageService = require('../../services/usage.service');
+const usageValidator = require('../../validators/usage.validator');
+
+function unavailablePayload() {
+  return {
+    available: false,
+    reason: 'PostgreSQL 未配置，使用统计功能未启用',
+    ranking: [],
+    personal: null,
+  };
+}
+
+function departmentUnavailablePayload(reason = '部门统计密码未配置，部门统计功能未启用') {
+  return {
+    available: false,
+    reason,
+    ranking: [],
+  };
+}
+
+async function readJsonBody(req, res, sendJson) {
+  try {
+    return parseJson(await readBody(req));
+  } catch (err) {
+    sendJson(res, 400, { error: { message: err.message || '请求体不是有效 JSON' } }, { 'Access-Control-Allow-Origin': '*' });
+    return null;
+  }
+}
+
+function validateDepartmentAccess(body, res, sendJson) {
+  if (!usageValidator.hasDepartmentPassword()) {
+    sendJson(res, 200, departmentUnavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
+    return false;
+  }
+  const password = usageValidator.normalizeDepartmentPassword(body);
+  if (!usageValidator.isDepartmentPasswordValid(password)) {
+    sendJson(res, 403, { available: true, authorized: false, error: { message: '密码错误，无权限访问' } }, { 'Access-Control-Allow-Origin': '*' });
+    return false;
+  }
+  return true;
+}
+
+function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, send }) {
+  async function routeRankings(req, res) {
+    if (req.method !== 'GET') return sendMethodNotAllowed(res);
+    const limitResult = usageValidator.checkUsageRefreshLimit(req, 'rankings');
+    if (!limitResult.allowed) {
+      return sendJson(res, 200, {
+        available: true,
+        limited: true,
+        message: '请不要频繁刷新，请一分钟后重试',
+        ranking: [],
+      }, usageValidator.usageRateLimitHeaders(limitResult));
+    }
+    if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.rangeFromUrl(req);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的排行范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const ranking = await usageService.getRanking(usageStats, range);
+      return sendJson(res, 200, { available: true, range, ranking }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] rankings query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询使用排行榜失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+  async function routePersonal(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    const apiKey = usageValidator.normalizeApiKey(body);
+    if (!apiKey) return sendJson(res, 400, { error: { message: '缺少 api_key' } }, { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.normalizePersonalRange(body?.range);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    const limitResult = usageValidator.checkUsageRefreshLimit(req, 'personal');
+    if (!limitResult.allowed) {
+      return sendJson(res, 200, {
+        available: true,
+        limited: true,
+        message: '请不要频繁刷新，请一分钟后重试',
+        personal: null,
+      }, usageValidator.usageRateLimitHeaders(limitResult));
+    }
+    if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const personal = await usageService.getPersonalRange(usageStats, apiKey, range);
+      return sendJson(res, 200, { available: true, range, personal }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] personal query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询个人使用统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+  async function routeDepartmentVerify(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    if (!usageValidator.hasDepartmentPassword()) return sendJson(res, 200, departmentUnavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
+    if (!usageValidator.isDepartmentPasswordValid(String(body?.password || '').trim())) {
+      return sendJson(res, 403, { available: true, authorized: false, error: { message: '密码错误，无权限访问' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+    return sendJson(res, 200, { available: true, authorized: true }, { 'Access-Control-Allow-Origin': '*' });
+  }
+
+  async function routeDepartmentRankings(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    if (!validateDepartmentAccess(body, res, sendJson)) return;
+    if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.normalizeDepartmentRange(body?.range);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的部门统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const ranking = await usageService.getDepartmentRanking(usageStats, range);
+      return sendJson(res, 200, { available: true, range, ranking }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] department rankings query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询部门统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+  async function routeDepartmentUsers(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    if (!validateDepartmentAccess(body, res, sendJson)) return;
+    if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.normalizeDepartmentRange(body?.range);
+    const departmentId = usageValidator.normalizeDepartmentId(body);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的部门统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    if (!departmentId) return sendJson(res, 400, { error: { message: '缺少部门主键' } }, { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const users = await usageService.getDepartmentUsers(usageStats, departmentId, range);
+      return sendJson(res, 200, { available: true, range, department_id: departmentId, users }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] department users query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询部门用户统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+  async function routeDepartmentExport(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    if (!validateDepartmentAccess(body, res, sendJson)) return;
+    if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.normalizeDepartmentRange(body?.range);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的部门统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const workbook = await usageService.getDepartmentExportWorkbook(usageStats, range);
+      if (typeof send === 'function') {
+        return send(res, 200, workbook, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="department-usage-${range}.xlsx"`,
+        });
+      }
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="department-usage-${range}.xlsx"`,
+      });
+      return res.end(workbook);
+    } catch (err) {
+      console.error('[usage] department export failed:', err);
+      return sendJson(res, 500, { error: { message: '导出部门统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+  return {
+    routeRankings,
+    routePersonal,
+    routeDepartmentVerify,
+    routeDepartmentRankings,
+    routeDepartmentUsers,
+    routeDepartmentExport,
+  };
+}
+
+module.exports = {
+  createUsageController,
+  isDepartmentPasswordValid: usageValidator.isDepartmentPasswordValid,
+};

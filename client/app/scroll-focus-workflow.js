@@ -1,6 +1,34 @@
 (function initChatUIAppScrollFocusWorkflow(root) {
   // Intentionally not strict: scroll/focus bodies are migrated from app.js and resolved through a deps scope.
 
+  const fallbackScrollMetrics = Object.freeze({
+    normalizeThreshold(value, fallback = 0) { return Number.isFinite(value) ? Math.max(0, value) : Math.max(0, fallback); },
+    distanceToBottom(el) { return el ? Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight) : 0; },
+    isNearBottom(el, threshold = 0) { return fallbackScrollMetrics.distanceToBottom(el) <= fallbackScrollMetrics.normalizeThreshold(threshold, 0); },
+    nextScrollTopForBottom(el) { return el ? Math.max(0, el.scrollHeight - el.clientHeight) : 0; },
+    clampScrollTop(value, scrollerOrMax = 0) {
+      const max = typeof scrollerOrMax === 'number' ? Math.max(0, scrollerOrMax) : fallbackScrollMetrics.nextScrollTopForBottom(scrollerOrMax);
+      return Math.max(0, Math.min(max, Number.isFinite(value) ? value : 0));
+    },
+    shouldRespectManualScroll(options = {}) {
+      const gap = Number.isFinite(options.gap) ? options.gap : 0;
+      const threshold = fallbackScrollMetrics.normalizeThreshold(options.threshold, 0);
+      const eventType = options.eventType || options.event?.type;
+      return !!(options.manualIntent === true && eventType === 'scroll' && gap > threshold);
+    },
+  });
+
+  function loadScrollMetrics() {
+    if (root?.ChatUIScrollMetrics) return root.ChatUIScrollMetrics;
+    if (root?.window?.ChatUIScrollMetrics) return root.window.ChatUIScrollMetrics;
+    if (typeof require === 'function') {
+      try { return require('../ui/scroll-metrics'); } catch {}
+    }
+    return fallbackScrollMetrics;
+  }
+
+  const scrollMetrics = loadScrollMetrics();
+
   function createScrollFocusWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
@@ -20,6 +48,7 @@
     let lastLockedClientHeight = 0;
     let activeOutputRaf = 0;
     let pendingActiveOutput = null;
+    const { distanceToBottom, isNearBottom, nextScrollTopForBottom, normalizeThreshold, shouldRespectManualScroll } = scrollMetrics;
 
     const getWindow = () => deps.window || root?.window || root;
     const now = () => Date.now();
@@ -49,13 +78,10 @@
       }
     }
 
-    function distanceToBottom(el) {
-      if (!el) return 0;
-      return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
-    }
-
     function isNearMessagesBottom(threshold = 180) {
-      return messagesBottomGap() <= threshold;
+      with (deps) {
+        return isNearBottom($("messages"), threshold);
+      }
     }
 
     function setMessagesProgrammaticScroll(duration = 260) {
@@ -65,7 +91,7 @@
     }
 
     function bottomThreshold(options = {}) {
-      return Number.isFinite(options.bottomThreshold) ? Math.max(0, options.bottomThreshold) : BOTTOM_THRESHOLD;
+      return normalizeThreshold(options.bottomThreshold, BOTTOM_THRESHOLD);
     }
 
     function isBottomLocked(options = {}) {
@@ -91,7 +117,7 @@
     function scrollMessagesToBottom(el, options = {}) {
       with (deps) {
         if (!el) return false;
-        const target = Math.max(0, el.scrollHeight - el.clientHeight);
+        const target = nextScrollTopForBottom(el);
         const diff = Math.abs((el.scrollTop || 0) - target);
         if (diff > (Number.isFinite(options.writeThreshold) ? options.writeThreshold : 0.5)) {
           setMessagesProgrammaticScroll(options.programmaticMs || 320);
@@ -268,7 +294,7 @@
         const threshold = bottomThreshold(options);
         const programmatic = now() < state.programmaticScrollUntil;
         const manualIntent = now() < manualScrollIntentUntil;
-        if (manualIntent && event?.type === "scroll" && gap > threshold) {
+        if (shouldRespectManualScroll({ gap, threshold, manualIntent, eventType: event?.type }) /* manualIntent && event?.type === "scroll" && gap > threshold */) {
           releaseBottomScrollLock({ bumpVersion: true });
         } else if (gap <= threshold) {
           state.bottomScrollLocked = true;

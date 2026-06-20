@@ -1,4 +1,4 @@
-const { errorPayload } = require('../errors/http-error');
+const { errorPayload, normalizeError, toErrorPayload } = require('../errors/http-error');
 
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -25,7 +25,18 @@ function sendJson(res, status, data, headers = {}) {
   send(res, status, JSON.stringify(data), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
 }
 
+function isErrorLike(value) {
+  return value instanceof Error || (value && typeof value === 'object' && ('message' in value || 'statusCode' in value || 'status' in value || 'code' in value));
+}
+
 function sendError(res, status, message, code = 'ERROR', detail = null, headers = {}) {
+  if (isErrorLike(status)) {
+    const fallback = message && typeof message === 'object'
+      ? message
+      : { message, code, detail, headers };
+    const normalized = normalizeError(status, fallback);
+    return sendJson(res, normalized.statusCode, toErrorPayload(status, fallback), { ...normalized.headers, ...(fallback.headers || {}) });
+  }
   return sendJson(res, status, errorPayload(message, code, detail), headers);
 }
 

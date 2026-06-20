@@ -10,7 +10,7 @@ const {
   buildImageEditMultipartBody,
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
-const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../client/core/context-budget');
+const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);

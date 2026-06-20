@@ -1,7 +1,3 @@
-function errorPayload(message, code = 'ERROR', detail = null) {
-  const error = { code, message };
-  if (detail !== undefined && detail !== null) error.detail = detail;
-  return { error };
-}
+const { AppError, errorPayload, normalizeError, toErrorPayload } = require('./app-error');
 
-module.exports = { errorPayload };
+module.exports = { AppError, errorPayload, normalizeError, toErrorPayload };
