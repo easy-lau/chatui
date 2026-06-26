@@ -1955,6 +1955,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
 function testDockerfileIncludesSharedRuntimeModules() {
   const dockerfile = fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8');
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
+  assert.ok(dockerfile.includes('npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund'), 'Docker release build should omit optional native packages to avoid arm64 QEMU npm install crashes');
 }
 
 const tests = [
