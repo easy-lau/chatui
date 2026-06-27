@@ -303,12 +303,12 @@
       const userCache = cache || makeUserNodeCache(messages);
       const visibleUsers = userCache.users;
       const expectedCount = Number.isFinite(userCache.expectedCount) ? userCache.expectedCount : currentItems.length;
-      let node = id ? userCache.byAnchorId.get(id) || null : null;
+      let node = messageIndex ? userCache.byMessageIndex.get(messageIndex) || null : null;
+      if (!node && id) {
+        node = userCache.byAnchorId.get(id) || null;
+      }
       if (!node && Number.isFinite(userIndex) && visibleUsers.length === expectedCount) {
         node = visibleUsers[userIndex] || null;
-      }
-      if (!node && !Number.isFinite(userIndex) && messageIndex) {
-        node = userCache.byMessageIndex.get(messageIndex) || null;
       }
       if (!node && ensure) {
         try { node = ensureItemNode?.(item) || null; } catch { node = null; }
