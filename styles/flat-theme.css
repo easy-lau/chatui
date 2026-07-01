@@ -3962,3 +3962,33 @@ body{
 .config-dialog .secret-field .config-copy-btn {
   right: 7px !important;
 }
+
+/* Final fix: keep streaming TTFT metadata inert and let the collapsed layout use the freed sidebar space.
+   The TTFT row must not become a hover target while text is streaming; otherwise
+   continuous layout growth plus hover-state recalculation can produce vertical flicker.
+   When the session sidebar is collapsed, the message column and composer should
+   recenter in the remaining viewport and grow wider than the expanded-sidebar state. */
+.message[data-streaming="1"] .message-meta,
+.message[data-streaming="1"].has-meta .message-meta{
+  pointer-events:none!important;
+  user-select:none!important;
+}
+
+@media (min-width:841px){
+  :root{
+    --ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important;
+  }
+  body.session-sidebar-collapsed .messages>.message,
+  body.session-sidebar-collapsed .empty{
+    width:var(--ds-collapsed-chat-column)!important;
+    max-width:var(--ds-collapsed-chat-column)!important;
+  }
+  body.session-sidebar-collapsed .composer,
+  body.session-sidebar-collapsed .composer.compact-composer{
+    width:var(--ds-collapsed-chat-column)!important;
+    max-width:var(--ds-collapsed-chat-column)!important;
+    left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important;
+    right:auto!important;
+    transform:none!important;
+  }
+}

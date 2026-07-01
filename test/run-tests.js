@@ -1108,7 +1108,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('flat-theme.css?v=2.1.63'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('flat-theme.css?v=2.1.64'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -1977,7 +1977,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.63') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87'), 'CSS bundle cache versions should be bumped for visual fixes');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.1.64') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87'), 'CSS bundle cache versions should be bumped for visual fixes');
 }
 
 function testArchitectureBoundaryScaffolding() {
@@ -2068,7 +2068,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.71') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.63') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.71') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.64') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match config copy cache-busting');
 }
 
@@ -2098,7 +2098,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.63'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.64'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
@@ -2115,7 +2115,7 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.63'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.64'), 'image preview zoom should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
@@ -2127,7 +2127,7 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(flatCss.includes('Final message action polish: glassy rounded buttons with subtle per-action accents'), 'message actions should document the shared polished style layer');
   assert.ok(flatCss.includes('.message:not([data-streaming="1"]) .msg-actions:not(:hover)') && flatCss.includes('opacity:.34!important') && flatCss.includes('.message:not([data-streaming="1"]):hover .msg-actions') && flatCss.includes('opacity:.95!important') && !flatCss.includes('.message:hover .msg-actions'), 'message action groups should stay less visually prominent until the pointer moves over non-streaming messages');
   assert.ok(flatCss.includes('.messages>.message:not([data-streaming="1"]) .bubble-wrap') && flatCss.includes('.messages>.message:not([data-streaming="1"]) .content') && flatCss.includes('pointer-events:auto!important'), 'non-streaming message hover should be active across the full bubble/content area, not only the message start');
-  assert.ok(flatCss.includes('.message[data-streaming="1"] .msg-actions') && flatCss.includes('transition:none!important') && flatCss.includes('.message[data-streaming="1"] .bubble-wrap') && flatCss.includes('padding-bottom:0!important') && flatCss.includes('.message[data-streaming="1"] .message-meta') && flatCss.includes('position:static!important') && flatCss.includes('pointer-events:auto!important'), 'streaming messages should suppress action hover transitions and keep TTFT metadata in stable flow to avoid hover flicker');
+  assert.ok(flatCss.includes('.message[data-streaming="1"] .msg-actions') && flatCss.includes('transition:none!important') && flatCss.includes('.message[data-streaming="1"] .bubble-wrap') && flatCss.includes('padding-bottom:0!important') && flatCss.includes('.message[data-streaming="1"] .message-meta') && flatCss.includes('position:static!important') && flatCss.includes('pointer-events:none!important'), 'streaming messages should suppress action hover transitions and keep TTFT metadata inert in stable flow to avoid hover flicker');
   assert.ok(flatCss.includes('@media (max-width:840px)') && flatCss.includes('opacity:.52!important'), 'mobile message actions should be visible enough on touch devices without hover');
   assert.ok(flatCss.includes('--msg-action-bg:rgba(255,255,255,.74)') && flatCss.includes('--msg-action-border:rgba(148,163,184,.22)') && flatCss.includes('--msg-action-shadow:0 6px 16px'), 'message actions should use the same glassy button surface as the force-image polish');
   assert.ok(flatCss.includes('backdrop-filter:blur(10px) saturate(145%)') && flatCss.includes('transition:color .14s ease'), 'message action buttons should have refined blur and motion polish');
@@ -2139,7 +2139,7 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.63'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.64'), 'message action visual polish should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match message action polish cache-busting');
 }
 
@@ -2150,7 +2150,7 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(flatCss.includes('.pending-feedback{') && flatCss.includes('flex-wrap:nowrap!important') && flatCss.includes('white-space:nowrap!important'), 'pending feedback should keep waiting text on one line');
   assert.ok(flatCss.includes('.pending-text,') && flatCss.includes('.pending-dots{') && flatCss.includes('flex:0 0 auto!important'), 'pending feedback text and dots should not shrink into wrapped fragments');
   assert.ok(flatCss.includes('@media (max-width:640px)') && flatCss.includes('font-size:14px!important') && flatCss.includes('gap:6px!important'), 'mobile pending feedback should be compact enough to avoid wrapping');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.63'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.64'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match pending feedback cache-busting');
 }
 
@@ -2159,9 +2159,9 @@ function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(flatCss.includes('body:not(.session-sidebar-collapsed) .composer,') && flatCss.includes('width:var(--ds-chat-column)!important') && flatCss.includes('left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important'), 'expanded desktop composer should match the same ds chat column as messages');
-  assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:calc((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.94)!important') && flatCss.includes('left:calc(var(--session-rail-width) + var(--chat-content-gap) + ((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.03))!important'), 'collapsed desktop composer should match the same 94% chat-content column as messages');
-  assert.ok(flatCss.includes('@media (min-width:1600px){') && flatCss.includes('width:calc((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.96)!important'), 'wide collapsed desktop composer should follow the wide chat-content ratio');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.63'), 'sidebar composer width fix should bump browser cache versions');
+  assert.ok(flatCss.includes('--ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important') && flatCss.includes('body.session-sidebar-collapsed .messages>.message,') && flatCss.includes('body.session-sidebar-collapsed .empty{') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important'), 'collapsed desktop messages should use a wider dedicated reading column after the sidebar frees space');
+  assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important') && flatCss.includes('left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important'), 'collapsed desktop composer should be centered on the same wider collapsed reading column');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.64'), 'sidebar composer width fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match sidebar composer cache-busting');
 }
 
@@ -2200,7 +2200,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.62') && index.includes('chat-workflow.js?v=1.3.17') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('flat-theme.css?v=2.1.63'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.62') && index.includes('chat-workflow.js?v=1.3.17') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('flat-theme.css?v=2.1.64'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
