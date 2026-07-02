@@ -2700,6 +2700,21 @@ body{
   white-space:pre-wrap!important;
   overflow-wrap:anywhere!important;
 }
+.message[data-streaming="1"] .markdown-stream-caret{
+  display:none!important;
+}
+.message[data-streaming="1"] .content::after{
+  content:"";
+  display:inline-block!important;
+  width:3px!important;
+  height:1.28em!important;
+  margin-left:3px!important;
+  transform:translateY(.18em)!important;
+  border-radius:999px!important;
+  background:var(--ds-accent,var(--accent,#4d6bfe))!important;
+  box-shadow:0 0 0 3px rgba(77,107,254,.14),0 0 14px rgba(77,107,254,.42)!important;
+  animation:markdown-stream-caret-pulse 1s ease-in-out infinite!important;
+}
 .markdown-stream-caret{
   display:inline-block!important;
   width:3px!important;
@@ -2716,7 +2731,8 @@ body{
   50%{opacity:.32;}
 }
 @media (prefers-reduced-motion:reduce){
-  .markdown-stream-caret{animation:none!important;opacity:1!important;}
+  .markdown-stream-caret,
+  .message[data-streaming="1"] .content::after{animation:none!important;opacity:1!important;}
 }
 .msg-actions button,
 .icon-action-btn{

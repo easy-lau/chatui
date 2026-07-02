@@ -522,10 +522,7 @@
             contentNode.innerHTML = '';
           }
           if (streamRenderer && s.chunk !== false) {
-            const incoming = String(t ?? '');
-            const previousRaw = streamRenderer.getRaw?.() || '';
-            const deltaText = s.delta ? incoming : incoming.startsWith(previousRaw) ? incoming.slice(previousRaw.length) : rawValue.startsWith(previousRaw) ? rawValue.slice(previousRaw.length) : incoming;
-            streamRenderer.append(deltaText, contentNode);
+            streamRenderer.set(rawValue, contentNode);
           } else if (contentNode.textContent !== rawValue) contentNode.textContent = rawValue;
         } else {
           const html = s.html ? String(t || '') : e.classList?.contains('user') ? renderUserMessageContent(rawValue) : renderMarkdown(rawValue);
