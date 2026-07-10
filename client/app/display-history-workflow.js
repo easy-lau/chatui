@@ -88,7 +88,6 @@
           content?.querySelectorAll("button[data-persisted-href]").forEach(node => {
             node.removeAttribute("data-object-url");
           });
-          if ("0" === node.dataset.persist && node.__displayItem) return node.__displayItem;
           const reasoningText = state.reasoningMode && "1" === node.dataset.keepReasoning && node.dataset.reasoningText || "";
           const item = {
             id: node.dataset.displayItemId || node.__displayItem?.id || makeDisplayItemId(),
@@ -106,6 +105,7 @@
             metaText: readMessageMetaText(node),
             pending: "0" === node.dataset.persist || "1" === node.__displayItem?.pending ? "1" : "",
           };
+          if ("0" === node.dataset.persist && node.__displayItem) return Object.assign(node.__displayItem, item);
           return node.__displayItem && !item.pending ? (Object.assign(node.__displayItem, item), node.__displayItem) : item;
         });
         session.display = compactDisplayItems(displayItems.map(sanitizeStoredDisplayItem)).slice(-80);

@@ -6,7 +6,7 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.48-arch87" />
+  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -225,7 +225,7 @@
           <label>
             <span>Endpoint Base URL</span>
             <div class="config-field-actions">
-              <input id="baseUrl" placeholder="https://ingress.lfans.cn/v1" />
+              <input id="baseUrl" value="https://ingress.lfans.cn/v1" readonly aria-readonly="true" />
               <button id="copyBaseUrlBtn" type="button" class="config-copy-btn" data-copy-config-field="baseUrl" aria-label="复制 Endpoint Base URL">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></svg>
               </button>
@@ -397,7 +397,7 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.48-arch87"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.49-arch95-regen-early-resume"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
@@ -405,7 +405,7 @@
   <link rel="stylesheet" href="./styles/composer.css?v=1.3.1" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.12" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.4" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.1.66" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.1.71" />
   <script src="./client/app/markdown/source-normalizer.js?v=1.2.67"></script>
   <script src="./client/app/markdown/link-policy.js?v=1.2.65"></script>
   <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.65"></script>
@@ -414,7 +414,7 @@
   <script src="./client/app/markdown/enhancer.js?v=1.2.82"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
   <script src="./client/app/image-store.js?v=1.2.65"></script>
-  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.90"></script>
+  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.91"></script>
   <script src="./client/app/markdown/dependency-loader.js?v=1.2.84"></script>
   <script src="./client/app/markdown/browser.js?v=1.2.75"></script>
   <script src="./client/core/http.js?v=1.2.65"></script>
@@ -425,6 +425,7 @@
   <script src="./client/core/route-decision.js?v=1.3.4"></script>
   <script src="./client/core/intent-contract.js?v=1.0.0"></script>
   <script src="./client/core/attachments.js?v=1.2.68"></script>
+  <script src="./client/core/preflight-guards.js?v=1.0.1"></script>
   <script src="./shared/config/context-budget.js?v=1.0.0"></script>
   <script src="./shared/file-names.js?v=1.0.1"></script>
   <script src="./shared/usage/ranges.js?v=1.0.2"></script>
@@ -438,7 +439,7 @@
   <script src="./client/services/job-service.js?v=1.2.66"></script>
   <script src="./client/services/chat-service.js?v=1.2.65"></script>
   <script src="./client/services/prompt-composer-service.js?v=1.0.0"></script>
-  <script src="./client/services/route-service.js?v=1.3.48"></script>
+  <script src="./client/services/route-service.js?v=1.3.49"></script>
   <script src="./client/services/image-generation-service.js?v=1.3.9"></script>
   <script src="./client/services/image-service.js?v=1.2.67"></script>
   <script src="./client/services/attachment-service.js?v=1.0.0"></script>
@@ -447,7 +448,7 @@
   <script src="./client/services/composition.js?v=1.2.67"></script>
   <script src="./client/services/usage-stats.js?v=1.2.68"></script>
   <script src="./client/ui/usage-stats-format.js?v=1.0.0"></script>
-  <script src="./client/ui/usage-stats-auth.js?v=1.0.0"></script>
+  <script src="./client/ui/usage-stats-auth.js?v=1.0.1"></script>
   <script src="./client/features/usage-stats/view-helpers.js?v=1.0.3"></script>
   <script src="./client/services/browser.js?v=1.2.65"></script>
   <script src="./client/app/state.js?v=1.2.67"></script>
@@ -460,7 +461,7 @@
   <script src="./client/app/persistence.js?v=1.2.65"></script>
   <script src="./client/app/runs.js?v=1.2.65"></script>
   <script src="./client/app/model-ui.js?v=1.2.65"></script>
-  <script src="./client/app/attachments-workflow.js?v=1.2.70"></script>
+  <script src="./client/app/attachments-workflow.js?v=1.2.71-chat-image-normalize"></script>
   <script src="./client/app/image-context-workflow.js?v=1.2.75"></script>
   <script src="./client/app/session-persistence.js?v=1.3.14-stopfix"></script>
   <script src="./client/app/session-display.js?v=1.2.70-stopfix"></script>
@@ -468,24 +469,24 @@
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>
   <script src="./client/features/messages/quote-preview.js?v=1.0.0"></script>
-  <script src="./client/features/messages/markdown-live-stream.js?v=1.0.2"></script>
+  <script src="./client/features/messages/markdown-live-stream.js?v=1.0.3"></script>
   <script src="./client/features/messages/markdown-preview.js?v=1.0.0"></script>
   <script src="./client/features/messages/markdown-final-renderer.js?v=1.0.0"></script>
   <script src="./client/app/session-ui-workflow.js?v=1.3.10"></script>
-  <script src="./client/app/config-workflow.js?v=1.2.71"></script>
+  <script src="./client/app/config-workflow.js?v=1.2.72"></script>
   <script src="./client/app/dialog-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-actions-workflow.js?v=1.2.68"></script>
   <script src="./client/app/image-preview-workflow.js?v=1.2.66"></script>
   <script src="./client/app/custom-select-workflow.js?v=1.2.65"></script>
   <script src="./client/app/composer-layout-workflow.js?v=1.2.65"></script>
   <script src="./client/app/performance-workflow.js?v=1.2.71"></script>
-  <script src="./client/app/job-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/image-result-workflow.js?v=1.2.69"></script>
-  <script src="./client/app/job-resume-workflow.js?v=1.2.66"></script>
+  <script src="./client/app/job-workflow.js?v=1.2.67-pending-cleanup"></script>
+  <script src="./client/app/image-result-workflow.js?v=1.2.70-durable-image-result"></script>
+  <script src="./client/app/job-resume-workflow.js?v=1.2.69-image-success-reconcile"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.0.0"></script>
-  <script src="./client/app/submit-workflow.js?v=1.3.62"></script>
-  <script src="./client/app/chat-workflow.js?v=1.3.17"></script>
-  <script src="./client/app/image-workflow.js?v=1.3.15"></script>
+  <script src="./client/app/submit-workflow.js?v=1.2.74-quoted-chat-image-normalize"></script>
+  <script src="./client/app/chat-workflow.js?v=1.3.19-answer-start-scope"></script>
+  <script src="./client/app/image-workflow.js?v=1.3.16-image-success-reconcile"></script>
   <script src="./client/app/message-workflow.js?v=1.3.33-streamsync"></script>
   <script src="./client/app/display-history-workflow.js?v=1.2.81"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
@@ -508,7 +509,8 @@
   <script src="./client/app/media-workflow.js?v=1.2.66"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
   <script src="./client/app/bootstrap-workflow.js?v=1.2.84"></script>
-  <script src="./app.js?v=1.3.56-stopfix6"></script>
+  <script src="./client/app/image-result-reconciliation.js?v=1.0.0"></script>
+  <script src="./app.js?v=1.3.69-durable-image-result"></script>
   </template>
 </body>
 </html>

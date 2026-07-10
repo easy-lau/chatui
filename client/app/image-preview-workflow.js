@@ -10,7 +10,7 @@
 
     function updateImagePreviewCopyAvailability(){const e=getElement("imagePreviewCopy");if(!e)return;const t=canWriteImageClipboard();e.disabled=!t,e.classList.toggle("is-disabled",!t),e.title=t?"复制图片":imageClipboardUnsupportedMessage(),e.setAttribute("aria-label",e.title)}
 
-    async function resolvePreviewSrc(e){if(!e)return{src:"",owned:!1};if(String(e).startsWith("indexeddb://")){const t=await getImageBlob(String(e).replace("indexeddb://",""));return t?{src:URL.createObjectURL(t),owned:!0}:{src:"",owned:!1}}if(String(e).startsWith("blob:"))return{src:"",owned:!1};return{src:e,owned:!1}}
+    async function resolvePreviewSrc(e){if(!e)return{src:"",owned:!1};if(String(e).startsWith("indexeddb://")){const t=await getImageBlob(String(e).replace("indexeddb://",""));return t?{src:URL.createObjectURL(t),owned:!0}:{src:"",owned:!1}}if(String(e).startsWith("blob:"))return{src:e,owned:!1};return{src:e,owned:!1}}
 
     function clampPreviewScale(value){const numeric=Number(value);return Math.min(MAX_PREVIEW_SCALE,Math.max(MIN_PREVIEW_SCALE,Number.isFinite(numeric)?numeric:1))}
 

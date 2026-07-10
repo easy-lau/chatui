@@ -1,7 +1,7 @@
 const { sendJson } = require('../http/response');
 const { performance } = require('perf_hooks');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const chatStreamParser = require('./chat-stream-parser');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../shared/config/context-budget');
@@ -89,7 +89,7 @@ try {
 } catch (err) {
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
-  job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
+  job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
   clearTimeout(timer);
   delete job.controller;
@@ -150,7 +150,7 @@ try {
 } catch (err) {
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
-  job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
+  job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
   clearTimeout(timer);
   delete job.controller;

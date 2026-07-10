@@ -9,11 +9,15 @@ const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
 const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
 const { createUsageStatsRepository } = require('./usage/stats-repository');
+const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.service');
+const { createUsageAccessValidator } = require('./services/usage-access.service');
 
 function createApp() {
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
   const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
+  const feedbackSender = createDingTalkFeedbackSender();
+  const usageAccessValidator = createUsageAccessValidator();
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
   const sweeper = startJobSweeper([imageJobs, chatJobs]);
@@ -64,6 +68,8 @@ function createApp() {
     startChatJob,
     getChatJob,
     usageStats,
+    usageAccessValidator,
+    feedbackSender,
   });
   const server = http.createServer(route);
   server.on('close', () => {

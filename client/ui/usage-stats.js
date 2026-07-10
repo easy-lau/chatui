@@ -28,6 +28,10 @@
     return readCurrentApiKey({ getElement: $ });
   }
 
+  function currentModel() {
+    return String($('chatModel')?.value || '').trim();
+  }
+
   function ensureDom() {
     if ($('usageStatsButton')) return;
     const button = document.createElement('button');
@@ -37,6 +41,14 @@
     button.title = '使用统计';
     button.setAttribute('aria-label', '使用统计');
     button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16"/><path d="M5 15l4-4 3 3 6-7"/><path d="M15 7h3v3"/></svg>';
+
+    const feedbackButton = document.createElement('button');
+    feedbackButton.id = 'usageFeedbackOpen';
+    feedbackButton.className = 'usage-feedback-open';
+    feedbackButton.type = 'button';
+    feedbackButton.title = '问题反馈';
+    feedbackButton.setAttribute('aria-label', '问题反馈');
+    feedbackButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15a4 4 0 0 1-4 4H9l-5 3v-7a4 4 0 0 1-2-3.46V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M7 10h10"/><path d="M7 14h6"/></svg>';
 
     const panel = document.createElement('section');
     panel.id = 'usageStatsPanel';
@@ -69,7 +81,25 @@
           <div id="usageRanking" class="usage-ranking"></div>
         </div>
       </div>`;
-    document.body.append(button, panel);
+    const feedbackPanel = document.createElement('section');
+    feedbackPanel.id = 'usageFeedbackPanel';
+    feedbackPanel.className = 'usage-feedback-panel';
+    feedbackPanel.setAttribute('aria-hidden', 'true');
+    feedbackPanel.innerHTML = `
+      <div class="usage-feedback-card" role="dialog" aria-modal="true" aria-labelledby="usageFeedbackTitle">
+        <div class="usage-feedback-head">
+          <div class="usage-feedback-heading"><span class="usage-feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15a4 4 0 0 1-4 4H9l-5 3v-7a4 4 0 0 1-2-3.46V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M7 10h10"/><path d="M7 14h6"/></svg></span><div><strong id="usageFeedbackTitle">问题反馈</strong><span>提交后将发送给管理员处理</span></div></div>
+          <button id="usageFeedbackClose" type="button" aria-label="关闭反馈">×</button>
+        </div>
+        <div class="usage-feedback-body">
+          <label for="usageFeedbackContent">反馈内容 <em>必填</em></label>
+          <textarea id="usageFeedbackContent" maxlength="4000" placeholder="请描述问题现象、复现步骤和期望结果。"></textarea>
+          <div class="usage-feedback-hint"><span>请勿填写 API Key、密码等敏感信息</span><span id="usageFeedbackCount">0 / 4000</span></div>
+          <div id="usageFeedbackStatus" class="usage-feedback-status" aria-live="polite"></div>
+        </div>
+        <div class="usage-feedback-foot"><button id="usageFeedbackCancel" type="button">取消</button><button id="usageFeedbackSubmit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>提交反馈</button></div>
+      </div>`;
+    document.body.append(button, feedbackButton, panel, feedbackPanel);
   }
 
   function tokenColumns(row) {
@@ -234,6 +264,55 @@
     status.classList.remove('is-warning');
   }
 
+  function setFeedbackStatus(message = '', isError = false) {
+    const status = $('usageFeedbackStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('is-error', Boolean(message && isError));
+    status.classList.toggle('is-success', Boolean(message && !isError));
+  }
+
+  function openFeedbackPanel() {
+    closePanel();
+    const configured = Boolean(currentApiKey() && currentModel());
+    setFeedbackStatus(configured ? '' : '请先在模型配置中填写 API Key 并选择聊天模型', !configured);
+    updateFeedbackCount();
+    $('usageFeedbackPanel')?.classList.add('show');
+    $('usageFeedbackPanel')?.setAttribute('aria-hidden', 'false');
+    setTimeout(() => $('usageFeedbackContent')?.focus(), 0);
+  }
+
+  function closeFeedbackPanel() {
+    $('usageFeedbackPanel')?.classList.remove('show');
+    $('usageFeedbackPanel')?.setAttribute('aria-hidden', 'true');
+    setFeedbackStatus();
+  }
+
+  function updateFeedbackCount() {
+    const count = $('usageFeedbackCount');
+    if (count) count.textContent = `${String($('usageFeedbackContent')?.value || '').length} / 4000`;
+  }
+
+  async function submitFeedback() {
+    if (!currentApiKey() || !currentModel()) return setFeedbackStatus('请先在模型配置中填写 API Key 并选择聊天模型', true);
+    const content = String($('usageFeedbackContent')?.value || '').trim();
+    if (!content) return setFeedbackStatus('请填写需要反馈的问题', true);
+    const submit = $('usageFeedbackSubmit');
+    submit && (submit.disabled = true);
+    setFeedbackStatus('正在发送…');
+    try {
+      await usageService()?.submitFeedback(content, currentApiKey(), currentModel());
+      $('usageFeedbackContent').value = '';
+      updateFeedbackCount();
+      setFeedbackStatus('反馈已发送，感谢你的反馈。');
+      setTimeout(closeFeedbackPanel, 900);
+    } catch (err) {
+      setFeedbackStatus(err?.message || '反馈发送失败，请稍后重试', true);
+    } finally {
+      submit && (submit.disabled = false);
+    }
+  }
+
   function modeToggleIcon() {
     return viewHelpers.modeToggleIcon(activeMode);
   }
@@ -241,7 +320,7 @@
   async function promptAndVerifyDepartmentPassword() {
     const password = String(window.prompt('请输入部门统计访问密码') || '').trim();
     if (!password) return false;
-    const payload = await usageService().verifyDepartmentPassword(password);
+    const payload = await usageService().verifyDepartmentPassword(password, currentApiKey(), currentModel());
     if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
     if (!payload?.authorized) throw new Error('密码错误，无权限访问');
     setDepartmentPassword(password);
@@ -253,7 +332,7 @@
     const savedPassword = getDepartmentPassword();
     if (savedPassword) {
       try {
-        const payload = await usageService().verifyDepartmentPassword(savedPassword);
+        const payload = await usageService().verifyDepartmentPassword(savedPassword, currentApiKey(), currentModel());
         if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
         if (payload?.authorized) return true;
       } catch (err) {
@@ -277,7 +356,7 @@
       renderRanking(cache.rankings[range], range);
       return;
     }
-    const payload = await usageService().requestRanking(range);
+    const payload = await usageService().requestRanking(currentApiKey(), currentModel(), range);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderRanking(cache.rankings[range] || [], range);
@@ -304,7 +383,7 @@
       renderPersonal(cache.personal[cacheKey] || null, true);
       return;
     }
-    const payload = await usageService().requestPersonal(apiKey, range);
+    const payload = await usageService().requestPersonal(apiKey, currentModel(), range);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderPersonal(cache.personal[cacheKey] || null, true);
@@ -335,7 +414,7 @@
       await Promise.all([loadRanking(activeRange, options), loadPersonal(activePersonalRange, options)]);
       return;
     }
-    const payload = await service.requestOverview(apiKey, activeRange, activePersonalRange);
+    const payload = await service.requestOverview(apiKey, currentModel(), activeRange, activePersonalRange);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderRanking(cache.rankings[activeRange] || [], activeRange);
@@ -366,8 +445,8 @@
     }
     const service = usageService();
     const payload = service?.requestDepartmentSummary
-      ? await service.requestDepartmentSummary(password, range)
-      : await service.requestDepartmentRanking(password, range);
+      ? await service.requestDepartmentSummary(password, currentApiKey(), currentModel(), range)
+      : await service.requestDepartmentRanking(password, currentApiKey(), currentModel(), range);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderRanking(cache.departmentRankings[range] || [], range);
@@ -390,7 +469,7 @@
       renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
       return;
     }
-    const payload = await usageService().requestDepartmentUsers(getDepartmentPassword(), departmentId, activeDepartmentRange);
+    const payload = await usageService().requestDepartmentUsers(getDepartmentPassword(), currentApiKey(), currentModel(), departmentId, activeDepartmentRange);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey] || []);
@@ -526,7 +605,7 @@
   async function exportDepartmentUsage() {
     try {
       clearUsageLimit();
-      const payload = await usageService().exportDepartmentUsage(getDepartmentPassword(), activeDepartmentRange);
+      const payload = await usageService().exportDepartmentUsage(getDepartmentPassword(), currentApiKey(), currentModel(), activeDepartmentRange);
       const url = URL.createObjectURL(payload.blob);
       const link = document.createElement('a');
       link.href = url;
@@ -564,6 +643,12 @@
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
     $('usageStatsModeToggle')?.addEventListener('click', switchMode);
     $('usageStatsExport')?.addEventListener('click', exportDepartmentUsage);
+    $('usageFeedbackOpen')?.addEventListener('click', openFeedbackPanel);
+    $('usageFeedbackClose')?.addEventListener('click', closeFeedbackPanel);
+    $('usageFeedbackCancel')?.addEventListener('click', closeFeedbackPanel);
+    $('usageFeedbackSubmit')?.addEventListener('click', submitFeedback);
+    $('usageFeedbackContent')?.addEventListener('input', updateFeedbackCount);
+    $('usageFeedbackPanel')?.addEventListener('click', event => { if (event.target?.id === 'usageFeedbackPanel') closeFeedbackPanel(); });
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
   }

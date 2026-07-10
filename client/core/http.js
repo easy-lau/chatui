@@ -1,8 +1,19 @@
 (function initChatUICoreHttp(root) {
   'use strict';
 
+  function normalizeUpstreamErrorMessage(message = '') {
+    const text = String(message || '');
+    if (/circuit breaker|skip candidate|raw request middleware/i.test(text)) {
+      return '上游接口暂时不可用：请求被上游熔断或候选通道跳过，请稍后重试或检查 Endpoint 服务状态';
+    }
+    if (/The image data you provided does not represent a valid image/i.test(text)) {
+      return '图片数据无效：请重新上传有效的 PNG/JPG 图片后再试';
+    }
+    return text;
+  }
+
   function normalizeError(error, payload) {
-    return payload?.error?.message
+    const message = payload?.error?.message
       ? payload.error.message
       : payload?.error?.code
         ? payload.error.code
@@ -11,6 +22,7 @@
           : payload?.raw
             ? payload.raw
             : error?.message || '请求失败';
+    return normalizeUpstreamErrorMessage(message);
   }
 
   function toProxyUrl(url, baseUrl) {
@@ -26,7 +38,7 @@
     }
   }
 
-  const api = Object.freeze({ normalizeError, toProxyUrl, parseResponseJson });
+  const api = Object.freeze({ normalizeError, normalizeUpstreamErrorMessage, toProxyUrl, parseResponseJson });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUICoreHttp = api;

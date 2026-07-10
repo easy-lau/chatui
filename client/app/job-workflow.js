@@ -23,6 +23,26 @@
     return (deps.storage || root.localStorage).removeItem(keyFn(sessionId));
   }
 
+  function pendingSubmitKey(sessionId = '') {
+    return `openapi-chat-image-pending-submit-v1:${sessionId || 'default'}`;
+  }
+
+  function loadPendingSubmit(sessionId = '', deps = {}) {
+    return readJsonStorage(pendingSubmitKey(sessionId), deps.storage || root.localStorage, null);
+  }
+
+  function savePendingSubmit(sessionId = '', pendingSubmit = {}, deps = {}) {
+    return (deps.storage || root.localStorage).setItem(pendingSubmitKey(sessionId), JSON.stringify({ ...pendingSubmit, savedAt: Date.now() }));
+  }
+
+  function clearPendingSubmit(sessionId = '', deps = {}) {
+    return (deps.storage || root.localStorage).removeItem(pendingSubmitKey(sessionId));
+  }
+
+  function shouldPreservePendingSubmitOnError(err, state = {}, run = {}) {
+    return !!state.pageUnloading || !!run.stopped || err?.name === 'AbortError';
+  }
+
   function loadDisplayChatJob(sessionId, deps = {}) {
     const session = (deps.sessions || []).find(item => item.id === sessionId);
     const hasCompletedAssistantForResponse = deps.hasCompletedAssistantForResponse || (() => false);
@@ -71,6 +91,7 @@
   function waitJobEvent(url, onUpdate = () => {}, options = {}) {
     let abortListener = null;
     let retryTimer = null;
+    let softTimeoutTimer = null;
     const signal = options.signal;
     const pollJob = options.pollJob;
     const EventSourceRef = options.EventSource || root.EventSource;
@@ -114,6 +135,7 @@
         if (done) return;
         done = true;
         clearTimeout(retryTimer);
+        clearTimeout(softTimeoutTimer);
         try { source?.close(); } catch {}
         handler(value);
       };
@@ -133,6 +155,14 @@
       abortListener = () => { if (!done) finish(reject, new DOMException('已停止', 'AbortError')); };
       if (signal?.aborted) return abortListener();
       signal?.addEventListener('abort', abortListener, { once: true });
+      const softTimeoutMs = Math.max(0, Number(options.softTimeoutMs || 0) || 0);
+      if (softTimeoutMs > 0) {
+        softTimeoutTimer = setTimeout(() => {
+          const err = new Error(options.softTimeoutMessage || '任务仍在后台处理中，可稍后刷新或切换会话恢复查看');
+          err.name = 'JobSoftTimeoutError';
+          finish(reject, err);
+        }, softTimeoutMs);
+      }
       poll();
       const connect = () => {
         if (done) return;
@@ -154,11 +184,12 @@
       connect();
     }).finally(() => {
       clearTimeout(retryTimer);
+      clearTimeout(softTimeoutTimer);
       if (signal && abortListener) signal.removeEventListener('abort', abortListener);
     });
   }
 
-  const api = Object.freeze({ readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, waitJobEvent });
+  const api = Object.freeze({ readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, loadPendingSubmit, savePendingSubmit, clearPendingSubmit, shouldPreservePendingSubmitOnError, waitJobEvent });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobWorkflow = api;

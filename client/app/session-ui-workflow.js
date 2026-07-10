@@ -70,7 +70,7 @@
     function newSession() {
       const state = getState();
       saveActivePromptDraft();
-      try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
+      try { saveChatHistory(); saveDisplayHistory({ includeTransient: true }); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
       const session = createSession();

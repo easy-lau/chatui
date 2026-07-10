@@ -46,85 +46,89 @@
     return { available: true, range: payload.r, department_id: payload.d, users: payload.rows.map(tokenRow) };
   }
 
-  async function requestRanking(range = 'today') {
-    const response = await fetch(`/api/usage/rankings?range=${encodeURIComponent(range)}`, { method: 'GET' });
+  async function requestRanking(apiKey, model, range = 'today') {
+    const response = await fetch('/api/usage/rankings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey || '', model: model || '', range }),
+    });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询使用排行榜失败'));
     return payload;
   }
 
-  async function requestPersonal(apiKey, range = 'today') {
+  async function requestPersonal(apiKey, model, range = 'today') {
     if (!apiKey) return { available: true, personal: null };
     const response = await fetch('/api/usage/personal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, range }),
+      body: JSON.stringify({ api_key: apiKey, model, range }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询个人使用统计失败'));
     return payload;
   }
 
-  async function requestOverview(apiKey, rankingRange = 'today', personalRange = 'today') {
+  async function requestOverview(apiKey, model, rankingRange = 'today', personalRange = 'today') {
     const response = await fetch('/api/usage/overview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey || '', ranking_range: rankingRange, personal_range: personalRange, compact: true }),
+      body: JSON.stringify({ api_key: apiKey || '', model: model || '', ranking_range: rankingRange, personal_range: personalRange, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询使用统计失败'));
     return expandOverview(payload);
   }
 
-  async function verifyDepartmentPassword(password) {
+  async function verifyDepartmentPassword(password, apiKey, model) {
     const response = await fetch('/api/usage/department/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, api_key: apiKey || '', model: model || '' }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '密码错误，无权限访问'));
     return payload;
   }
 
-  async function requestDepartmentRanking(password, range = 'today') {
+  async function requestDepartmentRanking(password, apiKey, model, range = 'today') {
     const response = await fetch('/api/usage/department/rankings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, range, compact: true }),
+      body: JSON.stringify({ password, api_key: apiKey || '', model: model || '', range, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询部门统计失败'));
     return expandDepartmentSummary(payload);
   }
 
-  async function requestDepartmentSummary(password, range = 'today') {
+  async function requestDepartmentSummary(password, apiKey, model, range = 'today') {
     const response = await fetch('/api/usage/department/summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, range, compact: true }),
+      body: JSON.stringify({ password, api_key: apiKey || '', model: model || '', range, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询部门统计失败'));
     return expandDepartmentSummary(payload);
   }
 
-  async function requestDepartmentUsers(password, departmentId, range = 'today') {
+  async function requestDepartmentUsers(password, apiKey, model, departmentId, range = 'today') {
     const response = await fetch('/api/usage/department/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, department_id: departmentId, range, compact: true }),
+      body: JSON.stringify({ password, api_key: apiKey || '', model: model || '', department_id: departmentId, range, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询部门用户统计失败'));
     return expandDepartmentUsers(payload);
   }
 
-  async function exportDepartmentUsage(password, range = 'today') {
+  async function exportDepartmentUsage(password, apiKey, model, range = 'today') {
     const response = await fetch('/api/usage/department/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, range }),
+      body: JSON.stringify({ password, api_key: apiKey || '', model: model || '', range }),
     });
     const contentType = response.headers.get('content-type') || '';
     if (!response.ok || contentType.includes('application/json')) {
@@ -138,6 +142,17 @@
     return { blob, filename: match?.[1] || `department-usage-${range}.xlsx` };
   }
 
+  async function submitFeedback(content, apiKey, model) {
+    const response = await fetch('/api/usage/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, api_key: apiKey || '', model: model || '' }),
+    });
+    const payload = await parseJson(response);
+    if (!response.ok) throw new Error(errorMessage(payload, '反馈发送失败，请稍后重试'));
+    return payload;
+  }
+
   window.ChatUIServices = window.ChatUIServices || {};
   window.ChatUIServices.usageStats = {
     requestOverview,
@@ -148,5 +163,6 @@
     requestDepartmentRanking,
     requestDepartmentUsers,
     exportDepartmentUsage,
+    submitFeedback,
   };
 })();

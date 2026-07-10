@@ -122,6 +122,24 @@
     async function urlToImageFile(url, name = 'previous-image.png') { const response = await fetch(url); if (!response.ok) throw new Error('无法读取上一张图片作为编辑参考'); const blob = await response.blob(); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); }
     async function imageRefToFile(ref, name = 'previous-image.png') { if (!ref) return null; if (ref.startsWith('indexeddb://')) { const blob = await getImageBlob(ref.replace('indexeddb://', '')); if (!blob) throw new Error('图片缓存不存在，无法继续编辑'); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); } return ref.startsWith('data:') ? dataUrlToFile(ref, name) : urlToImageFile(ref, name); }
     async function imageRefToDataUrl(ref, name = 'image.png') { if (!ref) return ''; if (ref.startsWith('data:')) return ref; if (ref.startsWith('indexeddb://')) { const blob = await getImageBlob(ref.replace('indexeddb://', '')); if (!blob) throw new Error('图片缓存不存在，无法继续发送'); return blobToDataUrl(blob); } return ref; }
+    async function prepareChatImageAttachments(list = []) {
+      const result = [];
+      for (const source of list || []) {
+        if (!isImageFile(source)) { result.push(source); continue; }
+        try {
+          let file = source.file || await imageRefToFile(String(source.dataUrl || source.previewSrc || source.src || ''), source.name || 'image.png');
+          if (isBmpFile({ name: file.name, type: file.type || inferMimeByName(file.name) })) file = await convertBmpToPng(file);
+          const compressed = await compressImageIfNeeded(file);
+          file = compressed.file;
+          result.push({ ...source, file, name: file.name, type: file.type || inferMimeByName(file.name), size: file.size, dataUrl: await readFileAsDataURL(file), compressionNote: compressed.changed ? (source.compressionNote ? `${source.compressionNote}；${compressed.note}` : compressed.note) : (source.compressionNote || '') });
+        } catch (err) {
+          console.warn('prepare chat image attachment failed', err);
+          result.push({ ...source, dataUrl: '', unsupportedReason: source.unsupportedReason || '图片缓存不存在，无法发送给聊天模型' });
+        }
+      }
+      return result;
+    }
+
     async function ensureChatAttachmentImageDataUrls(list = []) {
       const result = [];
       for (const item of list || []) {
@@ -237,7 +255,7 @@
 
     return Object.freeze({
       renderAttachments, hasPendingUploads, renderUploadProgress, setUploadTask, finishUploadProgressSoon, setUploadPhase, setUploadPhaseProgress, startTimedUploadPhase,
-      readFileAsDataURL, readFileAsArrayBuffer, readFileAsText, dataUrlToFile, urlToImageFile, imageRefToFile, imageRefToDataUrl, ensureChatAttachmentImageDataUrls,
+      readFileAsDataURL, readFileAsArrayBuffer, readFileAsText, dataUrlToFile, urlToImageFile, imageRefToFile, imageRefToDataUrl, prepareChatImageAttachments, ensureChatAttachmentImageDataUrls,
       compressImageIfNeeded, convertBmpToPng, extractAttachmentText, addFiles, clearAttachments,
     });
   }

@@ -1,5 +1,5 @@
 const { sendJson } = require('../http/response');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 
@@ -90,7 +90,7 @@ function parseImageUpstreamResponse(upstream = {}, text = '') {
 }
 
 function formatImageJobError(err) {
-  return err?.name === 'AbortError' ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
+  return normalizeUpstreamErrorMessage(err);
 }
 
 function markImageJobDone(job = {}, data, now = Date.now()) {

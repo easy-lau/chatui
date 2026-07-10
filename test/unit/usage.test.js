@@ -9,6 +9,7 @@ const usageStatsFormat = require('../../client/ui/usage-stats-format');
 const usageStatsAuth = require('../../client/ui/usage-stats-auth');
 const usageStatsView = require('../../client/features/usage-stats/view-helpers');
 const { createPublicConfigReader } = require('../../server/config/public-config');
+const dingTalkFeedback = require('../../server/services/dingtalk-feedback.service');
 
 function decodeXmlEntities(value = '') {
   return String(value || '')
@@ -70,7 +71,7 @@ function testUsageStatsFrontendHelpers() {
   assert.strictEqual(usageStatsAuth.shouldLoadRanking('  '), false);
   const store = new Map();
   const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
-  storage.setItem(usageStatsAuth.CONFIG_KEY, JSON.stringify({ apiKey: 'key-from-storage' }));
+  storage.setItem(usageStatsAuth.API_KEY_SESSION_KEY, 'key-from-storage');
   assert.strictEqual(usageStatsAuth.currentApiKey({ getElement: () => ({ value: '' }), storage }), 'key-from-storage');
   usageStatsAuth.setDepartmentPassword('dep-pass', storage);
   assert.strictEqual(usageStatsAuth.getDepartmentPassword(storage), 'dep-pass');
@@ -115,6 +116,30 @@ function testUsageStatsModuleLoadsWithCommonJsFacade() {
   }
 }
 
+async function testDingTalkFeedbackSenderContracts() {
+  const accessToken = 'A'.repeat(32);
+  assert.strictEqual(dingTalkFeedback.normalizeAccessToken(accessToken), accessToken);
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook(accessToken).includes(`access_token=${accessToken}`), true);
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook('https://oapi.dingtalk.com/robot/send?access_token=abc').includes('access_token=abc'), true);
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook('http://oapi.dingtalk.com/robot/send?access_token=abc'), '');
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook('https://example.com/robot/send?access_token=abc'), '');
+  const signed = new URL(dingTalkFeedback.signedWebhookUrl('https://oapi.dingtalk.com/robot/send?access_token=abc', 'secret', 123));
+  assert.strictEqual(signed.searchParams.get('timestamp'), '123');
+  assert.ok(signed.searchParams.get('sign'));
+  const calls = [];
+  const sender = dingTalkFeedback.createDingTalkFeedbackSender({
+    accessToken,
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true, json: async () => ({ errcode: 0 }) }; },
+    now: () => 0,
+  });
+  assert.strictEqual(await sender.send('  页面打不开  '), true);
+  assert.strictEqual(calls.length, 1);
+  assert.ok(JSON.parse(calls[0].init.body).markdown.text.includes('页面打不开'));
+  await assert.rejects(sender.send('   '), err => err.code === 'INVALID_FEEDBACK');
+  const unavailable = dingTalkFeedback.createDingTalkFeedbackSender({ accessToken: '' });
+  await assert.rejects(unavailable.send('问题'), err => err.code === 'FEEDBACK_NOT_CONFIGURED');
+}
+
 function testUsageStatsScriptsLoadInExpectedOrder() {
   const index = require('fs').readFileSync(require('path').join(__dirname, '../../index.html'), 'utf8');
   const serviceIndex = index.indexOf('client/services/usage-stats.js');
@@ -142,7 +167,7 @@ function testUsageValidatorNormalizesInputs() {
 function testUsageValidatorRateLimitPreservesContract() {
   const buckets = new Map();
   const req = { headers: { 'x-forwarded-for': ' 1.2.3.4, 5.6.7.8 ' }, socket: { remoteAddress: 'fallback' } };
-  assert.strictEqual(usageValidator.getClientKey(req), '1.2.3.4');
+  assert.strictEqual(usageValidator.getClientKey(req), 'fallback');
   const first = usageValidator.checkUsageRefreshLimit(req, 'rankings', { buckets, limit: 2, windowMs: 1000, now: 100 });
   assert.deepStrictEqual(first, { allowed: true, remaining: 1, resetMs: 1000 });
   const second = usageValidator.checkUsageRefreshLimit(req, 'rankings', { buckets, limit: 2, windowMs: 1000, now: 101 });
@@ -239,6 +264,7 @@ module.exports = [
   testUsageStatsFrontendHelpers,
   testUsageStatsViewHelpersPreserveMarkupAndLabels,
   testUsageStatsModuleLoadsWithCommonJsFacade,
+  testDingTalkFeedbackSenderContracts,
   testUsageStatsScriptsLoadInExpectedOrder,
   testUsageValidatorNormalizesInputs,
   testUsageValidatorRateLimitPreservesContract,

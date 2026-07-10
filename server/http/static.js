@@ -31,6 +31,20 @@ const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
+const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
+const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/'];
+
+function isPublicStaticPath(urlPath) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(String(urlPath || '').split('?')[0]);
+  } catch {
+    return false;
+  }
+  if (pathname === '/') pathname = '/index.html';
+  if (pathname.includes('\\') || pathname.split('/').includes('..')) return false;
+  return PUBLIC_ROOT_FILES.has(pathname) || PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix));
+}
 
 function safeJoin(root, rootWithSep, urlPath) {
   try {
@@ -162,6 +176,7 @@ function serveStatic(req, res, { root, rootWithSep }) {
   if (!url) return send(res, 400, 'Bad Request');
   const bundleKind = BUNDLE_PATHS[url.pathname];
   if (bundleKind) return serveBundle(req, res, { root, rootWithSep }, bundleKind);
+  if (!isPublicStaticPath(url.pathname)) return send(res, 404, 'Not Found');
 
   const filePath = safeJoin(root, rootWithSep, url.pathname);
   if (!filePath) return send(res, 403, 'Forbidden');
@@ -196,4 +211,4 @@ function serveStatic(req, res, { root, rootWithSep }) {
   });
 }
 
-module.exports = { MIME, safeJoin, pickCompressedStaticFile, serveStatic };
+module.exports = { MIME, safeJoin, isPublicStaticPath, pickCompressedStaticFile, serveStatic };

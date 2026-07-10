@@ -8,10 +8,13 @@ const fileActions = require('../client/ui/file-actions');
 const routeContext = require('../client/core/image-route-context');
 const routeDecision = require('../client/core/route-decision');
 const intentContract = require('../client/core/intent-contract');
+const preflightGuards = require('../client/core/preflight-guards');
+const httpCore = require('../client/core/http');
 const routeService = require('../client/services/route-service');
 const promptComposer = require('../client/services/prompt-composer-service');
 const imageGeneration = require('../client/services/image-generation-service');
 const imageService = require('../client/services/image-service');
+const imageResultWorkflow = require('../client/app/image-result-workflow');
 const imageJobs = require('../server/jobs/image');
 const imageEditPayloadService = require('../server/services/image-edit-payload.service');
 const serverConfig = require('../server/config');
@@ -47,6 +50,60 @@ const serverSmokeTests = require('./smoke/server-smoke.test');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
+}
+
+function testHttpNormalizeUpstreamErrors() {
+  assert.strictEqual(
+    httpCore.normalizeError(null, { raw: 'failed to apply raw request middlewares: skip candidate by circuit breaker' }),
+    '上游接口暂时不可用：请求被上游熔断或候选通道跳过，请稍后重试或检查 Endpoint 服务状态'
+  );
+  assert.strictEqual(
+    httpCore.normalizeError(null, { error: { message: 'The image data you provided does not represent a valid image. Please check your input and try again.' } }),
+    '图片数据无效：请重新上传有效的 PNG/JPG 图片后再试'
+  );
+}
+
+function testPreflightGuardsOnlyHandleDeterministicConditions() {
+  const baseConfig = { baseUrl: 'https://api.example.com/v1', chatModel: 'gpt-5.5', imageModel: 'gpt-image-2', apiKey: 'ok' };
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '', attachments: [], config: baseConfig })?.code, 'missing_input');
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '解释 HTTP 304', config: { ...baseConfig, baseUrl: '' } })?.code, 'missing_base_url');
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '解释 HTTP 304', config: { ...baseConfig, chatModel: '', routeModel: '' } })?.code, 'missing_route_model');
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '继续', config: baseConfig }), null);
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '总结这个文件', config: baseConfig }), null);
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '帮我盗取别人的账号密码', config: baseConfig }), null);
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '画一只猫', config: baseConfig }), null);
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '写海报文案，不要生成图片', config: baseConfig }), null);
+  assert.strictEqual(preflightGuards.buildPreflightDecision({ input: '极简蓝色', config: baseConfig }), null);
+  assert.deepStrictEqual(preflightGuards.attachmentCounts([{ type: 'image/png' }, { type: 'text/plain' }]), { imageCount: 1, fileCount: 1 });
+}
+
+function testRouteKeepsSingleHistoryImageEditableForDeicticEdit() {
+  const context = { image_candidates: [{ index: 1, source: 'history', target: 'previous', reference_id: 'imgref_latest', image_id: 'img_1' }] };
+  const parsed = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit',
+    image_source: 'history',
+    use_previous_image: true,
+    instruction: '把背景改成红色',
+    confidence: 0.93,
+    reason: '单一历史图片可作为“这张图”的编辑目标',
+  }), routeContext.normalizeRoute, { input: '把这张图改成红色背景', attachments: [], context });
+  assert.strictEqual(parsed.mode, 'edit_image');
+  assert.strictEqual(parsed.usePreviousImage, true);
+  assert.strictEqual(parsed.target, 'previous');
+  assert.strictEqual(parsed.needClarification, false);
+}
+
+function testRouteClarifiesDeicticEditOnlyWithoutAnyImageCandidate() {
+  const parsed = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit',
+    image_source: 'history',
+    instruction: '把背景改成红色',
+    confidence: 0.93,
+    reason: '模型尝试使用历史图片',
+  }), routeContext.normalizeRoute, { input: '把这张图改成红色背景', attachments: [], context: {} });
+  assert.strictEqual(parsed.mode, 'chat');
+  assert.strictEqual(parsed.needClarification, true);
+  assert.ok(parsed.clarificationQuestion.includes('请先上传图片'));
 }
 
 function testIntentContractNormalizesRouteAndExecution() {
@@ -235,6 +292,49 @@ function testImageResultParsingSupportsMultipleImages() {
   assert.strictEqual(result.images.length, 2);
 }
 
+function testImageResultRefusesNonDurablePersistence() {
+  const deps = {
+    extractImageResult: imageService.extractImageResult,
+    getConfig: () => ({}),
+    persistImageSrc: async () => ({ persistedSrc: 'data:image/png;base64,AAAA', displaySrc: 'data:image/png;base64,AAAA' }),
+    settleWithin: async value => value,
+    imageSrcSize: async () => ({ width: 10, height: 10 }),
+    fitImageThumb: () => ({ width: 10, height: 10 }),
+    splitPromptSubjects: () => [],
+    imageCandidateLabels: () => [],
+    makeImageItemId: (_reference, index) => `img_${index}`,
+    escapeHtml: value => String(value),
+    downloadAllImagesButtonHtml: () => '',
+    saveLatestGeneratedImage: () => assert.fail('non-durable result must not update latest image state'),
+  };
+  return assert.rejects(
+    () => imageResultWorkflow.imageResultToHtml({ data: [{ b64_json: 'AAAA' }] }, '1s', {}, deps),
+    /本地持久化失败/
+  );
+}
+
+async function testImageResultStoresOnlyDurableIndexedDbReferences() {
+  let latest = null;
+  const result = await imageResultWorkflow.imageResultToHtml({ data: [{ b64_json: 'AAAA' }] }, '1s', { prompt: '猫' }, {
+    extractImageResult: imageService.extractImageResult,
+    getConfig: () => ({}),
+    persistImageSrc: async () => ({ persistedSrc: 'indexeddb://img-durable', displaySrc: 'blob:immediate' }),
+    settleWithin: async value => value,
+    imageSrcSize: async () => ({ width: 10, height: 10 }),
+    fitImageThumb: () => ({ width: 10, height: 10 }),
+    splitPromptSubjects: () => [],
+    imageCandidateLabels: () => [],
+    makeImageItemId: (_reference, index) => `img_${index}`,
+    escapeHtml: value => String(value),
+    downloadAllImagesButtonHtml: () => '',
+    saveLatestGeneratedImage: (_sessionId, value) => { latest = value; },
+  });
+  assert.ok(result.html.includes('data-persisted-src="indexeddb://img-durable"'));
+  assert.ok(!result.html.includes('data:image/png;base64,AAAA'));
+  assert.strictEqual(latest.src, 'indexeddb://img-durable');
+  assert.strictEqual(result.imageContext.attachments[0].src, 'indexeddb://img-durable');
+}
+
 function testDownloadFilenamesUseShanghaiTimestamp() {
   const date = new Date('2026-06-30T03:31:42Z');
   assert.strictEqual(fileNames.timestampPrefix(date), '20260630113142');
@@ -251,8 +351,8 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.69') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'download filename changes should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match download filename cache-busting');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'download filename changes should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match download filename cache-busting');
 }
 
 function testPendingClarificationMergesFollowupSupplements() {
@@ -457,7 +557,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.62'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize'), 'submit workflow cache version should be bumped for pending clarification fix');
   assert.ok(index.includes('clarification-service.js?v=1.0.5'), 'clarification service cache version should be bumped for pending state machine fix');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -801,16 +901,16 @@ function testLightweightIntentClassifierAdapters() {
   const promptOptimize = routeService.parseRouteResult(JSON.stringify({
     route: 'image_generate', instruction: '一只猫坐在窗边，温暖阳光，电影感', confidence: 0.95,
   }), routeContext.normalizeRoute, { input: '帮我优化这个生图 prompt：一只猫坐在窗边，阳光很好', attachments: [], context: {} });
-  assert.strictEqual(promptOptimize.mode, 'chat');
-  assert.strictEqual(promptOptimize.operation.type, 'plain_chat');
-  assert.strictEqual(promptOptimize.target, 'none');
+  assert.strictEqual(promptOptimize.mode, 'image');
+  assert.strictEqual(promptOptimize.operation.type, 'text_to_image');
+  assert.strictEqual(promptOptimize.target, 'new');
 
   const promptGenerate = routeService.parseRouteResult(JSON.stringify({
     route: 'image_generate', instruction: '极简蓝色机器人头像，白底', confidence: 0.95,
   }), routeContext.normalizeRoute, { input: '帮我生成一个机器人头像的生图提示词，不要画图', attachments: [], context: {} });
-  assert.strictEqual(promptGenerate.mode, 'chat');
-  assert.strictEqual(promptGenerate.operation.type, 'plain_chat');
-  assert.strictEqual(promptGenerate.target, 'none');
+  assert.strictEqual(promptGenerate.mode, 'image');
+  assert.strictEqual(promptGenerate.operation.type, 'text_to_image');
+  assert.strictEqual(promptGenerate.target, 'new');
 
   const apiRefImage = routeService.parseRouteResult(JSON.stringify({
     route: 'image_generate', image_source: 'current', selected_indexes: [1], instruction: '参考当前图片风格生成海报', confidence: 0.9,
@@ -880,26 +980,26 @@ function testLightweightIntentClassifierAdapters() {
     route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
   }), routeContext.normalizeRoute, { input: '每一项给我一个评语', attachments: currentImage, context: historyContext });
   assert.strictEqual(currentVisionOverride.mode, 'chat');
-  assert.strictEqual(currentVisionOverride.operation.type, 'image_qa');
-  assert.strictEqual(currentVisionOverride.operation.scope, 'current');
-  assert.deepStrictEqual(currentVisionOverride.selectedIndexes, [1]);
+  assert.strictEqual(currentVisionOverride.operation.type, 'plain_chat');
+  assert.strictEqual(currentVisionOverride.operation.scope, 'none');
+  assert.deepStrictEqual(currentVisionOverride.selectedIndexes, []);
 
   const currentEditOverride = routeService.parseRouteResult(JSON.stringify({
     route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
   }), routeContext.normalizeRoute, { input: '把背景换成蓝色', attachments: currentImage, context: historyContext });
-  assert.strictEqual(currentEditOverride.mode, 'edit_image');
-  assert.strictEqual(currentEditOverride.operation.type, 'image_edit');
-  assert.strictEqual(currentEditOverride.operation.scope, 'current');
-  assert.strictEqual(currentEditOverride.target, 'uploaded');
+  assert.strictEqual(currentEditOverride.mode, 'chat');
+  assert.strictEqual(currentEditOverride.operation.type, 'plain_chat');
+  assert.strictEqual(currentEditOverride.operation.scope, 'none');
+  assert.strictEqual(currentEditOverride.target, 'none');
   assert.strictEqual(currentEditOverride.usePreviousImage, false);
 
   const currentGenericOverride = routeService.parseRouteResult(JSON.stringify({
     route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
   }), routeContext.normalizeRoute, { input: '给我点建议', attachments: currentImage, context: historyContext });
   assert.strictEqual(currentGenericOverride.mode, 'chat');
-  assert.strictEqual(currentGenericOverride.operation.type, 'image_qa');
-  assert.strictEqual(currentGenericOverride.operation.scope, 'current');
-  assert.deepStrictEqual(currentGenericOverride.selectedIndexes, [1]);
+  assert.strictEqual(currentGenericOverride.operation.type, 'plain_chat');
+  assert.strictEqual(currentGenericOverride.operation.scope, 'none');
+  assert.deepStrictEqual(currentGenericOverride.selectedIndexes, []);
 
   const textOnlyWithImage = routeService.parseRouteResult(JSON.stringify({
     route: 'chat', confidence: 0.8, reason: '普通文本问题',
@@ -920,9 +1020,8 @@ function testLightweightIntentClassifierAdapters() {
     route: 'chat', confidence: 0.7, reason: '模型误判成普通聊天',
   }), routeContext.normalizeRoute, { input: '这个图片和上一个图片有什么区别', attachments: currentImage, context: historyContext });
   assert.strictEqual(currentHistoryCompare.mode, 'chat');
-  assert.strictEqual(currentHistoryCompare.operation.type, 'image_qa');
-  assert.ok(currentHistoryCompare.imageRefs.some(ref => ref.source === 'history'));
-  assert.ok(currentHistoryCompare.imageRefs.some(ref => ref.source === 'current'));
+  assert.strictEqual(currentHistoryCompare.operation.type, 'plain_chat');
+  assert.strictEqual(currentHistoryCompare.imageRefs.length, 0);
 }
 
 function testRouteDecisionHelpersArePureAndReusedByService() {
@@ -1013,7 +1112,7 @@ function testStructuredRouteDecisionCarriesRefs() {
   assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'current'));
 }
 
-function testImagePromptExtractionStaysChatWithCurrentImage() {
+function testImagePromptExtractionFollowsAiRouteWithCurrentImage() {
   const parsed = routeService.parseRouteResult(JSON.stringify({
     mode: 'image',
     intent: 'image_reference_gen',
@@ -1024,15 +1123,13 @@ function testImagePromptExtractionStaysChatWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'chat');
-  assert.strictEqual(parsed.operation.type, 'image_qa');
-  assert.strictEqual(parsed.imageRefs.length, 1);
-  assert.strictEqual(parsed.imageRefs[0].source, 'current');
-  assert.strictEqual(parsed.imageRefs[0].target, 'uploaded');
-  assert.deepStrictEqual(parsed.selectedIndexes, [1]);
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.operation.type, 'image_reference_gen');
+  assert.strictEqual(parsed.imageRefs.length, 0);
+  assert.deepStrictEqual(parsed.selectedIndexes, []);
 }
 
-function testImplicitImagePromptExtractionStaysChatWithCurrentImage() {
+function testImplicitImagePromptExtractionFollowsAiRouteWithCurrentImage() {
   assert.ok(routeService.isImplicitImagePromptExtractionInput('逆向生成提示词尽量详细'));
   const parsed = routeService.parseRouteResult(JSON.stringify({
     mode: 'edit_image',
@@ -1044,11 +1141,9 @@ function testImplicitImagePromptExtractionStaysChatWithCurrentImage() {
     attachments: [{ name: 'sunset.jpg', type: 'image/jpeg', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'chat');
-  assert.strictEqual(parsed.operation.type, 'image_qa');
-  assert.strictEqual(parsed.imageRefs.length, 1);
-  assert.strictEqual(parsed.imageRefs[0].source, 'current');
-  assert.strictEqual(parsed.imageRefs[0].target, 'uploaded');
+  assert.strictEqual(parsed.mode, 'edit_image');
+  assert.strictEqual(parsed.operation.type, 'image_edit');
+  assert.strictEqual(parsed.imageRefs.length, 0);
 }
 
 function testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent() {
@@ -1150,7 +1245,9 @@ function testImageResultCorrectionRebuildsImagePrompt() {
 function testRoutePromptUsesChineseCompactRules() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('只返回 JSON'));
-  ['chat', 'vision_qa', 'image.generate', 'image.edit', 'file.qa', 'multi_step', 'clarify', 'refuse'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
+  ['chat', 'vision_qa', 'image.generate', 'image.edit', 'file.qa', 'clarify', 'refuse'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
+  assert.ok(!system.includes('multi_step'), 'route contract must not advertise an unimplemented multi-step dispatcher');
+  assert.ok(system.includes('"api":"chat|vision|image_generation|image_edit|clarify|refuse"'), 'task contract should use the canonical image_generation API name');
   ['text_chat', 'image_reference_generate', 'image_analyze', 'target_model', 'rewritten_prompt'].forEach(type => assert.ok(!system.includes(type), `route prompt should not expose legacy field/type ${type}`));
   assert.ok(system.includes('resources'));
   assert.ok(system.includes('steps'));
@@ -1184,26 +1281,29 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.appendWithOverlap('abcXYZ', 'cXYZ'), 'abcXYZ', 'overlap helper should not duplicate repeated tail chunks');
   assert.strictEqual(workflow.appendWithOverlap('a'.repeat(5000), 'a'.repeat(5000) + 'b'), 'a'.repeat(5000) + 'b', 'overlap helper should keep long cumulative chunks correct without scanning the full response tail');
   assert.ok(source.includes('const maxOverlapScan = Math.min(left.length, right.length, 4096)'), 'overlap helper should cap per-chunk overlap scanning to avoid long-stream slowdown');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && bundle.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.strictEqual(workflow.canShowChatWaiting(false), true, 'waiting feedback should remain available before the first answer token');
+  assert.strictEqual(workflow.canShowChatWaiting(true), false, 'waiting feedback must be permanently disabled after answer output starts');
+  assert.ok(source.includes('if(!canShowChatWaiting(answerStarted))return') && source.includes('canShowChatWaiting(answerStarted)&&setPendingFeedback'), 'accepted callbacks and non-stream fallback must not restore waiting feedback after answer output starts');
+  assert.ok(source.includes('const responseStartedAt=metricNow();let answerStarted=!1;try{let t="",s=!1,c=null,answerText="",reasoningText="",firstTokenMs=null;'), 'answer-start state must remain in scope for the streaming fallback catch');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && bundle.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
-function testStreamingTailRendersLightweightCursor() {
+function testStreamingTailRendersWithoutCursor() {
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   const renderer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
   const sanitizer = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-sanitizer.js'), 'utf8');
   const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   assert.ok(renderer.includes('markdown-stream-tail') && renderer.includes('data-markdown-streaming-tail'), 'streaming renderer should keep the unstable tail in one lightweight DOM node');
-  assert.ok(renderer.includes('tailTextNode.appendData') && renderer.includes('container.appendChild(node)'), 'streaming tail should update a text node and move the caret instead of rerendering the whole tail DOM');
-  assert.ok(renderer.includes('removeTailNode();') && renderer.includes('final(container'), 'streaming cursor should be removed during final render');
+  assert.ok(renderer.includes('tailTextNode.appendData') && renderer.includes('container.appendChild(node)'), 'streaming tail should update a text node instead of rerendering the whole tail DOM');
+  assert.ok(renderer.includes('removeTailNode();') && renderer.includes('final(container'), 'streaming tail should be removed during final render');
+  assert.ok(renderer.includes('tailNode.appendChild(tailTextNode)') && !renderer.includes('markdown-stream-caret') && !renderer.includes('keepCursor'), 'streaming renderer should contain only tail text and no cursor-specific DOM or options');
   assert.ok(sanitizer.includes('ALLOW_DATA_ATTR: true'), 'sanitizer should still allow data attributes if streamed Markdown is sanitized elsewhere');
-  assert.ok(css.includes('.markdown-stream-caret') && css.includes('@keyframes markdown-stream-caret-pulse'), 'flat theme should define a visible streaming caret');
-  assert.ok(css.includes('.message[data-streaming="1"] .content::after') && css.includes('.message[data-streaming="1"] .markdown-stream-caret') && css.includes('display:none!important'), 'visible streaming caret should be bound to message[data-streaming] instead of only tail text presence');
-  assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
-  assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
+  assert.ok(!css.includes('.markdown-stream-caret') && !css.includes('markdown-stream-caret-pulse'), 'flat theme should not contain streaming cursor styles or animation');
+  assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.90') && index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('flat-theme.css?v=2.1.66'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('flat-theme.css?v=2.1.71'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1249,7 +1349,7 @@ function testLegacyWelcomeScreenIsRestored() {
   assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
   assert.ok(app.includes('function shouldShowEmptyWelcome'), 'welcome renderer should gate on real empty session state');
   assert.ok(app.includes('!s&&!n&&!a'), 'welcome should render only when messages, pending display items, and non-welcome DOM are all empty');
-  assert.ok(index.includes('./app.js?v=1.3.56-stopfix6'), 'app.js cache version should change after stop-stream cleanup updates');
+  assert.ok(index.includes('./app.js?v=1.3.69-durable-image-result'), 'app.js cache version should change after stop-stream cleanup updates');
   assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('font-weight:820') && css.includes('repeating-linear-gradient(90deg,transparent 0 26px') && css.includes('linear-gradient(100deg,#111827 0%,#1d2b5f 26%,#4d6bfe 52%,#18b9ee 72%,#111827 100%)') && !css.includes('conic-gradient(from 210deg') && !css.includes('content:"AI"'), 'welcome screen should be cooler and more premium while still matching the calm flat theme');
   assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
@@ -1376,7 +1476,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -1416,8 +1516,8 @@ function testMarkdownLiveStreamIsFeatureModule() {
   const browserStreaming = fs.readFileSync(path.join(__dirname, '../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   assert.ok(feature.includes('function createMarkdownLiveStream'), 'large Markdown live streaming should live in a feature module');
-  assert.ok(feature.includes('createStreamingRenderer') && feature.includes('active.set(next, container)'), 'live stream feature should reuse stable-boundary incremental Markdown renderer');
-  assert.ok(feature.includes('const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 90') && feature.includes('active.preview?.(next, container)') && feature.includes('deltaLength > 3000'), 'large live stream should keep Markdown commit cadence stable and use lightweight tail previews between commits');
+  assert.ok(feature.includes('createStreamingRenderer') && feature.includes('active.set(next, target)'), 'live stream feature should reuse stable-boundary incremental Markdown renderer through the staged target');
+  assert.ok(feature.includes('const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 90') && feature.includes('active.preview?.(next, target)') && feature.includes('deltaLength > 3000'), 'large live stream should keep Markdown commit cadence stable and use lightweight tail previews between commits');
   assert.ok(feature.includes('if (phase.final || phase.reset)') && feature.includes('if (phase.streaming && !phase.final'), 'live stream should avoid expensive enhancement while tokens are arriving');
   assert.ok(message.includes('function updateLiveMarkdownStream'), 'message workflow should use a live Markdown stream path');
   assert.ok(message.includes('messageNode.__markdownLiveStream') && message.includes('liveStream.append(contentNode, next'), 'large streaming Markdown should incrementally append rendered Markdown, not plain text');
@@ -1431,7 +1531,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(browserStreaming.includes('tailTextNode.appendData') && browserStreaming.includes('STREAMING_TAIL_SCAN_LIMIT'), 'streaming Markdown should append cumulative tail deltas and bound expensive tail scans for huge unstable blocks');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.90') && index.includes('markdown-live-stream.js?v=1.0.2') && index.includes('message-workflow.js?v=1.3.33-streamsync'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.33-streamsync'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
@@ -1519,6 +1619,35 @@ function testLiveMarkdownStreamPreviewsChunksWithoutLoweringCommitCadence() {
   }
 }
 
+function testLiveMarkdownStreamDoesNotBlankExistingContentBeforeFirstPaint() {
+  const previousWindow = global.window;
+  const previousDocument = global.document;
+  const dom = new JSDOM('<!doctype html><div id="content"><div class="pending-feedback">等待中</div></div>');
+  global.window = dom.window;
+  global.document = dom.window.document;
+  try {
+    const streaming = require('../client/app/markdown/browser-streaming-renderer');
+    const live = require('../client/features/messages/markdown-live-stream').createMarkdownLiveStream({
+      renderMarkdown: markdownEngine.renderMarkdown,
+      createStreamingRenderer: streaming.createStreamingRenderer,
+      now: () => 0,
+    });
+    const container = dom.window.document.getElementById('content');
+    let blanked = false;
+    const originalReplaceChildren = container.replaceChildren.bind(container);
+    container.replaceChildren = (...nodes) => {
+      if (!nodes.length) blanked = true;
+      return originalReplaceChildren(...nodes);
+    };
+    live.append(container, '正文已开始');
+    assert.strictEqual(blanked, false, 'stream initialization should never clear the visible container to an empty frame');
+    assert.strictEqual(container.textContent.trim(), '正文已开始', 'first streamed content should replace waiting feedback in one DOM commit');
+  } finally {
+    global.window = previousWindow;
+    global.document = previousDocument;
+  }
+}
+
 function testStreamingOutputSmoothnessOptimizations() {
   const realtime = fs.readFileSync(path.join(__dirname, '../client/ui/realtime-renderer.js'), 'utf8');
   const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
@@ -1531,6 +1660,11 @@ function testStreamingOutputSmoothnessOptimizations() {
   assert.ok(message.includes('s.noScroll && !managesStreamingOutput') && message.includes('else if (managesStreamingOutput)'), 'streaming updates should not run viewport-restore noScroll on every chunk; active-output follow should own scroll positioning');
   assert.ok(scroll.includes('let activeOutputRaf') && scroll.includes('pendingActiveOutput') && scroll.includes('lockToStreamingOutput(pending.node, pending.options)'), 'streaming output scroll follow should be coalesced into one rAF update');
   assert.ok(app.includes('if(!0===a.deferDomUpdate&&e===state.activeSessionId&&a.skipDisplayUpdate)return;let i=null'), 'active streaming chunks should not rescan the whole message DOM when the visible node and display update are already handled');
+  const displayHistorySource = fs.readFileSync(path.join(__dirname, '../client/app/display-history-workflow.js'), 'utf8');
+  const sessionUiSource = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
+  assert.ok(displayHistorySource.includes('if ("0" === node.dataset.persist && node.__displayItem) return Object.assign(node.__displayItem, item);'), 'transient streaming nodes must snapshot their latest raw/html/index/job fields before session switch, otherwise output is lost or resumes from stale placeholder');
+  assert.ok(sessionUiSource.includes('saveDisplayHistory({ includeTransient: true })'), 'session switching/new-session should persist transient streaming display items before replacing the visible DOM');
+  assert.ok(app.includes('saveDisplayHistory({includeTransient:!0})'), 'root bundle should preserve transient streaming display items during session switching');
 }
 
 function testResumeStreamButtonAnchorsAboveComposer() {
@@ -1553,8 +1687,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.62') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -1623,7 +1757,7 @@ function testLargeMarkdownInitialRenderIsProgressive() {
   assert.ok(!perf.includes("if (raw.length > 8000 || raw.split('\\n').length > 180) return true;"), 'large Markdown should not be forced into lazy placeholder rendering');
 }
 
-function testEnglishImagePromptExtractionStaysChatWithCurrentImage() {
+function testEnglishImagePromptExtractionFollowsAiRouteWithCurrentImage() {
   const parsed = routeService.parseRouteResult(JSON.stringify({
     mode: 'image',
     intent: 'image_reference_gen',
@@ -1634,10 +1768,9 @@ function testEnglishImagePromptExtractionStaysChatWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'chat');
-  assert.strictEqual(parsed.operation.type, 'image_qa');
-  assert.strictEqual(parsed.imageRefs.length, 1);
-  assert.strictEqual(parsed.imageRefs[0].source, 'current');
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.operation.type, 'image_reference_gen');
+  assert.strictEqual(parsed.imageRefs.length, 0);
 }
 
 function testImageOnlyAssistantMessageCanBeQuotedWithImageContext() {
@@ -2004,7 +2137,10 @@ function testChatJobIdIsPersistedBeforeRouteResolution() {
   const routeIndex = submit.indexOf('routeInfo=await getEffectiveRoute');
   assert.ok(prepareIndex >= 0 && routeIndex > prepareIndex, 'submit should prepare and persist a managed chat job id before route resolution can be interrupted by refresh');
   assert.ok(submit.includes('saveChatJob(sessionId,{id:preparedChatJobId,prompt:promptText,startedAt:Date.now(),displayItemId:liveItem.id||"",responseIndex,mode:"chat"})'), 'submit should immediately save the client chat job id with display item and response index');
-  assert.ok(submit.includes('await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacement?.responseIndex,requestBaseMessages,quotedMessage:pendingMerge?.merged?null:quotedMessage,clientJobId:preparedChatJobId})'), 'sendChat should receive the pre-persisted job id and ignore unrelated quoted messages when a pending clarification was merged');
+  assert.ok(submit.includes('const routeSelectedQuotedImages=()=>quotedImageAttachments.map((item,index)=>({...item,sourceIndex:originalImageIndex(item,index)}));'), 'quoted images must always be included in the standard chat attachment collection; route selection may refine generation/editing but must not silently omit visual Q&A input');
+  assert.ok(submit.includes('chatAttachmentCandidates=quotedMessage&&!pendingMerge?.merged?routeSelectedQuotedImages():selectedChatAttachments(comparisonSourceAttachments),chatAttachments=await prepareChatImageAttachments(chatAttachmentCandidates)'), 'quoted images should enter the same prepared chat attachment collection as manual uploads before sendChat');
+  assert.ok(submit.includes('await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,requestBaseMessages,quotedMessage:pendingMerge?.merged?null:quotedMessage,clientJobId:preparedChatJobId})'), 'sendChat should receive the pre-persisted job id and ignore unrelated quoted messages when a pending clarification was merged');
+  assert.ok(fs.readFileSync(path.join(__dirname, '../client/app/attachments-workflow.js'), 'utf8').includes('async function prepareChatImageAttachments(list = [])'), 'all chat images should be reconstructed from a File and passed through the upload compression path');
   assert.ok(chat.includes('let f=useManagedChatJob?(n.clientJobId||u?.jobId||makeClientChatJobId()):null'), 'chat workflow should reuse the pre-persisted job id and only allocate a fallback when absent');
   assert.ok(chat.includes('persistChatJobSnapshot') && chat.includes('deps.saveChatJobWithMedia(sessionId, { ...job, payload })'), 'chat workflow should enrich the same job record with payload once the final payload exists');
   assert.ok(app.includes('makeClientChatJobId,saveChatJob,clearChatJob,shouldPrepareManagedChatJob'), 'app bootstrap should inject the single chat job id lifecycle into submit workflow');
@@ -2029,6 +2165,34 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
   assert.ok(submit.includes('assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex))'), 'assistant placeholders should persist displayItemId and responseIndex on the DOM node');
   assert.ok(submit.includes('updateMessage(assistantNode,e,{rawText:e,responseIndex})'), 'clarification final message should keep its responseIndex on the DOM node');
   assert.ok(image.includes('if((e&&s&&e!==s)||(t&&a&&t!==a))d=null;'), 'image workflow should reject stale loading nodes from a different display item/response');
+}
+
+function testPendingSubmitResumeInsertsFallbackAtOriginalPosition() {
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const resumeBranch = submit.slice(submit.indexOf('if(resumePendingSubmit){'), submit.indexOf('else if(replacement)'));
+  assert.ok(resumeBranch.includes('findMessageNodeByDisplayItem(liveItem)'), 'pending submit resume should first try to reuse the original display item DOM node');
+  assert.ok(resumeBranch.includes('anchor?.parentNode?.insertBefore(assistantNode,anchor)'), 'pending submit resume fallback node must be inserted by responseIndex instead of appended to the tail');
+  assert.ok(resumeBranch.indexOf('insertBefore(assistantNode,anchor)') > resumeBranch.indexOf('addMessage("assistant"'), 'fallback insertion should happen immediately after creating the fallback node');
+  assert.ok(app.includes('function insertMessageNodeAtDisplayPosition'), 'runtime should expose a shared display-order insertion helper');
+  assert.ok(app.includes('insertMessageNodeAtDisplayPosition(t,e),t}function removeDisplayItemNode'), 'addDisplayItemNode should insert recreated pending/live nodes back at their original display position');
+  assert.ok(app.includes('i||(i=findMessageNodeByDisplayItem(t)),i||(i=addDisplayItemNode(t)),insertMessageNodeAtDisplayPosition(i,t)'), 'updateLiveDisplay fallback should not leave recreated resume nodes appended at the tail');
+}
+
+function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const regenStart = app.indexOf('async function regenerateAssistantMessage');
+  const routeStart = app.indexOf('createRouteRecognitionUi({sessionId:l', regenStart);
+  const saveStart = app.indexOf('const saveRegeneratePendingSubmit=()=>', regenStart);
+  assert.ok(saveStart > regenStart && saveStart < routeStart, 'regenerate should persist a pending-submit restore anchor before route recognition starts');
+  assert.ok(app.includes('saveRegeneratePendingSubmit();'), 'regenerate should save the early pending-submit anchor immediately after preparing the replacement node');
+  assert.ok(app.includes('requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a'), 'regenerate pending-submit should keep base messages and original response index');
+  assert.ok(submit.includes('resumePendingSubmit?.attachmentContext&&typeof restoreUserAttachmentsFromContext'), 'pending-submit resume should restore persisted attachment context');
+  assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
+  assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0);'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'cache versions should be bumped for regenerate early-refresh recovery');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2066,7 +2230,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -2075,7 +2239,7 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
@@ -2084,7 +2248,7 @@ function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
   assert.ok(reasoningSource.includes('t.focus?.({preventScroll:!0})') && reasoningSource.includes('active.blur?.()'), 'closing reasoning menu should move or clear focus before aria-hidden=true');
   assert.ok(reasoningSource.indexOf('active&&e.contains?.(active)') < reasoningSource.indexOf('e.setAttribute("aria-hidden","true")'), 'focus should be released before setting aria-hidden on reasoning menu');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'reasoning menu accessibility fix should bump cache versions');
+  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'reasoning menu accessibility fix should bump cache versions');
 }
 
 function testCodeActionHoverAndHistoryAnchorActivePolish() {
@@ -2099,7 +2263,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.66') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87'), 'CSS bundle cache versions should be bumped for visual fixes');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume'), 'CSS bundle cache versions should be bumped for visual fixes');
 }
 
 function testArchitectureBoundaryScaffolding() {
@@ -2170,10 +2334,10 @@ function testConfigBaseUrlDefault() {
   assert.strictEqual(configWorkflow.DEFAULT_BASE_URL, 'https://ingress.lfans.cn/v1', 'config workflow should expose the default Endpoint Base URL');
   assert.strictEqual(configWorkflow.defaults.baseUrl, 'https://ingress.lfans.cn/v1', 'new installs should default Endpoint Base URL to ingress.lfans.cn');
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
-  assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
-  assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.71') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'config default change should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(configSource.includes('baseUrl:DEFAULT_BASE_URL') && configSource.includes('getElement("baseUrl").readOnly=!0'), 'config workflow should always preserve the fixed, read-only Endpoint Base URL');
+  assert.ok(index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" readonly'), 'settings UI should show the fixed, read-only Endpoint to users');
+  assert.ok(index.includes('config-workflow.js?v=1.2.72') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config default change should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testConfigCopyButtonsForBaseUrlAndApiKey() {
@@ -2190,8 +2354,51 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.71') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.66') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('chatui.bundle.js?v=1.3.48-arch87'), 'config copy UI changes should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match config copy cache-busting');
+  assert.ok(index.includes('config-workflow.js?v=1.2.72') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match config copy cache-busting');
+}
+
+function testSensitiveConfigAndIntentTraceAreNotPersisted() {
+  const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
+  const configModule = require('../client/app/config-workflow');
+  const routeWorkflow = require('../client/app/route-decision-workflow');
+  assert.ok(!configSource.includes('apiKey:t.apiKey'), 'saveConfig must not persist API keys in localStorage');
+  assert.ok(configSource.includes('legacyApiKey=String(e.apiKey||"")') && configSource.includes('legacyApiKey&&delete e.apiKey'), 'loadConfig should migrate and remove legacy persisted API keys');
+  assert.ok(configSource.includes('(legacyApiKey||t.chatModel!==a'), 'legacy API-key migration should immediately rewrite sanitized config');
+  assert.ok(configSource.includes('API_KEY_SESSION_KEY') && configSource.includes('writeSessionApiKey(t.apiKey)'), 'API keys should persist only in tab-scoped sessionStorage so refresh keeps credentials without long-term localStorage exposure');
+
+  const localValues = new Map(), sessionValues = new Map();
+  const makeStorage = values => ({ getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) });
+  const elements = new Map(['baseUrl','apiKey','chatModel','routeModel','imageModel','imageSize','systemPrompt','imageStylePrompt'].map(id => [id, { value: '' }]));
+  const localStorage = makeStorage(localValues), sessionStorage = makeStorage(sessionValues);
+  const config = configModule.createConfigWorkflow({
+    state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
+    getElement: id => elements.get(id), localStorage, sessionStorage, document: { body: { classList: { add() {}, remove() {} } } },
+    window: { sessionStorage, setTimeout }, crypto: { getRandomValues() {} }, CONFIG_KEY: 'test-config',
+    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({ headerValues: {} }), saveSessionsMeta() {}, toast() {},
+  });
+  elements.get('apiKey').value = 'sk-session-only';
+  config.saveConfig(true);
+  assert.strictEqual(sessionStorage.getItem('test-config:api-key'), 'sk-session-only');
+  assert.ok(!localStorage.getItem('test-config').includes('sk-session-only'), 'localStorage config must not contain the API key');
+  elements.get('apiKey').value = '';
+  assert.strictEqual(config.getConfig().apiKey, 'sk-session-only', 'API key should survive a page refresh through sessionStorage');
+
+  const workflow = routeWorkflow.createRouteDecisionWorkflow({ state: { sessions: [], messages: [], activeSessionId: '', attachments: [] } });
+  const summary = workflow.summarizeIntentTrace({
+    input: 'private prompt',
+    context: { recent_messages: [{ content: 'secret conversation' }] },
+    firstRaw: '{"secret":"model output"}',
+    finalApi: 'image_generation',
+    reviewed: true,
+    finalRoute: { mode: 'image', operationType: 'image_generate', confidence: 0.91, taskContract: { execution: { api: 'image_generation' } } },
+  });
+  assert.strictEqual(summary.mode, 'image');
+  assert.strictEqual(summary.api, 'image_generation');
+  assert.strictEqual(summary.reviewed, true);
+  assert.ok(!JSON.stringify(summary).includes('private prompt'));
+  assert.ok(!JSON.stringify(summary).includes('secret conversation'));
+  assert.ok(!JSON.stringify(summary).includes('model output'));
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -2204,8 +2411,10 @@ function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
 
 function testRegenerateRemovesOldAssistantImmediately() {
   const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
-  assert.ok(app.includes('const c=prepareRegeneratedResponse(t,e,l,a,"已收到，马上处理")'), 'regenerate click should remove the old assistant node immediately and insert a fresh live placeholder');
-  assert.ok(!app.includes('prepareReplacementResponse({node:t,responseNode:e,index:n,responseIndex:a},l,"已收到，马上处理",{deferClear:!0})'), 'regenerate should not reuse/update the old assistant node as the loading placeholder');
+  assert.ok(app.includes('const c=prepareRegeneratedResponse(t,e,l,a,"正在执行：路由预检")'), 'regenerate click should insert a route-stage live placeholder');
+  assert.ok(app.includes('removeSessionDisplayItemForNode(s,t),removeAssistantHistoryAt(s,n),t?.remove()'), 'regenerate should remove the original assistant DOM and display item before inserting the replacement placeholder');
+  assert.ok(app.includes('liveItem:m,replaceAssistantIndex:a'), 'regenerate image dispatch should preserve the original live item and assistant response index');
+  assert.ok(!app.includes('prepareReplacementResponse({node:t,responseNode:e,index:n,responseIndex:a},l,"已收到，马上处理",{deferClear:!0})'), 'regenerate should not reuse/update the old assistant node as a generic loading placeholder');
 }
 
 function testForceImageButtonOnUserMessages() {
@@ -2217,11 +2426,11 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(messageWorkflow.includes('const forceImage = node.querySelector(".force-image-btn")'), 'message workflow should bind the force-image button');
   assert.ok(messageWorkflow.includes('if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));') && messageWorkflow.includes('else forceImage?.remove();'), 'force-image button should only be available on user messages');
   assert.ok(app.includes('forceImageFromUserMessage'), 'app should expose force-image action to the message workflow');
-  assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
+  assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.66'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -2231,14 +2440,15 @@ function testImagePreviewWheelZoom() {
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(workflow.includes('MIN_PREVIEW_SCALE = 0.5') && workflow.includes('MAX_PREVIEW_SCALE = 5'), 'image preview zoom should clamp wheel scale to a safe range');
+  assert.ok(workflow.includes('if(String(e).startsWith("blob:"))return{src:e,owned:!1}'), 'blob object URLs should be previewable instead of resolving to an empty src');
   assert.ok(workflow.includes('addEventListener("wheel"') && workflow.includes('event.preventDefault()') && workflow.includes('zoomImagePreview(event.deltaY)') && workflow.includes('{passive:!1}'), 'image preview should handle wheel gestures for zoom without page scrolling');
   assert.ok(workflow.includes('resetPreviewZoom()') && workflow.includes('applyPreviewScale(1)'), 'opening and closing preview should reset zoom state');
   assert.ok(workflow.includes('img.style.transform=`scale(${previewScale})`') && workflow.includes('dataset.previewScale') && workflow.includes('classList.toggle("is-zoomed"'), 'zoom should update the preview image transform and state class');
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.66'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -2261,19 +2471,27 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.66'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  const formatting = fs.readFileSync(path.join(__dirname, '../client/app/formatting.js'), 'utf8');
+  const imageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/image-workflow.js'), 'utf8');
+  const jobResumeWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
   assert.ok(flatCss.includes('.pending-feedback{') && flatCss.includes('flex-wrap:nowrap!important') && flatCss.includes('white-space:nowrap!important'), 'pending feedback should keep waiting text on one line');
   assert.ok(flatCss.includes('.pending-text,') && flatCss.includes('.pending-dots{') && flatCss.includes('flex:0 0 auto!important'), 'pending feedback text and dots should not shrink into wrapped fragments');
   assert.ok(flatCss.includes('@media (max-width:640px)') && flatCss.includes('font-size:14px!important') && flatCss.includes('gap:6px!important'), 'mobile pending feedback should be compact enough to avoid wrapping');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.66'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(formatting.includes('function pendingFeedbackHtml(value)') && formatting.includes('class="pending-feedback"') && !formatting.includes('route-stage-feedback') && !formatting.includes('task-status-feedback'), 'all waiting prompts should be rendered through one pending feedback component class');
+  assert.ok(!flatCss.includes('route-stage-feedback') && !flatCss.includes('task-status-feedback'), 'pending feedback CSS should not keep route-specific or duplicate status style classes');
+  assert.ok(!imageWorkflow.includes('<div class="pending-feedback"') && !jobResumeWorkflow.includes('<div class="pending-feedback"'), 'image and resume workflows should use the shared pending feedback renderer instead of handcrafted HTML');
+  assert.ok(!imageWorkflow.includes('IMG RUNNING') && !imageWorkflow.includes('setPendingFeedback(d,'), 'image running/waiting prompts should not use a special pending feedback branch');
+  assert.ok(imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 0 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 ${t} 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(t)'), 'image generation, editing, and upload waits should use the shared pending feedback renderer');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
@@ -2283,11 +2501,22 @@ function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
   assert.ok(flatCss.includes('body:not(.session-sidebar-collapsed) .composer,') && flatCss.includes('width:var(--ds-chat-column)!important') && flatCss.includes('left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important'), 'expanded desktop composer should match the same ds chat column as messages');
   assert.ok(flatCss.includes('--ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important') && flatCss.includes('body.session-sidebar-collapsed .messages>.message,') && flatCss.includes('body.session-sidebar-collapsed .empty{') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important'), 'collapsed desktop messages should use a wider dedicated reading column after the sidebar frees space');
   assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important') && flatCss.includes('left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important'), 'collapsed desktop composer should be centered on the same wider collapsed reading column');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch87') && index.includes('chatui.bundle.js?v=1.3.48-arch87') && index.includes('styles/flat-theme.css?v=2.1.66'), 'sidebar composer width fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch87'"), 'server bundle version should match sidebar composer cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'sidebar composer width fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match sidebar composer cache-busting');
 }
 
-function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
+function testSubmitNormalizesTaskContractBeforeDispatch() {
+  const submitWorkflow = sourceAssertions.readSource('client/app/submit-workflow.js');
+  const app = sourceAssertions.readSource('app.js');
+  for (const source of [submitWorkflow, app]) {
+    assert.ok(source.includes('routeUtils.applyTaskContract'), 'submit flow should normalize RouteInfo into TaskContract before execution dispatch');
+    assert.ok(source.includes('routeInfo=routeUtils.applyTaskContract(routeInfo,{input:effectivePromptText,context:null})'), 'TaskContract normalization should happen after final route decision and before needClarification/execution branches');
+    assert.ok(source.indexOf('routeUtils.applyTaskContract') < source.indexOf('if(routeInfo.needClarification)'), 'TaskContract normalization must run before clarification and task branch dispatch');
+    assert.ok(source.includes('const executionApi=routeInfo.taskContract?.execution?.api'), 'execution branch should dispatch from normalized TaskContract when available');
+  }
+}
+
+function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   const routeWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/route-decision-workflow.js'), 'utf8');
   const submitWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
@@ -2296,15 +2525,15 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(routeWorkflow.includes('},60000)') && routeWorkflow.includes('ROUTE_INTENT_TIMEOUT'), 'route recognition should timeout after 60 seconds with dedicated error');
   const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   assert.ok(app.includes('routeOptions=null') && app.includes('routeContextOverride,routeOptions'), 'app route wrapper should forward routeOptions so slow UI callbacks fire');
-  assert.ok(app.includes('上下文比较复杂，正在努力识别，请稍后。'), 'slow route notice text should be shown in pending assistant bubble');
-  assert.ok(app.includes('function createRouteRecognitionUi') && app.includes('getEffectiveRouteWithSlowNotice') && app.includes('setTimeout(c,10000)') && submitWorkflow.includes('routeUi=createRouteRecognitionUi'), 'normal submit and regenerate should share one route recognition UX helper');
-  assert.ok(app.includes('routeUi.waitManualIntentChoice(quotedMessage') && app.includes('const routeUi=createRouteRecognitionUi({sessionId:l'), 'regenerate should reuse the same slow notice and manual intent fallback');
-  assert.ok(app.includes('内容过于复杂、意图识别耗时请手动选择意图'), 'route timeout should ask the user to choose manually');
-  assert.ok(app.includes('data-manual-intent="chat"') && app.includes('data-manual-intent="image"') && app.includes('data-manual-intent="edit_image"'), 'manual intent chooser should include chat/image/edit options');
-  assert.ok(flatCss.includes('.manual-intent-card') && flatCss.includes('.manual-intent-actions button'), 'manual intent chooser should match the flat theme');
+  assert.ok(app.includes('正在执行：路由模型意图识别'), 'slow route notice should show the current routing stage');
+  assert.ok(app.includes('function createRouteRecognitionUi') && app.includes('getEffectiveRouteWithSlowNotice') && app.includes('setTimeout(()=>l(ROUTE_SLOW_TEXT),10000)') && submitWorkflow.includes('routeUi=createRouteRecognitionUi'), 'normal submit and regenerate should share one route recognition UX helper');
+  assert.ok(app.includes('const routeUi=createRouteRecognitionUi({sessionId:l') && app.includes('onStage:l'), 'normal submit and regenerate should reuse the same staged route recognition notice helper');
+  assert.ok(routeWorkflow.includes('正在执行：AI 复审路由判断') && routeWorkflow.includes('正在执行：chat 模型备用路由判断'), 'route stage notices should include review and fallback routing stages');
+  assert.ok(!app.includes('manualIntentChoiceHtml') && !app.includes('data-manual-intent') && !submitWorkflow.includes('waitManualIntentChoice'), 'manual intent fallback UI should be fully removed');
+  assert.ok(!flatCss.includes('.manual-intent-card') && !flatCss.includes('.manual-intent-actions'), 'manual intent chooser CSS should be removed');
   const imageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/image-workflow.js'), 'utf8');
   assert.ok(imageWorkflow.includes('clearReasoning?.(d)') && imageWorkflow.includes('delete c.reasoningText'), 'image generation should clear route/chat reasoning panel when it starts');
-  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.3.15'), 'image reasoning cleanup should be wired and cache-busted');
+  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.3.16-image-success-reconcile'), 'image reasoning cleanup should be wired and cache-busted');
   const sessionPanelWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/session-panel-workflow.js'), 'utf8');
   assert.ok(sessionPanelWorkflow.includes('window.setTimeout.call(window,()=>n.focus(),a||60)'), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
 
@@ -2312,7 +2541,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   const dialogWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/dialog-workflow.js'), 'utf8');
   const performanceWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
   const attachmentsWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/attachments-workflow.js'), 'utf8');
-  assert.ok(configWorkflow.includes('window.setTimeout.call(window,()=>getElement("baseUrl")?.focus(),0)'), 'config modal should bind native setTimeout to window');
+  assert.ok(configWorkflow.includes('window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)'), 'config modal should bind native setTimeout to window and focus the API Key field');
   assert.ok(dialogWorkflow.includes('window.setTimeout.call(window') && dialogWorkflow.includes('window.clearTimeout.call(window'), 'dialog workflow should bind native timers to window');
   assert.ok(performanceWorkflow.includes('window.setTimeout.call(window') && performanceWorkflow.includes('window.clearTimeout.call(window'), 'performance workflow should bind native timers to window');
   assert.ok(attachmentsWorkflow.includes('window.setTimeout.call(window') && attachmentsWorkflow.includes('window.clearTimeout.call(window'), 'attachments workflow should bind native timers to window');
@@ -2322,7 +2551,57 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.62') && index.includes('chat-workflow.js?v=1.3.17') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.56-stopfix6') && index.includes('flat-theme.css?v=2.1.66'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
+}
+
+function testImageSuccessResultReconciliation() {
+  const reconciliation = require('../client/app/image-result-reconciliation');
+  const successDisplay = {
+    id: 'display-success',
+    role: 'assistant',
+    responseIndex: '2',
+    jobId: 'job-success',
+    html: '<div><img class="generated-thumb" data-persisted-src="indexeddb://image-1"></div>',
+    pending: false,
+  };
+  const staleError = { id: 'display-error', role: 'error', responseIndex: '2', rawText: 'late error' };
+  const stalePending = { id: 'display-pending', role: 'assistant', jobId: 'job-success', pending: '1', rawText: '正在生成图片' };
+  const unrelatedError = { id: 'display-other-error', role: 'error', responseIndex: '5', rawText: 'keep this error' };
+  const successMessage = { role: 'assistant', responseIndex: '2', imageJobId: 'job-success', displayItemId: 'display-success', content: '[图片生成完成] cat' };
+  const staleMessageError = { role: 'error', responseIndex: '2', content: 'late error' };
+  const unrelatedMessageError = { role: 'error', responseIndex: '5', content: 'keep this error' };
+  const session = {
+    display: [staleError, stalePending, successDisplay, unrelatedError],
+    messages: [{ role: 'user', content: 'cat' }, staleMessageError, successMessage, unrelatedMessageError],
+  };
+
+  const result = reconciliation.reconcileSuccessfulImageResult({
+    session,
+    currentItem: successDisplay,
+    job: { id: 'job-success', displayItemId: 'display-success', responseIndex: 2 },
+    responseIndex: 2,
+  });
+
+  assert.strictEqual(result.changed, true, 'successful image reconciliation should report removed stale records');
+  assert.deepStrictEqual(session.display, [successDisplay, unrelatedError], 'same-anchor error/pending display records should be removed while success and unrelated error stay');
+  assert.deepStrictEqual(session.messages, [{ role: 'user', content: 'cat' }, successMessage, unrelatedMessageError], 'same responseIndex error message should be removed while successful image and unrelated error stay');
+  assert.strictEqual(reconciliation.hasSuccessfulImageResult({
+    session,
+    item: staleError,
+    job: { id: 'job-success', displayItemId: 'display-success', responseIndex: 2 },
+    responseIndex: 2,
+  }), true, 'late error should detect the already persisted image success through the same anchor');
+
+  const imageWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/image-workflow.js'), 'utf8');
+  const resumeWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/job-resume-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(imageWorkflow.includes('reconcileSuccessfulImageResult(n,c,'), 'normal image success path should call the shared reconciliation');
+  assert.ok(resumeWorkflow.includes('reconcileSuccessfulImageResult(e,i,s,m)'), 'resumed image success path should call the shared reconciliation');
+  assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
+  assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=1.3.69-durable-image-result'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.16-image-success-reconcile') && index.includes('job-resume-workflow.js?v=1.2.69-image-success-reconcile') && index.includes('app.js?v=1.3.69-durable-image-result'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -2332,15 +2611,22 @@ function testDockerfileIncludesSharedRuntimeModules() {
 }
 
 const tests = [
+  testHttpNormalizeUpstreamErrors,
+  testPreflightGuardsOnlyHandleDeterministicConditions,
+  testRouteKeepsSingleHistoryImageEditableForDeicticEdit,
+  testRouteClarifiesDeicticEditOnlyWithoutAnyImageCandidate,
   testIntentContractNormalizesRouteAndExecution,
   testPromptComposerPreservesIntentWithoutOverOptimizing,
   testRouteResultCarriesTaskContractAndComposedPrompt,
   testRouteInstructionDoesNotPolluteImagePrompt,
   testDockerfileIncludesSharedRuntimeModules,
+  testImageSuccessResultReconciliation,
   testRouteContextIsCompactAndIndexed,
   testImageCandidatesUseGlobalIndexesAndExecuteSourceIndexes,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
   testImageResultParsingSupportsMultipleImages,
+  testImageResultRefusesNonDurablePersistence,
+  testImageResultStoresOnlyDurableIndexedDbReferences,
   testDownloadFilenamesUseShanghaiTimestamp,
   testImageJobTargetsAndMultipartSanitization,
   testPendingClarificationMergesFollowupSupplements,
@@ -2367,14 +2653,14 @@ const tests = [
   testLightweightIntentClassifierAdapters,
   testRouteDecisionHelpersArePureAndReusedByService,
   testStructuredRouteDecisionCarriesRefs,
-  testImagePromptExtractionStaysChatWithCurrentImage,
-  testImplicitImagePromptExtractionStaysChatWithCurrentImage,
+  testImagePromptExtractionFollowsAiRouteWithCurrentImage,
+  testImplicitImagePromptExtractionFollowsAiRouteWithCurrentImage,
   testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent,
   testRouteOperationTypeDrivesCanonicalMode,
   testImageResultCorrectionRebuildsImagePrompt,
   testRoutePromptUsesChineseCompactRules,
   testChatAnswerStreamingFlushesQuickly,
-  testStreamingTailRendersLightweightCursor,
+  testStreamingTailRendersWithoutCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testSessionSwitchFocusesBottom,
   testLegacyWelcomeScreenIsRestored,
@@ -2389,12 +2675,13 @@ const tests = [
   testMarkdownLiveStreamIsFeatureModule,
   testStreamingMarkdownTablesRemainAtomicUntilFinal,
   testLiveMarkdownStreamPreviewsChunksWithoutLoweringCommitCadence,
+  testLiveMarkdownStreamDoesNotBlankExistingContentBeforeFirstPaint,
   testStreamingOutputSmoothnessOptimizations,
   testResumeStreamButtonAnchorsAboveComposer,
   testHistoryAnchorLastQuestionSpacerClearsOnSubmit,
   testHistoryAnchorNavFeature,
   testLargeMarkdownInitialRenderIsProgressive,
-  testEnglishImagePromptExtractionStaysChatWithCurrentImage,
+  testEnglishImagePromptExtractionFollowsAiRouteWithCurrentImage,
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
   testEmptyAssistantImageContextFallsBackToGeneratedThumbs,
   testQuoteResolverUsesCanonicalAndDisplayContext,
@@ -2433,6 +2720,8 @@ const tests = [
   testChatJobIdIsPersistedBeforeRouteResolution,
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
+  testPendingSubmitResumeInsertsFallbackAtOriginalPosition,
+  testRegenerateSavesEarlyPendingSubmitBeforeRoute,
   testReasoningPreferenceIsSessionScoped,
   testReasoningCompletionEmptyStateText,
   testReasoningCompletesBeforeAnswerStreaming,
@@ -2443,6 +2732,7 @@ const tests = [
   testAppBootstrapContextHelper,
   testConfigBaseUrlDefault,
   testConfigCopyButtonsForBaseUrlAndApiKey,
+  testSensitiveConfigAndIntentTraceAreNotPersisted,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
   testRegenerateRemovesOldAssistantImmediately,
   testForceImageButtonOnUserMessages,
@@ -2450,7 +2740,8 @@ const tests = [
   testMessageActionButtonsUsePolishedStyle,
   testPendingFeedbackDoesNotWrapOnMobile,
   testComposerWidthFollowsSidebarCollapsedMessageColumn,
-  testRouteTimeoutShowsSlowNoticeThenManualChoice,
+  testSubmitNormalizesTaskContractBeforeDispatch,
+  testRouteTimeoutShowsSlowNoticeThenFailsCleanly,
 ];
 
 (async () => {

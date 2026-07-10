@@ -9,6 +9,10 @@ async function getPersonalRange(usageStats, apiKey, range) {
   return usageStats.getPersonalRange(apiKey, range);
 }
 
+async function getUserByApiKey(usageStats, apiKey) {
+  return usageStats.getUserByApiKey(apiKey);
+}
+
 async function getOverview(usageStats, apiKey, rankingRange, personalRange) {
   const [ranking, personal] = await Promise.all([
     usageStats.getRanking(rankingRange),
@@ -57,6 +61,7 @@ module.exports = {
   getDepartmentUsers,
   getOverview,
   getPersonalRange,
+  getUserByApiKey,
   getRanking,
   groupUsersByDepartment,
 };

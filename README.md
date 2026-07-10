@@ -195,16 +195,10 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 ### 环境要求
 
 ```text
-Node.js 18+
+Node.js 20.19+
 ```
 
-推荐：
-
-```text
-Node.js 20+
-```
-
-当前 Docker 镜像使用 Node.js 22 Alpine。
+推荐直接使用与容器和 CI 一致的 Node.js 22 LTS。
 
 ### 克隆仓库
 
@@ -967,9 +961,8 @@ DISALLOW_PRIVATE_UPSTREAM=1 node server.js
 │   ├── security/                  # 上游 URL 安全策略
 │   └── jobs/                      # 聊天任务、图片任务、SSE、abort、内存任务仓库、reasoning
 ├── test/                          # 自动化测试
-│   ├── api/                       # 服务端 API / Job / 附件解析 / 冒烟测试
-│   ├── browser/                   # 浏览器 core bundle 测试
-│   ├── unit/                      # 前端模块单元测试
+│   ├── unit/                      # 前后端单元与契约测试
+│   ├── smoke/                     # HTTP 服务冒烟测试
 │   └── run-tests.js               # 全量测试入口
 ├── vendor/                        # 本地第三方前端资源
 │   ├── markdown-it.min.js
@@ -1009,19 +1002,18 @@ node test/run-tests.js
 - 前端 services：模型、Job、聊天、路由、生图、图片解析。
 - 前端 UI：文件动作、实时渲染、滚动、消息渲染、消息操作、图片操作。
 - 前端 app：状态、run、会话、持久化、display item、runtime、image store。
-- browser core bundle。
-- API：Job 生命周期、附件解析、路由、冒烟。
+- API、Job 生命周期、附件解析、路由与 HTTP 服务冒烟。
+
+当前测试以 Node/JSDOM 和 HTTP smoke 为主；真实浏览器 E2E 作为后续增强项。
 
 ### 常用单项检查
 
 ```bash
 node --check app.js
 node --check server.js
-node test/unit/messages-test.js
-node test/unit/image-route-context-test.js
-node test/api/jobs-test.js
-node test/api/extract-test.js
-node test/api/smoke-test.js
+node test/run-tests.js
+node test/unit/server-hardening.test.js
+node test/smoke/server-smoke.test.js
 ```
 
 ### 启动检查

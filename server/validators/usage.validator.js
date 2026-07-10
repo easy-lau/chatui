@@ -10,8 +10,9 @@ function normalizeText(value, fallback = '') {
 }
 
 function getClientKey(req) {
-  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return forwarded || req.socket?.remoteAddress || 'unknown';
+  // This service has no trusted-proxy configuration. A client-controlled
+  // X-Forwarded-For header must therefore never define a rate-limit bucket.
+  return req.socket?.remoteAddress || 'unknown';
 }
 
 function checkUsageRefreshLimit(req, name, options = {}) {

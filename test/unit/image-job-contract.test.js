@@ -34,6 +34,8 @@ async function invokeStart(body, options = {}) {
   });
   const res = createMockResponse();
   const previousFetch = global.fetch;
+  const previousAllowPrivate = process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+  process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = '1';
   const fetchCalls = [];
   global.fetch = options.fetch || ((url, request) => {
     fetchCalls.push({ url, request });
@@ -41,9 +43,12 @@ async function invokeStart(body, options = {}) {
   });
   try {
     await handlers.startImageJob(createJsonRequest(body), res);
+    await Promise.resolve();
     if (options.waitForJob) await new Promise(resolve => setImmediate(resolve));
   } finally {
     global.fetch = previousFetch;
+    if (previousAllowPrivate === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+    else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousAllowPrivate;
   }
   return { res, json: res.body ? JSON.parse(res.body) : null, imageJobs, notifications, fetchCalls };
 }
@@ -65,7 +70,7 @@ async function testImageJobStartGenerationContract() {
   assert.strictEqual(result.json.status, 'running');
   const job = result.imageJobs.get('imgjob-generate1');
   assert.strictEqual(job.mode, 'image');
-  assert.strictEqual(job.targetUrl, 'https://api.example.com/v1/images/generations');
+  assert.strictEqual(job.targetUrl, 'https://ingress.lfans.cn/v1/images/generations');
   assert.deepStrictEqual(job.files, []);
   assert.deepStrictEqual(job.masks, []);
 }
@@ -93,7 +98,7 @@ async function testImageJobAsyncCompletionContract() {
     error: '',
   });
   assert.strictEqual(result.fetchCalls.length, 1);
-  assert.strictEqual(result.fetchCalls[0].url, 'https://api.example.com/v1/images/generations');
+  assert.strictEqual(String(result.fetchCalls[0].url), 'https://ingress.lfans.cn/v1/images/generations');
 }
 
 async function testImageJobAsyncErrorContract() {
@@ -123,6 +128,8 @@ async function testImageJobAsyncErrorContract() {
 
 async function testRunImageJobAbortContract() {
   const previousFetch = global.fetch;
+  const previousAllowPrivate = process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+  process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = '1';
   const notifications = [];
   const fetchCalls = [];
   const abortErr = new Error('aborted');
@@ -131,7 +138,7 @@ async function testRunImageJobAbortContract() {
     id: 'imgjob-abort-direct1',
     mode: 'image',
     status: 'running',
-    targetUrl: 'https://api.example.com/v1/images/generations',
+    targetUrl: 'https://ingress.lfans.cn/v1/images/generations',
     payload: { model: 'gpt-image-1', prompt: '画猫' },
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -147,10 +154,12 @@ async function testRunImageJobAbortContract() {
     await runImageJob(job, { notifyJob: notifiedJob => notifications.push({ id: notifiedJob.id, status: notifiedJob.status, error: notifiedJob.error }), upstreamTimeoutMs: 1000 });
   } finally {
     global.fetch = previousFetch;
+    if (previousAllowPrivate === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+    else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousAllowPrivate;
   }
 
   assert.strictEqual(fetchCalls.length, 1);
-  assert.strictEqual(fetchCalls[0].url, 'https://api.example.com/v1/images/generations');
+  assert.strictEqual(String(fetchCalls[0].url), 'https://ingress.lfans.cn/v1/images/generations');
   assert.ok(fetchCalls[0].request.signal);
   assert.strictEqual(job.status, 'error');
   assert.strictEqual(job.error, '上游请求超时');
@@ -160,11 +169,13 @@ async function testRunImageJobAbortContract() {
 
 async function testRunImageJobAllowsMissingNotifyContract() {
   const previousFetch = global.fetch;
+  const previousAllowPrivate = process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+  process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = '1';
   const job = {
     id: 'imgjob-no-notify1',
     mode: 'image',
     status: 'running',
-    targetUrl: 'https://api.example.com/v1/images/generations',
+    targetUrl: 'https://ingress.lfans.cn/v1/images/generations',
     payload: { model: 'gpt-image-1', prompt: '画猫' },
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -177,6 +188,8 @@ async function testRunImageJobAllowsMissingNotifyContract() {
     await runImageJob(job, { upstreamTimeoutMs: 1000 });
   } finally {
     global.fetch = previousFetch;
+    if (previousAllowPrivate === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
+    else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousAllowPrivate;
   }
 
   assert.strictEqual(job.status, 'done');
@@ -194,7 +207,7 @@ async function testImageJobStartEditAutoModeContract() {
   assert.strictEqual(result.res.status, 202);
   const job = result.imageJobs.get('imgjob-editauto1');
   assert.strictEqual(job.mode, 'edit_image');
-  assert.strictEqual(job.targetUrl, 'https://api.example.com/v1/images/edits');
+  assert.strictEqual(job.targetUrl, 'https://ingress.lfans.cn/v1/images/edits');
   assert.strictEqual(job.files.length, 1);
   assert.strictEqual(job.masks.length, 0);
   assert.strictEqual(job.payload.prompt, '改成蓝色');
@@ -272,13 +285,13 @@ function testImageJobStateMutationHelpersContract() {
   const failedJob = { id: 'imgjob-failed-helper', status: 'running', error: '' };
   assert.strictEqual(markImageJobFailed(failedJob, new Error('network down')), failedJob);
   assert.strictEqual(failedJob.status, 'error');
-  assert.strictEqual(failedJob.error, '连接上游接口失败：network down');
+  assert.strictEqual(failedJob.error, '连接上游接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用');
 }
 
 function testImageJobErrorFormatterContract() {
   assert.strictEqual(formatImageJobError({ name: 'AbortError', message: 'aborted' }), '上游请求超时');
   assert.strictEqual(formatImageJobError(new Error('quota exceeded')), '连接上游接口失败：quota exceeded');
-  assert.strictEqual(formatImageJobError('network down'), '连接上游接口失败：network down');
+  assert.strictEqual(formatImageJobError('network down'), '连接上游接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用');
 }
 
 function testImageUpstreamResponseParserContract() {
@@ -437,7 +450,7 @@ function testImageJobPublicSnapshotContract() {
     status: 'running',
     createdAt: 1,
     updatedAt: 2,
-    targetUrl: 'https://api.example.com/v1/images/generations',
+    targetUrl: 'https://ingress.lfans.cn/v1/images/generations',
     apiKey: 'sk-secret',
     extraHeaders: { Authorization: 'x' },
     payload: { prompt: 'secret' },

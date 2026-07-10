@@ -91,6 +91,11 @@ function createUsageStatsRepository(pool, options = {}) {
     return normalizeTokenRow(result.rows[0]);
   }
 
+  async function getUserByApiKey(apiKey) {
+    const result = await pool.query('SELECT COALESCE(name, \'\') AS username FROM api_keys WHERE "key" = $1 LIMIT 1', [apiKey]);
+    return { username: String(result.rows[0]?.username || '').trim() };
+  }
+
   async function getDepartmentRanking(range) {
     const filter = DEPARTMENT_RANGE_FILTERS[range];
     if (!filter) throw new Error(`Unsupported department usage range: ${range}`);
@@ -151,7 +156,7 @@ function createUsageStatsRepository(pool, options = {}) {
     return normalizeRangeBounds(result.rows[0]);
   }
 
-  return { getRanking, getPersonalRange, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
+  return { getRanking, getPersonalRange, getUserByApiKey, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
 }
 
 module.exports = { createUsageStatsRepository };

@@ -40,7 +40,10 @@ async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', direc
       ...(method === 'GET' ? {} : { body: JSON.stringify(body) }),
     });
   } catch (err) {
-    throw new Error(`连接接口失败：${err?.message || '网络请求失败'}`);
+    if (err?.name === 'AbortError' || signal?.aborted) throw err;
+    const msg = String(err?.message || '网络请求失败');
+    if (/Failed to fetch|fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|network/i.test(msg)) throw new Error('连接接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用');
+    throw new Error(`连接接口失败：${msg}`);
   }
   const parsed = await parseResponseJson(response);
   if (!response.ok) throw new Error(normalizeError(null, parsed));

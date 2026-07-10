@@ -16,13 +16,19 @@
     for (let index = 0; index < images.length; index += 1) {
       const item = images[index];
       const filename = fileNames?.timestampedFilename ? fileNames.timestampedFilename({ ext: 'png' }) : `${Date.now()}.png`;
-      const persisted = await deps.settleWithin(deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true }), 8000, { persistedSrc: item.src, displaySrc: item.src });
-      const persistedSrc = persisted?.persistedSrc || item.src;
-      // Use the blob URL from persistImageSrc for immediate display (avoids
-      // IndexedDB write-then-read timing issues), falling back to transparent
-      // pixel only when the blob URL is unavailable. The data-persisted-src
-      // attribute still holds the durable indexeddb:// ref for page reloads.
-      const displaySrc = persisted?.displaySrc || (String(persistedSrc || '').startsWith('indexeddb://') ? window.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' : persistedSrc);
+      // A completed image message must never reference an inline base64 fallback.
+      // The display history deliberately strips large data URLs, so accepting that
+      // fallback here creates a successful-looking message which cannot survive a
+      // reload.  Do not publish a terminal result until IndexedDB has committed a
+      // durable reference for every returned image.
+      const persisted = await deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true });
+      const persistedSrc = String(persisted?.persistedSrc || '');
+      if (!persistedSrc.startsWith('indexeddb://')) {
+        throw new Error('图片已返回，但本地持久化失败；未保存为完成消息以避免刷新后丢失，请检查浏览器存储后重试');
+      }
+      // Blob URL is only an immediate-display optimization. data-persisted-src
+      // remains the sole durable reference used by session/display restoration.
+      const displaySrc = persisted?.displaySrc || window.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
       const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null) || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
       const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];

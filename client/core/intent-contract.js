@@ -1,9 +1,9 @@
 (function initChatUIIntentContract(root) {
   'use strict';
 
-  const VALID_INTENTS = new Set(['chat', 'vision_qa', 'image.generate', 'image.edit', 'file.qa', 'multi_step', 'clarify', 'refuse']);
+  const VALID_INTENTS = new Set(['chat', 'vision_qa', 'image.generate', 'image.edit', 'file.qa', 'clarify', 'refuse']);
   const VALID_TASK_TYPES = new Set(['new_task', 'followup', 'correction', 'continuation']);
-  const VALID_APIS = new Set(['chat', 'vision', 'image_generation', 'image_edit', 'clarify', 'refuse', 'multi_step']);
+  const VALID_APIS = new Set(['chat', 'vision', 'image_generation', 'image_edit', 'clarify', 'refuse']);
   const VALID_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'analyze_then_generate', 'analyze_then_edit', 'clarify', 'refuse']);
   const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
   const VALID_RESOURCE_SOURCES = new Set(['current', 'quoted', 'history', 'none', 'context']);
@@ -62,7 +62,6 @@
     if (intent === 'image.edit') return 'edit_image';
     if (intent === 'vision_qa') return 'image_qa';
     if (intent === 'file.qa') return 'file_qa';
-    if (intent === 'multi_step') return 'analyze_then_generate';
     if (intent === 'clarify') return 'clarify';
     if (intent === 'refuse') return 'refuse';
     return 'plain_chat';
@@ -74,7 +73,6 @@
     if (intent === 'image.edit') return { api: 'image_edit', operation: 'edit_image' };
     if (intent === 'vision_qa') return { api: 'vision', operation: ['ocr', 'image_compare'].includes(op) ? op : 'image_qa' };
     if (intent === 'file.qa') return { api: 'chat', operation: op === 'multimodal_qa' ? 'multimodal_qa' : 'file_qa' };
-    if (intent === 'multi_step') return { api: 'multi_step', operation: op };
     if (intent === 'clarify') return { api: 'clarify', operation: 'clarify' };
     if (intent === 'refuse') return { api: 'refuse', operation: 'refuse' };
     return { api: 'chat', operation: 'plain_chat' };
@@ -142,14 +140,6 @@
   function normalizeSteps(value = [], execution = {}, resources = [], promptPlan = {}) {
     const raw = list(value);
     if (raw.length) return raw.map((step, index) => normalizeStep(step, index, execution.operation));
-    if (execution.api === 'multi_step') {
-      const firstOp = execution.operation === 'analyze_then_edit' ? 'image_qa' : 'image_qa';
-      const secondOp = execution.operation === 'analyze_then_edit' ? 'edit_image' : 'text_to_image';
-      return [
-        normalizeStep({ id: 'step_1', operation: firstOp, input_roles: resources.map(item => item.role), output_role: 'analysis', prompt: promptPlan.current_user_intent }, 0),
-        normalizeStep({ id: 'step_2', operation: secondOp, input_roles: ['analysis'], output_role: 'output', prompt: promptPlan.final_instruction, depends_on: ['step_1'] }, 1),
-      ];
-    }
     return [normalizeStep({ id: 'step_1', operation: execution.operation, input_roles: resources.map(item => item.role), output_role: 'output', prompt: promptPlan.final_instruction }, 0)];
   }
 
@@ -270,9 +260,6 @@
     if (normalized.intent === 'file.qa') {
       const firstFile = normalized.resources.find(item => item.type === 'file');
       return { mode: 'chat', target: 'none', operation: { type: normalized.execution.operation === 'multimodal_qa' ? 'multimodal_qa' : 'file_qa', scope: firstFile?.source || normalized.target.source || 'current', prompt: options.input || prompt, edit_instruction: '' }, resources: normalized.resources, image_refs: imageRefs, file_refs: fileRefs, confidence: normalized.confidence, evidence: normalized.reason };
-    }
-    if (normalized.intent === 'multi_step') {
-      return { mode: 'chat', target: 'none', operation: { type: normalized.execution.operation, scope: firstImage?.source || 'context', prompt: options.input || prompt, edit_instruction: '' }, resources: normalized.resources, image_refs: imageRefs, file_refs: fileRefs, tasks: normalized.steps, confidence: normalized.confidence, evidence: normalized.reason };
     }
     return { mode: 'chat', target: 'none', operation: { type: 'plain_chat', scope: 'none', prompt: options.input || prompt, edit_instruction: '' }, resources: normalized.resources, confidence: normalized.confidence, evidence: normalized.reason };
   }

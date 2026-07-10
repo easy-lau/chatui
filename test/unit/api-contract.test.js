@@ -58,8 +58,8 @@ function createMockResponse() {
   };
 }
 
-async function invokeUsageRoute(path, { method = 'GET', body = '', usageStats = {} } = {}) {
-  const { routeUsage } = createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats });
+async function invokeUsageRoute(path, { method = 'GET', body = '', usageStats = {}, usageAccessValidator = { async validate() { return { ok: true }; } } } = {}) {
+  const { routeUsage } = createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator });
   const req = {
     url: path,
     method,
@@ -114,25 +114,15 @@ async function testApiContractMethodAndCorsPreflight() {
 
 async function testApiContractUsageUnavailableAndValidationShapes() {
   await withServer(async baseUrl => {
-    const rankings = await request(baseUrl, '/api/usage/rankings?range=today');
-    assert.strictEqual(rankings.res.status, 200);
+    const rankings = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ range: 'today' }) });
+    assert.strictEqual(rankings.res.status, 400);
     assertCorsJson(rankings);
-    assert.deepStrictEqual(rankings.json, {
-      available: false,
-      reason: 'PostgreSQL 未配置，使用统计功能未启用',
-      ranking: [],
-      personal: null,
-    });
+    assert.deepStrictEqual(rankings.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
-    const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings?range=bad');
-    assert.strictEqual(invalidRangeWithoutDatabase.res.status, 200);
+    const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: 'sk-test', range: 'bad' }) });
+    assert.strictEqual(invalidRangeWithoutDatabase.res.status, 400);
     assertCorsJson(invalidRangeWithoutDatabase);
-    assert.deepStrictEqual(invalidRangeWithoutDatabase.json, {
-      available: false,
-      reason: 'PostgreSQL 未配置，使用统计功能未启用',
-      ranking: [],
-      personal: null,
-    });
+    assert.deepStrictEqual(invalidRangeWithoutDatabase.json, { error: { message: '请先正确配置聊天模型', code: 'MODEL_NOT_CONFIGURED' } });
 
     const missingApiKey = await request(baseUrl, '/api/usage/personal', {
       method: 'POST',
@@ -141,7 +131,7 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
     });
     assert.strictEqual(missingApiKey.res.status, 400);
     assertCorsJson(missingApiKey);
-    assert.deepStrictEqual(missingApiKey.json, { error: { message: '缺少 api_key' } });
+    assert.deepStrictEqual(missingApiKey.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
     const unknownUsage = await request(baseUrl, '/api/usage/not-found');
     assert.strictEqual(unknownUsage.res.status, 404);
@@ -151,15 +141,15 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
 }
 
 async function testApiContractUsageConfiguredValidationShapes() {
-  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings?range=bad', { usageStats: { async getRanking() { return []; } } });
+  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings', { method: 'POST', body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'bad' }), usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getRanking() { return []; } } });
   assert.strictEqual(invalidRankingRange.status, 400);
   assert.strictEqual(invalidRankingRange.headers['Access-Control-Allow-Origin'], '*');
   assert.deepStrictEqual(invalidRankingRange.json, { error: { message: '不支持的排行范围' } });
 
   const invalidPersonalRange = await invokeUsageRoute('/api/usage/personal', {
     method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-test', range: 'bad' }),
-    usageStats: { async getPersonalRange() { return null; } },
+      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'bad' }),
+    usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getPersonalRange() { return null; } },
   });
   assert.strictEqual(invalidPersonalRange.status, 400);
   assert.strictEqual(invalidPersonalRange.headers['Access-Control-Allow-Origin'], '*');
@@ -172,8 +162,9 @@ async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
   try {
     const overview = await invokeUsageRoute('/api/usage/overview', {
       method: 'POST',
-      body: JSON.stringify({ api_key: 'sk-test', ranking_range: 'today', personal_range: 'yesterday', compact: true }),
+      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', ranking_range: 'today', personal_range: 'yesterday', compact: true }),
       usageStats: {
+        async getUserByApiKey() { return { username: 'tester' }; },
         async getRanking(range) { return [{ username: `rank-${range}`, total_tokens: 10, prompt_tokens: 6, completion_tokens: 4, prompt_cached_tokens: 1, completion_reasoning_tokens: 2 }]; },
         async getPersonalRange(apiKey, range) { return { username: `${apiKey}-${range}`, total_tokens: 20, prompt_tokens: 12, completion_tokens: 8, prompt_cached_tokens: 3, completion_reasoning_tokens: 4 }; },
       },
@@ -183,8 +174,9 @@ async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
 
     const summary = await invokeUsageRoute('/api/usage/department/summary', {
       method: 'POST',
-      body: JSON.stringify({ password: 'dep-pass', range: 'today', compact: true }),
+      body: JSON.stringify({ password: 'dep-pass', api_key: 'sk-test', model: 'gpt-test', range: 'today', compact: true }),
       usageStats: {
+        async getUserByApiKey() { return { username: 'tester' }; },
         async getDepartmentRanking(range) { return [{ department_id: 'dept-1', department_name: `研发-${range}`, total_tokens: 30, prompt_tokens: 18, completion_tokens: 12, prompt_cached_tokens: 5, completion_reasoning_tokens: 6 }]; },
       },
     });

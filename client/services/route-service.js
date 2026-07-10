@@ -2,14 +2,16 @@
   'use strict';
 
 const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 意图路由器，只返回 JSON，不回答用户。
-目标：精准识别 current_input，并输出结构化 task contract；可以把复杂任务拆成多个 steps，不要被一次调用/单一路由限制。
+目标：精准识别 current_input，并输出结构化 task contract；steps 仅描述当前单次执行，不得输出未实现的多阶段执行协议。
 
 核心原则：current_input 是最新用户输入，优先级最高；attachments 是本轮资源，图片/文件都是当前输入的一部分；context 只用于解析明确引用（上一张、刚才、引用消息、继续、那个文件等）和上一轮修正，历史不能覆盖新任务。image_candidates/file_candidates 是候选元数据；不要猜图片或文件内容，只判断任务、资源、角色和执行参数。
 
 必须返回 task contract JSON：
-{"schema_version":"task_contract.v2","intent":"chat|vision_qa|image.generate|image.edit|file.qa|multi_step|clarify|refuse","task_type":"new_task|followup|correction|continuation","execution":{"api":"chat|vision|image_generation|image_edit|multi_step|clarify|refuse","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|analyze_then_generate|analyze_then_edit|clarify|refuse"},"resources":[{"type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","required":true,"missing":false}],"steps":[{"id":"step_1","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|analyze_then_generate|analyze_then_edit","input_roles":[],"output_role":"output","prompt":"","depends_on":[]}],"prompt_plan":{"current_user_intent":"","context_to_preserve":"","constraints":[],"do_not_add":[],"final_instruction":""},"clarification":{"needed":false,"question":"","missing_resources":[]},"confidence":0,"reason":""}
+{"schema_version":"task_contract.v2","intent":"chat|vision_qa|image.generate|image.edit|file.qa|clarify|refuse","task_type":"new_task|followup|correction|continuation","execution":{"api":"chat|vision|image_generation|image_edit|clarify|refuse","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify|refuse"},"resources":[{"type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","required":true,"missing":false}],"steps":[{"id":"step_1","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image","input_roles":[],"output_role":"output","prompt":"","depends_on":[]}],"prompt_plan":{"current_user_intent":"","context_to_preserve":"","constraints":[],"do_not_add":[],"final_instruction":""},"clarification":{"needed":false,"question":"","missing_resources":[]},"confidence":0,"needs_review":false,"reason":""}
 
-意图选择：普通文字聊天/写作/翻译/代码解释=chat/plain_chat；看图回答/按图评价/找问题/提取图片信息=vision_qa/image_qa；图片文字识别=vision_qa/ocr；两张或多张图片比较=vision_qa/image_compare；文件内容问答/总结/提取=file.qa/file_qa；文件+图片综合问答=file.qa/multimodal_qa；纯文本生图=image.generate/text_to_image；参考已有图片生成新图=image.generate/image_reference_gen；修改已有图片=image.edit/edit_image；先分析再生成或先分析再编辑=multi_step。
+needs_review 规则：当意图在两种可能性之间模糊（如生图还是聊天、修图还是看图）、有多个候选图片但不确定用户指哪一张、或当前上下文与用户输入有冲突时设为 true；其他情况设为 false。
+
+意图选择：普通文字聊天/写作/翻译/代码解释=chat/plain_chat；看图回答/按图评价/找问题/提取图片信息=vision_qa/image_qa；图片文字识别=vision_qa/ocr；两张或多张图片比较=vision_qa/image_compare；文件内容问答/总结/提取=file.qa/file_qa；文件+图片综合问答=file.qa/multimodal_qa；纯文本生图=image.generate/text_to_image；参考已有图片生成新图=image.generate/image_reference_gen；修改已有图片=image.edit/edit_image。需要“先分析再生成/编辑”时，按最终要执行的图片操作选择 image.generate 或 image.edit，并把分析要求写入 prompt_plan，不要输出未实现的多阶段执行类型。
 
 资源角色：被编辑图片 role=target；参考图 role=reference；风格参考 role=style_reference；对比双方 role=compare_a/compare_b；看图问答图片 role=source；文件 role=attachment。source=current 表示本轮附件；quoted 表示引用消息；history 表示上一张/刚才/历史候选。
 
@@ -184,7 +186,6 @@ function enforceCurrentImageIntent(simple = {}, options = {}) {
 }
 
 function apiRouteToExecutionRoute(simple = {}, options = {}) {
-  simple = enforceCurrentImageIntent(simple, options);
   const input = String(options.input || '').trim();
   const attachments = options.attachments || [];
   const context = options.context || {};
@@ -206,15 +207,12 @@ function apiRouteToExecutionRoute(simple = {}, options = {}) {
   }
 
   const routeUsesImage = route === 'vision' || route === 'image_edit' || (route === 'image_generate' && imageSource !== 'none');
-  if (route === 'image_edit' && imageSource === 'history' && isCurrentImageDeicticInput?.(input) && !isExplicitHistoryImageInput(input) && !currentImageCount(attachments) && contextImageCandidates(context, 'history').length <= 1) {
-    return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: '请先上传要修改的图片，或明确说明要基于上一张图修改。', intent: 'image_edit', edit_instruction: instruction || input, contextual_image_prompt: '', tasks: [], confidence: 0.86, evidence: '“这张图”默认指本轮当前图片；本轮没有图片且未明确引用历史图片，需追问' };
-  }
   const hasResolvableImageInput = routeUsesImage && inferSourceFromContext(route, imageSource, attachments, context) !== 'none' && (currentImageCount(attachments) || contextImageCandidates(context, imageSource).length || imageSource === 'current');
   const hasResolvableFileInput = route === 'chat' && (currentFileCount(attachments) || contextFileCandidates(context, 'current').length || contextFileCandidates(context, 'quoted').length || contextFileCandidates(context, 'history').length);
   const imageSelectionCandidateCount = imageSource === 'current' ? currentImageCount(attachments) : contextImageCandidates(context, imageSource).length;
   const ambiguousImageSelection = routeUsesImage && imageSource !== 'none' && !selectedIndexes.length && imageSelectionCandidateCount > 1;
   const unresolvedImageSelection = routeUsesImage && imageSource === 'none' && contextImageCandidates(context, 'history').length > 1;
-  const blocksForImageInput = (needImageInput && !hasResolvableImageInput) || ambiguousImageSelection || unresolvedImageSelection;
+  const blocksForImageInput = (routeUsesImage && !hasResolvableImageInput) || ambiguousImageSelection || unresolvedImageSelection;
   const blocksForFileInput = needFileInput && !hasResolvableFileInput;
 
   if (blocksForImageInput || blocksForFileInput) {
@@ -322,38 +320,15 @@ function parseRouteResult(text = '', normalizeRoute, options = {}) {
       : isSimpleClassifierResult(raw) ? apiRouteToExecutionRoute(raw, options) : raw;
     const parsedBase = normalize(routeInput);
     const parsed = rawTaskContract ? { ...applyTaskContract(parsedBase, options), taskContract: rawTaskContract } : applyTaskContract(parsedBase, options);
-    const imageCandidates = Array.isArray(options.context?.image_candidates) ? options.context.image_candidates : [];
-    const attachments = options.attachments || [];
-    const hasImageContext = imageCandidates.length > 0 || attachments.some(item => item && item.is_image);
-    if (hasImageContext && (isImagePromptExtractionInput(options.input) || isImplicitImagePromptExtractionInput(options.input)) && parsed.mode !== 'chat') {
-      const first = imageCandidates.length === 1 ? imageCandidates[0] : null;
-      const refs = imagePromptExtractionRef({ imageCandidates, attachments, parsed });
-      const selectedIndexes = refs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1);
-      const selectedImageIds = refs.map(ref => ref.image_id || ref.imageId).filter(Boolean);
-      return applyTaskContract(normalize({
-        ...parsed,
-        mode: 'chat',
-        operation: { ...(parsed.operation || {}), type: 'image_qa', scope: first?.source || refs[0]?.source || parsed.operation?.scope || 'current' },
-        target: 'none',
-        use_previous_image: false,
-        image_refs: refs,
-        selected_indexes: parsed.selectedIndexes?.length ? parsed.selectedIndexes : parsed.selected_indexes || selectedIndexes,
-        selected_image_ids: parsed.selectedImageIds?.length ? parsed.selectedImageIds : parsed.selected_image_ids || selectedImageIds,
-        intent: 'unknown',
-        contextual_image_prompt: '',
-        evidence: '根据图片提取/反推生成提示词属于图片理解，不是直接生图',
-      }, 'chat'), options);
-    }
-    if (isPromptWritingInput(options.input) && parsed.mode !== 'chat') {
-      return applyTaskContract(normalize({ mode: 'chat', target: 'none', use_previous_image: false, intent: 'unknown', confidence: 1, evidence: '优化/改写/生成提示词属于文本写作任务，不直接生图' }, 'chat'), options);
-    }
     return parsed;
   } catch { return null; }
 }
 
 function needsIntentReview(route = {}, context = {}) {
   if (intentContract?.needsIntentReview) return intentContract.needsIntentReview(route.taskContract || taskContractForRoute(route), context);
-  return !!(route?.confidence && route.confidence < 0.62);
+  if (route.needs_review === true || route.needsReview === true) return true;
+  if (route.needs_review === false || route.needsReview === false) return false;
+  return !!(route?.confidence && route.confidence < 0.25);
 }
 
 function buildFileCandidatesFromAttachments(attachments = []) {

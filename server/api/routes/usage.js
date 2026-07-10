@@ -1,7 +1,7 @@
 const { createUsageController, isDepartmentPasswordValid } = require('../controllers/usage.controller');
 
-function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, send }) {
-  const controller = createUsageController({ sendJson, sendMethodNotAllowed, usageStats, send });
+function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send }) {
+  const controller = createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send });
 
   function routeUsage(req, res) {
     const pathname = String(req.url || '').split('?')[0];
@@ -13,6 +13,7 @@ function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, send })
     if (pathname === '/api/usage/department/rankings') return controller.routeDepartmentRankings(req, res);
     if (pathname === '/api/usage/department/users') return controller.routeDepartmentUsers(req, res);
     if (pathname === '/api/usage/department/export') return controller.routeDepartmentExport(req, res);
+    if (pathname === '/api/usage/feedback') return controller.routeFeedback(req, res);
     return sendJson(res, 404, { error: { message: '未找到使用统计接口' } }, { 'Access-Control-Allow-Origin': '*' });
   }
 

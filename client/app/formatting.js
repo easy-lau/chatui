@@ -39,11 +39,12 @@
   }
 
   function pendingFeedbackHtml(value) {
-    return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(value)}</span></div>`;
+    const text = String(value || '');
+    return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
   }
 
   function isChatStatusText(value = '') {
-    return /正在处理|正在思考|正在恢复聊天任务|恢复任务不存在|已停止恢复|已收到|请稍等|已等待/.test(String(value || ''));
+    return /正在执行：|正在处理中 请稍后|正在处理|正在思考|正在恢复聊天任务|恢复任务不存在|已停止恢复|已收到|请稍等|已等待/.test(String(value || ''));
   }
 
   const api = Object.freeze({

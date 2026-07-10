@@ -21,11 +21,26 @@
       }
     }
 
+    function summarizeIntentTrace(trace = {}) {
+      const route = trace.finalRoute || trace.reviewRoute || trace.firstRoute || {};
+      const contract = route.taskContract || trace.finalTaskContract || null;
+      return {
+        timestamp: new Date().toISOString(),
+        mode: String(route.mode || ''),
+        operationType: String(route.operationType || ''),
+        confidence: Number.isFinite(Number(route.confidence)) ? Number(route.confidence) : null,
+        api: String(trace.finalApi || contract?.execution?.api || ''),
+        reviewed: !!trace.reviewed,
+        fallbackAi: !!trace.fallbackAi,
+        reviewErrorCode: trace.reviewError ? String(trace.reviewError).slice(0, 120) : '',
+      };
+    }
+
     function setIntentTrace(trace = {}) {
-      const safe = { ...trace, timestamp: new Date().toISOString() };
+      const safe = summarizeIntentTrace(trace);
       try { root.__CHATUI_LAST_INTENT_TRACE__ = safe; } catch {}
       try { root.window && (root.window.__CHATUI_LAST_INTENT_TRACE__ = safe); } catch {}
-      try { root.localStorage?.setItem?.('chatui:lastIntentTrace', JSON.stringify(compactTraceValue(safe, 50000))); } catch {}
+      try { root.localStorage?.removeItem?.('chatui:lastIntentTrace'); } catch {}
       return safe;
     }
 
@@ -37,7 +52,6 @@
       if (!route) return false;
       if (routeSvc?.needsIntentReview?.(route, context)) return true;
       const hasToolContext = !!(context?.last_generated_image || context?.latest_assistant_image_result || context?.latest_image_reference || (Array.isArray(context?.image_candidates) && context.image_candidates.length) || (Array.isArray(context?.file_candidates) && context.file_candidates.length));
-      if (route.confidence > 0 && route.confidence < 0.62) return true;
       if (route.mode === 'chat' && hasToolContext && !attachments.length) return true;
       return false;
     }
@@ -48,13 +62,21 @@
       }
     }
 
+    function compactFallbackPrompt(input, context, max = 4000) {
+      try {
+        const obj = { input, context_prompt: String(context?.suggested_contextual_image_prompt || '').slice(0, 500), recent_messages: (context?.recent_messages || []).slice(-2).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) })), has_image: !!(context?.last_generated_image || context?.latest_uploaded_image || context?.latest_image_reference), has_file: !!(context?.file_candidates?.length), image_candidates: (context?.image_candidates || []).slice(0, 3).map(c => ({ index: c.index, source: c.source })), file_candidates: (context?.file_candidates || []).slice(0, 3).map(c => ({ index: c.index, name: c.name })) };
+        const json = JSON.stringify(obj);
+        return json.length <= max ? json : JSON.stringify({ ...obj, recent_messages: [], context_prompt: '' });
+      } catch { return JSON.stringify({ input }); }
+    }
+
     async function getEffectiveRoute(e,t=state.attachments,s=state.activeSessionId,h=null,routeContextOverride=null,routeOptions=null) {
       with (deps) {
-        const n=getConfig(),r=h||buildRequestHeaders("message",s),a=n.routeModel||n.chatModel,routeSvc=window.ChatUIServices?.route||window.ChatUIRouteService,attachmentMeta=buildRouteAttachmentMetadata(t),context=routeContextOverride||buildRouteContext(8,s);if(n.baseUrl&&a)try{const firstPayload=routeSvc?.buildRoutePayload?routeSvc.buildRoutePayload({model:a,input:e,attachments:attachmentMeta,context,currentMode:state.mode,autoMode:state.autoMode}):{model:a,temperature:0,messages:[]},controller=typeof AbortController!=="undefined"?new AbortController:null;let timedOut=!1,slowNotified=!1;const trace={input:e,context:compactTraceValue(context),attachments:attachmentMeta,firstPayload:compactTraceValue(firstPayload)};const slowTimer=setTimeout(()=>{slowNotified=!0;try{routeOptions?.onSlow?.()}catch(e){console.warn("route slow callback failed:",e)}},10000),timeout=setTimeout(()=>{timedOut=!0;controller?.abort?.()},60000);let firstResponse;try{firstResponse=await requestRouteDecision(firstPayload,n,r,controller?.signal)}catch(err){if(timedOut||"AbortError"===err?.name){const timeoutError=new Error("ROUTE_INTENT_TIMEOUT");timeoutError.code="ROUTE_INTENT_TIMEOUT";timeoutError.routeTimedOut=!0;timeoutError.timeoutMs=60000;timeoutError.slowNotified=slowNotified;throw timeoutError}throw err}finally{clearTimeout(slowTimer),clearTimeout(timeout)}trace.firstRaw=extractRouteText(routeSvc,firstResponse);let route=parseRouteResult(trace.firstRaw,{input:e,attachments:attachmentMeta,context});trace.firstRoute=route;let reviewed=false;if(route&&shouldReviewRoute(routeSvc,route,context,attachmentMeta)&&routeSvc?.buildIntentReviewPayload){try{const reviewPayload=routeSvc.buildIntentReviewPayload({model:a,input:e,attachments:attachmentMeta,context,firstRoute:route});trace.reviewPayload=compactTraceValue(reviewPayload);const reviewResponse=await requestRouteDecision(reviewPayload,n,r,controller?.signal);trace.reviewRaw=extractRouteText(routeSvc,reviewResponse);const reviewRoute=parseRouteResult(trace.reviewRaw,{input:e,attachments:attachmentMeta,context});trace.reviewRoute=reviewRoute;if(reviewRoute&&reviewRoute.confidence>=Math.max(route.confidence||0,.62)&&!(reviewRoute.mode==='chat'&&route.mode!=='chat')){route=reviewRoute;reviewed=true}}catch(err){trace.reviewError=String(err?.message||err);console.warn("intent review failed, keep primary route:",err)}}if(route){const prompt=String(context?.suggested_contextual_image_prompt||"").trim();const finalRoute="image"===route.mode&&prompt&&!route.contextualImagePrompt?{...route,contextualImagePrompt:prompt}:route;trace.reviewed=reviewed;trace.finalRoute=finalRoute;trace.finalTaskContract=finalRoute.taskContract||null;trace.finalApi=finalRoute.taskContract?.execution?.api||("image"===finalRoute.mode?"image_generation":"edit_image"===finalRoute.mode?"image_edit":"chat");trace.finalPrompt=finalRoute.contextualImagePrompt||finalRoute.editInstruction||e;setIntentTrace(trace);return finalRoute}}catch(e){if(e?.routeTimedOut||"ROUTE_INTENT_TIMEOUT"===e?.code)throw e;console.warn("model route failed, fallback to chat:",e)}const fallback=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0,evidence:"意图识别模型不可用，默认走聊天模型"},"chat");setIntentTrace({input:e,context:compactTraceValue(context),attachments:attachmentMeta,finalRoute:fallback,finalApi:"chat",fallback:true});return fallback
+        const n=getConfig(),r=h||buildRequestHeaders("message",s),a=n.routeModel||n.chatModel,routeSvc=window.ChatUIServices?.route||window.ChatUIRouteService,attachmentMeta=buildRouteAttachmentMetadata(t),context=routeContextOverride||buildRouteContext(8,s);if(n.baseUrl&&a)try{const firstPayload=routeSvc?.buildRoutePayload?routeSvc.buildRoutePayload({model:a,input:e,attachments:attachmentMeta,context,currentMode:state.mode,autoMode:state.autoMode}):{model:a,temperature:0,messages:[]},controller=typeof AbortController!=="undefined"?new AbortController:null;let timedOut=!1,slowNotified=!1;const trace={input:e,context:compactTraceValue(context),attachments:attachmentMeta,firstPayload:compactTraceValue(firstPayload)};const slowTimer=setTimeout(()=>{slowNotified=!0;try{routeOptions?.onSlow?.("正在执行：路由模型意图识别")}catch(e){console.warn("route slow callback failed:",e)}},10000),timeout=setTimeout(()=>{timedOut=!0;controller?.abort?.()},60000);let firstResponse;try{firstResponse=await requestRouteDecision(firstPayload,n,r,controller?.signal)}catch(err){if(timedOut||"AbortError"===err?.name){const timeoutError=new Error("ROUTE_INTENT_TIMEOUT");timeoutError.code="ROUTE_INTENT_TIMEOUT";timeoutError.routeTimedOut=!0;timeoutError.timeoutMs=60000;timeoutError.slowNotified=slowNotified;throw timeoutError}throw err}finally{clearTimeout(slowTimer),clearTimeout(timeout)}trace.firstRaw=extractRouteText(routeSvc,firstResponse);let route=parseRouteResult(trace.firstRaw,{input:e,attachments:attachmentMeta,context});trace.firstRoute=route;let reviewed=false;if(route&&shouldReviewRoute(routeSvc,route,context,attachmentMeta)&&routeSvc?.buildIntentReviewPayload){try{try{routeOptions?.onStage?.("正在执行：AI 复审路由判断")}catch(e){console.warn("route stage callback failed:",e)}const reviewPayload=routeSvc.buildIntentReviewPayload({model:a,input:e,attachments:attachmentMeta,context,firstRoute:route});trace.reviewPayload=compactTraceValue(reviewPayload);const reviewController=typeof AbortController!=="undefined"?new AbortController:null;let reviewTimedOut=!1;const reviewTimeout=setTimeout(()=>{reviewTimedOut=!0;reviewController?.abort?.()},60000);let reviewResponse;try{reviewResponse=await requestRouteDecision(reviewPayload,n,r,reviewController?.signal)}catch(err){if(reviewTimedOut||"AbortError"===err?.name){const timeoutError=new Error("ROUTE_REVIEW_TIMEOUT");timeoutError.code="ROUTE_REVIEW_TIMEOUT";throw timeoutError}throw err}finally{clearTimeout(reviewTimeout)}trace.reviewRaw=extractRouteText(routeSvc,reviewResponse);const reviewRoute=parseRouteResult(trace.reviewRaw,{input:e,attachments:attachmentMeta,context});trace.reviewRoute=reviewRoute;if(reviewRoute&&reviewRoute.confidence>=Math.max(route.confidence||0,.62)){route=reviewRoute;reviewed=true}}catch(err){trace.reviewError=String(err?.message||err);console.warn("intent review failed, keep primary route:",err)}}if(route){const prompt=String(context?.suggested_contextual_image_prompt||"").trim();const finalRoute="image"===route.mode&&prompt&&!route.contextualImagePrompt?{...route,contextualImagePrompt:prompt}:route;trace.reviewed=reviewed;trace.finalRoute=finalRoute;trace.finalTaskContract=finalRoute.taskContract||null;trace.finalApi=finalRoute.taskContract?.execution?.api||("image"===finalRoute.mode?"image_generation":"edit_image"===finalRoute.mode?"image_edit":"chat");trace.finalPrompt=finalRoute.contextualImagePrompt||finalRoute.editInstruction||e;setIntentTrace(trace);return finalRoute}}catch(e){console.warn(e?.routeTimedOut?"route model timed out, trying chat model fallback":"route model failed, trying chat model fallback",e);try{routeOptions?.onStage?.("正在执行：chat 模型备用路由判断")}catch(stageErr){console.warn("route stage callback failed:",stageErr)}const fallbackChatModel=n.chatModel;if(n.baseUrl&&fallbackChatModel&&fallbackChatModel!==a){try{const fallbackPayload=routeSvc?.buildRoutePayload?routeSvc.buildRoutePayload({model:fallbackChatModel,input:e,attachments:attachmentMeta,context,currentMode:state.mode,autoMode:state.autoMode,systemPrompt:"You are a compact route classifier. Return JSON only: one of {route:chat|image_generate|image_edit|vision}. No other text."}):{model:fallbackChatModel,temperature:0,messages:[{role:"system",content:"Return JSON route only: {\"route\":\"chat|image_generate|image_edit|vision\",\"instruction\":\"\",\"confidence\":0}"},{role:"user",content:compactFallbackPrompt(e,context)}]};const fallbackController=typeof AbortController!=="undefined"?new AbortController:null;const fallbackTimeout=setTimeout(()=>{fallbackController?.abort?.()},30000);let fallbackResponse;try{fallbackResponse=await requestRouteDecision(fallbackPayload,n,r,fallbackController?.signal)}finally{clearTimeout(fallbackTimeout)}const fallbackRaw=extractRouteText(routeSvc,fallbackResponse),fallbackRoute=parseRouteResult(fallbackRaw,{input:e,attachments:attachmentMeta,context});if(fallbackRoute){setIntentTrace({input:e,context:compactTraceValue(context),attachments:attachmentMeta,finalRoute:fallbackRoute,finalApi:"image"===fallbackRoute.mode?"image_generation":"edit_image"===fallbackRoute.mode?"image_edit":"chat",fallbackAi:!0});return fallbackRoute}}catch(fallbackErr){console.warn("chat model fallback route also failed:",fallbackErr)}}const routeError=new Error("意图识别失败：路由模型和备用模型均不可用，请检查模型配置或稍后重试");routeError.code="ROUTE_COMPLETE_FAILURE";throw routeError}
       }
     }
 
-    return Object.freeze({ buildRouteContext, getEffectiveRoute, setIntentTrace });
+    return Object.freeze({ buildRouteContext, getEffectiveRoute, setIntentTrace, summarizeIntentTrace });
   }
 
   const api = Object.freeze({ createRouteDecisionWorkflow });

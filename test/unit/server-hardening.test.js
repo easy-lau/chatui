@@ -4,7 +4,9 @@ const { JobStore } = require('../../server/jobs/store');
 const jobEvents = require('../../server/jobs/events');
 const jobUrl = require('../../server/jobs/job-url');
 const { readBody } = require('../../server/http/body');
+const staticHttp = require('../../server/http/static');
 const urlPolicy = require('../../server/security/url-policy');
+const { fetchWithValidatedRedirects } = require('../../server/jobs/common');
 const extractApi = require('../../server/extract');
 const { ConcurrencyLimiter } = require('../../server/concurrency');
 const safeLog = require('../../server/logging/safe-log');
@@ -131,10 +133,21 @@ function testJobEventsSubscribeAndAbortContracts() {
   assert.deepStrictEqual(parseSseJson(ftRes.body), { d: 'a', ft: 0 });
 }
 
-function testServerHardeningHelpers() {
+async function testServerHardeningHelpers() {
+  assert.strictEqual(staticHttp.isPublicStaticPath('/'), true);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/app.js'), true);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/client/app/browser.js'), true);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/package.json'), false);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/server/config/index.js'), false);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/.git/config'), false);
+  assert.strictEqual(staticHttp.isPublicStaticPath('/Dockerfile'), false);
   assert.strictEqual(urlPolicy.isPrivateHostname('localhost'), true);
+  assert.strictEqual(urlPolicy.isPrivateHostname('::ffff:127.0.0.1'), true);
   assert.strictEqual(urlPolicy.normalizeBaseUrl('http://127.0.0.1:8765'), '');
+  assert.strictEqual(urlPolicy.normalizeBaseUrl('http://127.0.0.1:18765', { allowPrivate: true }), 'http://127.0.0.1:18765');
   assert.strictEqual(urlPolicy.assertAllowedUpstreamUrl('https://api.example.com/v1'), true);
+  assert.strictEqual(await urlPolicy.assertPublicHostname('public.example', { lookup: async () => [{ address: '93.184.216.34', family: 4 }] }), true);
+  assert.strictEqual(await urlPolicy.assertPublicHostname('rebind.example', { lookup: async () => [{ address: '127.0.0.1', family: 4 }] }), false);
   assert.ok(safeLog.redactString('Authorization: Bearer sk-secret1234567890').includes('[redacted]'));
   assert.ok(!safeLog.redactString('data:image/png;base64,' + 'A'.repeat(5000)).includes('data:image'));
 
@@ -158,16 +171,54 @@ function testServerHardeningHelpers() {
     .finally(() => limiter.release());
 }
 
-async function testReadBodyReturns413WithoutDestroyingConnection() {
+async function testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests() {
   const listeners = {};
   const req = {
+    headers: {},
     setEncoding() {},
-    pause() { this.paused = true; },
     on(name, fn) { listeners[name] = fn; return this; },
   };
-  const promise = readBody(req);
-  listeners.data('x'.repeat(51 * 1024 * 1024));
+  const promise = readBody(req, { maxBytes: 8 });
+  listeners.data('12345');
+  listeners.data('67890');
   await assert.rejects(promise, err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
+  assert.doesNotThrow(() => listeners.data('remaining bytes are drained'));
+  assert.doesNotThrow(() => listeners.end());
+
+  let resumed = false;
+  const declaredTooLarge = {
+    headers: { 'content-length': '9' },
+    resume() { resumed = true; },
+    setEncoding() {},
+    on() { return this; },
+  };
+  await assert.rejects(readBody(declaredTooLarge, { maxBytes: 8 }), err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
+  assert.strictEqual(resumed, true, 'known oversize bodies should be drained immediately');
+}
+
+async function testConnectionLookupRejectsMixedOrReboundPrivateAddresses() {
+  const invokeLookup = (addresses, options = {}) => new Promise((resolve, reject) => {
+    const lookup = urlPolicy.createPublicLookup({
+      lookup(hostname, lookupOptions, callback) { callback(null, addresses); },
+    });
+    lookup('rebind.example', options, (err, address, family) => err ? reject(err) : resolve({ address, family }));
+  });
+
+  await assert.rejects(
+    invokeLookup([{ address: '93.184.216.34', family: 4 }, { address: '127.0.0.1', family: 4 }]),
+    err => err.code === 'INVALID_UPSTREAM_ADDRESS'
+  );
+  assert.deepStrictEqual(await invokeLookup([{ address: '93.184.216.34', family: 4 }]), { address: '93.184.216.34', family: 4 });
+
+  let dispatcherAttached = false;
+  const response = await fetchWithValidatedRedirects('https://93.184.216.34/v1', {}, {
+    fetchImpl: async (url, options) => {
+      dispatcherAttached = !!options.dispatcher;
+      return { status: 200, headers: { get: () => null } };
+    },
+  });
+  assert.strictEqual(response.status, 200);
+  assert.strictEqual(dispatcherAttached, true, 'public upstream fetches should use the guarded socket dispatcher');
 }
 
 function testSendErrorKeepsLegacyContract() {
@@ -209,7 +260,8 @@ module.exports = [
   testJobEventsPreserveCompactPublicContract,
   testJobEventsSubscribeAndAbortContracts,
   testServerHardeningHelpers,
-  testReadBodyReturns413WithoutDestroyingConnection,
+  testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests,
+  testConnectionLookupRejectsMixedOrReboundPrivateAddresses,
   testSendErrorKeepsLegacyContract,
   testAppErrorHelpersAreSendErrorCompatible,
 ];

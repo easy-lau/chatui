@@ -35,11 +35,8 @@
       },
     });
 
-    function ensure(container) {
-      if (!renderer) {
-        renderer = makeRenderer();
-        if (container) container.innerHTML = '';
-      }
+    function ensure() {
+      if (!renderer) renderer = makeRenderer();
       return renderer;
     }
 
@@ -49,16 +46,24 @@
       const deltaLength = Math.max(0, next.length - raw.length);
       const force = !!meta.force || now - lastRenderAt >= minIntervalMs || next.endsWith('\n') || deltaLength > 3000;
       raw = next;
-      const active = ensure(container);
+      const active = ensure();
       if (!active) return { raw, skipped: true, missingRenderer: true };
-      if (!force && !meta.final) return active.preview?.(next, container) || { raw, skipped: true };
+      const initializeWithoutBlanking = callback => {
+        if (!container || renderer.__chatuiMounted) return callback(container);
+        const staging = container.cloneNode?.(false) || container.ownerDocument?.createElement?.('div');
+        const result = callback(staging || container);
+        if (staging && staging !== container) container.replaceChildren(...staging.childNodes);
+        renderer.__chatuiMounted = true;
+        return result;
+      };
+      if (!force && !meta.final) return initializeWithoutBlanking(target => active.preview?.(next, target) || { raw, skipped: true });
       lastRenderAt = now;
-      return active.set(next, container);
+      return initializeWithoutBlanking(target => active.set(next, target));
     }
 
     function final(container, value = raw) {
       raw = String(value || '');
-      const active = ensure(container);
+      const active = ensure();
       if (!active) return { raw, mode: 'missing-renderer', enhanced: false };
       return active.final(container, raw);
     }

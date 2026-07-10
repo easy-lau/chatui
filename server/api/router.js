@@ -26,6 +26,8 @@ function createRouter(deps) {
     startChatJob,
     getChatJob,
     usageStats,
+    usageAccessValidator,
+    feedbackSender,
   } = deps;
 
   const { routeCoreApi } = createCoreRoutes({
@@ -57,6 +59,8 @@ function createRouter(deps) {
     sendJson,
     sendMethodNotAllowed,
     usageStats,
+    usageAccessValidator,
+    feedbackSender,
   });
 
   return async function route(req, res) {

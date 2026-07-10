@@ -169,17 +169,14 @@
       tailNode.setAttribute('data-markdown-streaming-tail', '1');
       tailNode.setAttribute('aria-live', 'polite');
       tailTextNode = doc.createTextNode('');
-      const caret = doc.createElement('span');
-      caret.className = 'markdown-stream-caret';
-      caret.setAttribute('aria-hidden', 'true');
-      tailNode.append(tailTextNode, caret);
+      tailNode.appendChild(tailTextNode);
       container.appendChild(tailNode);
       return tailNode;
     };
-    const syncTailNode = (container, text = '', options = {}) => {
+    const syncTailNode = (container, text = '') => {
       if (!container) return;
       const next = String(text || '');
-      if (!next && !options.keepCursor) return removeTailNode();
+      if (!next) return removeTailNode();
       const node = ensureTailNode(container);
       if (!node || !tailTextNode) return;
       const current = tailTextNode.nodeValue || '';
@@ -239,7 +236,7 @@
         const part = stable.slice(consumed);
         if (container) {
           if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
-          syncTailNode(container, tail, { keepCursor: raw.length > 0 });
+          syncTailNode(container, tail);
           tailText = tail;
         } else { if (part) consumed = stable.length; tailText = tail; }
         return { raw, consumed, tail: tailText, delta: part, closed };
@@ -251,7 +248,7 @@
         if (!next.startsWith(raw)) this.reset(container);
         raw = next;
         const tail = raw.slice(Math.min(consumed, raw.length));
-        if (container) syncTailNode(container, tail, { keepCursor: raw.length > 0 });
+        if (container) syncTailNode(container, tail);
         tailText = tail;
         return { raw, consumed, tail: tailText, closed, skipped: true, preview: true };
       },

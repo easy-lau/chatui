@@ -50,7 +50,7 @@ async function extractByKind(kind, filename, dataUrl, type) {
 
 async function extractFileText(req, res) {
   try {
-    const body = parseJson(await readBody(req));
+    const body = parseJson(await readBody(req, { maxBytes: 50 * 1024 * 1024 }));
     const filename = String(body.filename || 'attachment').trim();
     const type = String(body.type || '').trim();
     const dataUrl = String(body.dataUrl || '');
