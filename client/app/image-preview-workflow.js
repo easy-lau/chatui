@@ -2,7 +2,7 @@
   'use strict';
 
   function createImagePreviewWorkflow(deps = {}) {
-    const { getElement, getImageBlob, canWriteImageClipboard, imageClipboardUnsupportedMessage, URL } = deps;
+    const { getElement, getImageBlob, canWriteImageClipboard, imageClipboardUnsupportedMessage, URL, document } = deps;
     const MIN_PREVIEW_SCALE = 0.5;
     const MAX_PREVIEW_SCALE = 5;
     const PREVIEW_SCALE_STEP = 0.14;
@@ -22,9 +22,9 @@
 
     function bindPreviewWheel(){const preview=getElement("imagePreview");if(!preview||preview.dataset.wheelZoomBound==="1")return;preview.dataset.wheelZoomBound="1";preview.addEventListener("wheel",event=>{if(!preview.classList.contains("show"))return;event.preventDefault();event.stopPropagation();zoomImagePreview(event.deltaY)},{passive:!1});preview.addEventListener("dblclick",event=>{if(event.target?.closest?.("button"))return;event.preventDefault();resetPreviewZoom()})}
 
-    async function openImagePreview(e,t="image.png"){const s=await resolvePreviewSrc(e);if(s?.src){const n=getElement("imagePreviewImg"),a=n?.dataset.previewObjectUrl;a?.startsWith("blob:")&&a!==s.src&&URL.revokeObjectURL(a),n.dataset.previewObjectUrl=s.owned?s.src:"",n.dataset.persistedSrc=e||"",n.dataset.filename=t||"image.png",n.src=s.src;resetPreviewZoom();const i=getElement("imagePreviewDownload");i&&(i.dataset.persistedHref=e||s.src,i.dataset.filename=t||"image.png",i.hidden=!1);const o=getElement("imagePreviewCopy");o&&(o.dataset.persistedHref=e||s.src,o.dataset.filename=t||"image.png",o.hidden=!1,updateImagePreviewCopyAvailability());bindPreviewWheel();getElement("imagePreview").classList.add("show"),getElement("imagePreview").setAttribute("aria-hidden","false")}}
+    async function openImagePreview(e,t="image.png"){const s=await resolvePreviewSrc(e);if(s?.src){const n=getElement("imagePreviewImg"),a=n?.dataset.previewObjectUrl;a?.startsWith("blob:")&&a!==s.src&&URL.revokeObjectURL(a),n.dataset.previewObjectUrl=s.owned?s.src:"",n.dataset.persistedSrc=e||"",n.dataset.filename=t||"image.png",n.src=s.src;resetPreviewZoom();const i=getElement("imagePreviewDownload");i&&(i.dataset.persistedHref=e||s.src,i.dataset.filename=t||"image.png",i.hidden=!1);const o=getElement("imagePreviewCopy");o&&(o.dataset.persistedHref=e||s.src,o.dataset.filename=t||"image.png",o.hidden=!1,updateImagePreviewCopyAvailability());bindPreviewWheel();const r=getElement("imagePreview");r&&(r._returnFocus=document?.activeElement,r.classList.add("show"),r.setAttribute("aria-hidden","false"));getElement("imagePreviewClose")?.focus?.({preventScroll:!0})}}
 
-    function closeImagePreview(){const e=getElement("imagePreviewImg"),t=e?.dataset.previewObjectUrl;t?.startsWith("blob:")&&URL.revokeObjectURL(t),e&&(delete e.dataset.previewObjectUrl,delete e.dataset.persistedSrc,delete e.dataset.filename,delete e.dataset.previewScale,e.classList.remove("is-zoomed"),e.style.transform="",e.removeAttribute("aria-label")),previewScale=1,getElement("imagePreviewCopy")&&(getElement("imagePreviewCopy").hidden=!0),getElement("imagePreview").classList.remove("show"),getElement("imagePreview").setAttribute("aria-hidden","true"),e.src=""}
+    function closeImagePreview(){const r=getElement("imagePreview"),a=document?.activeElement,i=r?._returnFocus;if(a&&r?.contains?.(a)){i&&i.isConnected&&!i.disabled?i.focus?.({preventScroll:!0}):a.blur?.()}const e=getElement("imagePreviewImg"),t=e?.dataset.previewObjectUrl;t?.startsWith("blob:")&&URL.revokeObjectURL(t),e&&(delete e.dataset.previewObjectUrl,delete e.dataset.persistedSrc,delete e.dataset.filename,delete e.dataset.previewScale,e.classList.remove("is-zoomed"),e.style.transform="",e.removeAttribute("aria-label")),previewScale=1,getElement("imagePreviewCopy")&&(getElement("imagePreviewCopy").hidden=!0),r?.classList.remove("show"),r?.setAttribute("aria-hidden","true"),r&&delete r._returnFocus,e&&(e.src="")}
 
     return Object.freeze({ updateImagePreviewCopyAvailability, resolvePreviewSrc, openImagePreview, closeImagePreview, zoomImagePreview, resetPreviewZoom, applyPreviewScale });
   }

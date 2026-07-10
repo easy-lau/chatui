@@ -46,7 +46,7 @@
 
     function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)}
 
-    function closeConfigModal(){document.body.classList.remove("modal-open"),getElement("configModal").classList.remove("show"),getElement("configModal").setAttribute("aria-hidden","true")}
+    function closeConfigModal(){const e=getElement("configModal"),t=document?.activeElement;if(t&&e?.contains?.(t)){const e=getElement("sidebarConfigBtn")||getElement("railConfigBtn")||getElement("prompt");e&&!e.disabled?e.focus?.({preventScroll:!0}):t.blur?.()}document.body.classList.remove("modal-open"),e?.classList.remove("show"),e?.setAttribute("aria-hidden","true")}
 
     return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, copyConfigField, readPersistedApiKey, writePersistedApiKey, loadPublicContext, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
   }
