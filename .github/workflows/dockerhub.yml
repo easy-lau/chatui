@@ -1,4 +1,5 @@
 name: Build and push Docker image
+run-name: Build ChatUI ${{ github.ref_name || inputs.version }}
 
 on:
   push:
