@@ -160,7 +160,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
-              target_commitish: tag,
               name: `ChatUI ${tag}`,
               body: `## Docker release\n\nDocker images for \`${tag}\` were built and published successfully.`,
               draft: false,
