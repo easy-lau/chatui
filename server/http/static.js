@@ -31,7 +31,7 @@ const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
-const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
+const PUBLIC_ROOT_FILES = new Set(['/index.html', '/route.html', '/favicon.svg', '/styles.css', '/app.js']);
 const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/'];
 
 function isPublicStaticPath(urlPath) {
@@ -127,7 +127,7 @@ function encodeBody(body, encoding, cacheKey, mime) {
 
 function cacheControlFor(filePath, url, options = {}) {
   if (options.bundle || url.searchParams.has('v')) return IMMUTABLE_CACHE;
-  if (filePath.endsWith('index.html')) return NO_CACHE;
+  if (filePath.endsWith('.html')) return NO_CACHE;
   const ext = path.extname(filePath);
   if (['.html', '.js', '.css', '.json'].includes(ext)) return NO_CACHE;
   return SHORT_CACHE;

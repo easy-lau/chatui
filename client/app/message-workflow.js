@@ -406,7 +406,7 @@
 
         if (!rendered) {
           if (s.html) {
-            contentNode.innerHTML = stripTransientBlobUrlsFromHtml(t);
+            contentNode.innerHTML = s.preserveLiveMedia ? String(t || "") : stripTransientBlobUrlsFromHtml(t);
             e.dataset.renderedHash = rawHash;
             delete e.dataset.enhancedHash;
           } else if (chatuiShouldLazyRender(e.classList?.contains("user") ? "user" : "assistant", rawValue, { ...s, final: true }) && !chatuiIsNearViewport(e)) {
