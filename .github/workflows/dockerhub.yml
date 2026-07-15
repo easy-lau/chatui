@@ -138,3 +138,44 @@ jobs:
             ${{ steps.meta-acr.outputs.labels }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,scope=${{ env.IMAGE_NAME }},mode=max
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [validate, docker-publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update GitHub Release
+        uses: actions/github-script@v9
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.version }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const release = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              target_commitish: tag,
+              name: `ChatUI ${tag}`,
+              body: `## Docker release\n\nDocker images for \`${tag}\` were built and published successfully.`,
+              draft: false,
+              prerelease: false,
+            };
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              await github.rest.repos.updateRelease({ ...release, release_id: existing.data.id });
+              core.info(`Updated GitHub Release for ${tag}.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.repos.createRelease(release);
+              core.info(`Created GitHub Release for ${tag}.`);
+            }
