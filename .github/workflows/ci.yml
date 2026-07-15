@@ -1,10 +1,10 @@
 name: CI
 
+# Release tags run the same checks in dockerhub.yml before the single image build.
+# Keep this workflow for pull requests and explicit manual validation only.
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
