@@ -988,8 +988,7 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 │   └── fonts/                     # KaTeX 字体
 ├── Dockerfile                     # Docker 镜像定义
 ├── .dockerignore                  # Docker 构建忽略文件
-├── .github/workflows/ci.yml       # main / PR 自动检查
-├── .github/workflows/dockerhub.yml# Tag 后构建并推送 Docker Hub / 阿里云 ACR
+├── .github/workflows/dockerhub.yml # Tag 后构建并推送 Docker Hub / 阿里云 ACR
 ├── CONTRIBUTING.md                # 开发规范、目录边界和治理约束
 ├── package.json
 ├── package-lock.json
@@ -1067,7 +1066,7 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 
 ## 发布与镜像仓库
 
-项目通过推送 `vMAJOR.MINOR.PATCH` Git tag 触发 GitHub Actions 构建多架构 Docker 镜像，并推送到 Docker Hub 与阿里云 ACR。GitHub Release 仍是完整发布流程的一部分，但不是镜像 workflow 的触发源。
+项目不设日常 CI 检查流程。仅推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 时，GitHub Actions 才会校验版本、构建并推送多架构 Docker 镜像，然后发布对应的 GitHub Release。
 
 ### 固定镜像地址
 

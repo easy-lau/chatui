@@ -32,10 +32,9 @@ npm run verify:release -- v1.2.3
 4. Keep documentation, Docker static assets, and tests in sync when changing a public page or asset.
 5. Do not commit local configuration, logs, generated reports, or secret-bearing files.
 
-## CI and releases
+## Releases
 
-- `ci.yml` runs checks for pushes to `main` and pull requests.
-- A semantic version tag (`vMAJOR.MINOR.PATCH`) starts the Docker publishing workflow.
-- After image publishing succeeds, the release workflow creates or updates the matching published GitHub Release.
+- There is no push or pull-request CI workflow. Run `npm run check` locally before sharing changes.
+- Only a semantic release tag (`vMAJOR.MINOR.PATCH`) starts the Docker publishing workflow.
 - Add `docs/releases/vMAJOR.MINOR.PATCH.md` before tagging; the release job publishes this file as the GitHub Release body.
-- The release workflow runs `npm run verify:release -- <tag>` and `npm run check` against the tagged code.
+- The release workflow runs `npm run verify:release -- <tag>` and `npm run check` against the tagged code before it publishes images and creates or updates the matching GitHub Release.
