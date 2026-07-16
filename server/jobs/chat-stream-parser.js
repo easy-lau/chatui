@@ -20,7 +20,7 @@ function extractStreamDelta(data = {}) {
   const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
   return {
     content: normalizeContentText(delta.content || delta.text || delta.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || ''),
-    reasoning: normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || ''),
+    reasoning: normalizeReasoningText(delta.reasoning_content || delta.reasoning || data?.reasoning_content || data?.reasoning || data?.reasoning_delta || ''),
   };
 }
 

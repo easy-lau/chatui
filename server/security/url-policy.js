@@ -1,4 +1,3 @@
-const { assertRuntimeConfig } = require('../config/runtime-config');
 const net = require('net');
 const dnsModule = require('dns');
 const dns = dnsModule.promises;
@@ -101,7 +100,7 @@ async function assertResolvedUpstreamUrl(url, options = {}) {
 }
 
 function privateUpstreamAllowed() {
-  return assertRuntimeConfig().allowPrivateUpstream;
+  return process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM === '1' || process.env.ALLOW_PRIVATE_UPSTREAM === '1';
 }
 
 function assertAllowedUpstreamUrl(url, { allowPrivate = privateUpstreamAllowed() } = {}) {

@@ -25,7 +25,12 @@ function testChatStreamParserHelpersArePure() {
   assert.strictEqual(parser.dataTextFromSseEvent('event: update\ndata: {"a":1}\n\n'), '{"a":1}');
   assert.strictEqual(parser.dataTextFromSseEvent('data: a\ndata: b'), 'a\nb');
   assert.deepStrictEqual(parser.extractStreamDelta({ choices: [{ delta: { content: 'A', reasoning_content: 'B' } }] }), { content: 'A', reasoning: 'B' });
-  assert.deepStrictEqual(parser.extractStreamDelta({ output_text: 'A', thinking: 'B' }), { content: 'A', reasoning: 'B' });
+  assert.deepStrictEqual(parser.extractStreamDelta({ output_text: 'A', reasoning_content: 'B' }), { content: 'A', reasoning: 'B' });
+  assert.deepStrictEqual(
+    parser.extractStreamDelta({ output_text: 'A', thinking: 'legacy', thinking_content: 'legacy', reasoning_details: 'legacy' }),
+    { content: 'A', reasoning: '' },
+    'legacy provider-specific thinking fields must not be interpreted as OpenAI reasoning output'
+  );
 }
 
 function testChatStreamChunkParserBuffersPartialEvents() {
@@ -69,7 +74,7 @@ function testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents() {
   const chunk = [
     'event: ping\n\n',
     'data: {bad json}\n\n',
-    sse({ output_text: 'fallback content', thinking: 'fallback reasoning' }),
+    sse({ output_text: 'fallback content', reasoning_content: 'fallback reasoning' }),
   ].join('');
 
   assert.strictEqual(handlers.updateChatJobFromStreamChunk(job, chunk, { notify: false }), true);

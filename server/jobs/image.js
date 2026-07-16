@@ -2,8 +2,6 @@ const { sendJson } = require('../http/response');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
-const { assignJobOwner } = require('./ownership');
-const { reserveManagedJob, releaseManagedJob } = require('./admission');
 
 const {
   buildImageEditMultipartBody,
@@ -116,9 +114,9 @@ function markImageJobFailed(job = {}, err) {
   return job;
 }
 
-async function runImageJob(job, { notifyJob, upstreamTimeoutMs, fetchUpstream = createUpstreamFetch } = {}) {
+async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
   const { headers, body } = buildImageUpstreamRequest(job);
-  const { response: upstreamResponse, controller, timer } = fetchUpstream(job.targetUrl, {
+  const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
     method: 'POST',
     headers,
     body,
@@ -141,38 +139,21 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, fetchUpstream = 
   }
 }
 
-function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, jobAdmission, upstreamLimiter = limiter, fetchUpstream = createUpstreamFetch }) {
-  function scheduleImageJob(job) {
-    withLimiter(upstreamLimiter, async () => {
-      try {
-        if (job.status === 'running') await runImageJob(job, { notifyJob, upstreamTimeoutMs, fetchUpstream });
-      } finally {
-        releaseManagedJob(job, jobAdmission);
-      }
-    }).catch(err => {
-      job.status = 'error';
-      job.error = err.message || String(err);
-      job.updatedAt = Date.now();
-      releaseManagedJob(job, jobAdmission);
-      notifyJob(job);
-    });
-  }
+function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
   async function startImageJob(req, res) {
     const extracted = await extractProxyRequest(req, res);
     if (!extracted) return;
     const { body, baseUrl, apiKey, extraHeaders } = extracted;
     try {
       const jobId = makeJobId(body.jobId);
-      if (imageJobs.has(jobId)) {
-        const existingJob = findJobOr404(imageJobs, jobId, res, req);
-        if (!existingJob) return;
-        return sendJson(res, 200, publicJob(existingJob), { 'Access-Control-Allow-Origin': '*' });
-      }
+      if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
       const job = createImageJobFromRequestBody(jobId, body, { baseUrl, apiKey, extraHeaders });
-      assignJobOwner(job, req);
-      reserveManagedJob(job, req, jobAdmission);
       imageJobs.set(job.id, job);
-      scheduleImageJob(job);
+      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs })).catch(err => {
+        job.status = 'error';
+        job.error = err.message || String(err);
+        job.updatedAt = Date.now();
+      });
       sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
       respondJobError(res, err);
@@ -181,7 +162,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, jobAd
 
   function getImageJob(req, res) {
     const id = getJobIdFromUrl(req);
-    const job = findJobOr404(imageJobs, id, res, req);
+    const job = findJobOr404(imageJobs, id, res);
     if (!job) return;
     sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   }

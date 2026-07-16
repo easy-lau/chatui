@@ -1,6 +1,4 @@
-const { assertRuntimeConfig } = require('../config/runtime-config');
-
-const DEFAULT_MAX_BODY_BYTES = assertRuntimeConfig().maxBodyBytes;
+const DEFAULT_MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
 const MAX_BODY_BYTES = DEFAULT_MAX_BODY_BYTES;
 
 function payloadTooLargeError() {
@@ -10,52 +8,13 @@ function payloadTooLargeError() {
   return err;
 }
 
-function requestAbortedError() {
-  const err = new Error('请求已中止');
-  err.statusCode = 400;
-  err.code = 'REQUEST_ABORTED';
-  return err;
-}
-
 function normalizeMaxBytes(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MAX_BODY_BYTES;
 }
 
-function effectiveMaxBytes(value) {
-  return Math.min(normalizeMaxBytes(value), DEFAULT_MAX_BODY_BYTES);
-}
-
-function declaredContentLength(req) {
-  const value = req?.headers?.['content-length'];
-  if (value === undefined || value === null || value === '') return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function drainRequest(req) {
-  // Do not retain an oversized payload in memory. Draining also preserves HTTP/1.1
-  // keep-alive behavior when the peer has already started sending the request.
-  req?.resume?.();
-}
-
-function assertContentLength(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
-  const limit = effectiveMaxBytes(maxBytes);
-  const length = declaredContentLength(req);
-  if (length !== null && length > limit) {
-    drainRequest(req);
-    throw payloadTooLargeError();
-  }
-  return limit;
-}
-
 function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
-  let limit;
-  try {
-    limit = assertContentLength(req, { maxBytes });
-  } catch (err) {
-    return Promise.reject(err);
-  }
+  const limit = normalizeMaxBytes(maxBytes);
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
@@ -67,12 +26,19 @@ function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
       reject(err);
     };
 
+    const declaredLength = Number(req.headers?.['content-length']);
+    if (Number.isFinite(declaredLength) && declaredLength > limit) {
+      req.resume?.();
+      fail(payloadTooLargeError());
+      return;
+    }
+
     req.setEncoding('utf8');
     req.on('data', chunk => {
       if (settled) return;
       size += Buffer.byteLength(chunk);
       if (size > limit) {
-        drainRequest(req);
+        // Keep the stream flowing so a keep-alive connection is not left with unread bytes.
         fail(payloadTooLargeError());
         return;
       }
@@ -83,7 +49,12 @@ function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
       settled = true;
       resolve(body);
     });
-    req.on('aborted', () => fail(requestAbortedError()));
+    req.on('aborted', () => {
+      const err = new Error('请求已中止');
+      err.statusCode = 400;
+      err.code = 'REQUEST_ABORTED';
+      fail(err);
+    });
     req.on('error', err => fail(err));
   });
 }
@@ -100,15 +71,4 @@ function parseJson(text) {
   }
 }
 
-module.exports = {
-  readBody,
-  parseJson,
-  MAX_BODY_BYTES,
-  DEFAULT_MAX_BODY_BYTES,
-  normalizeMaxBytes,
-  effectiveMaxBytes,
-  declaredContentLength,
-  drainRequest,
-  assertContentLength,
-  payloadTooLargeError,
-};
+module.exports = { readBody, parseJson, MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES, payloadTooLargeError };

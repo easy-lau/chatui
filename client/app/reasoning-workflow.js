@@ -2,6 +2,14 @@
   // Intentionally not strict: reasoning bodies are migrated from app.js and resolved through a deps scope.
   const window = root?.window || root || {};
 
+  const REASONING_TYPES = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+  const REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+
+  function normalizeReasoningType(value = 'none') {
+    const type = String(value || '').trim().toLowerCase();
+    return REASONING_TYPES.includes(type) ? type : 'none';
+  }
+
   function createReasoningWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
@@ -93,21 +101,21 @@
       }
     }
 
-    function reasoningModelProfile(e="",t="auto") {
-      with (deps) {
-        const s=normalizeReasoningProvider(t);if("auto"!==s)return{provider:s,reasoningKey:"openai"===s?"reasoning_effort":"anthropic"===s?"thinking":"google"===s?"thinkingConfig":"qwen"===s||"kimi"===s?"thinking_budget":"glm"===s?"thinking":"deepseek"===s?"none":"generic",reasoningFields:["reasoning_content","reasoning","thinking","reasoning_details","thinking_content","delta","reasoning_delta","thinking_delta"]};const n=String(e||"").toLowerCase();let a="openai";return/gemini|google|learnlm/.test(n)?a="google":/claude|anthropic/.test(n)&&(a="anthropic"),{provider:a,reasoningKey:"google"===a?"thinkingConfig":"anthropic"===a?"thinking":"reasoning_effort",reasoningFields:["reasoning_content","reasoning","thinking","reasoning_details","thinking_content","delta","reasoning_delta","thinking_delta"]}
-      }
+    function isGpt5ReasoningModel(model = '') {
+      return /^gpt-5(?:$|[-_.])/i.test(String(model || '').trim());
     }
 
-    function reasoningPayloadOptions(e={}) {
+    function reasoningPayloadOptions(options = {}) {
       with (deps) {
-        if(!1===e.reasoning)return{};const t=e.reasoningEffort||state.reasoningType;if(!state.reasoningMode&&!e.reasoningEffort)return{};if(!["low","medium","high","xhigh"].includes(t))return{};const s=reasoningModelProfile(e.model||"",e.reasoningProvider||state.reasoningProvider||"auto"),n=t;return"anthropic"===s.provider?{thinking:{type:"enabled",budget_tokens:reasoningBudgetTokens(t)}}:["qwen","kimi"].includes(s.provider)?{enable_thinking:!0,thinking_budget:reasoningBudgetTokens(t)}:"glm"===s.provider?{thinking:{type:"enabled"}}:"deepseek"===s.provider?{}:"generic"===s.provider?{reasoning:{enabled:!0,effort:n}}:"google"===s.provider?{thinkingConfig:{thinkingBudget:reasoningBudgetTokens(t)}}:{reasoning_effort:n}
+        if (options.reasoning === false || !state.reasoningMode || !isGpt5ReasoningModel(options.model)) return {};
+        const effort = normalizeReasoningType(options.reasoningEffort || state.reasoningType);
+        return REASONING_EFFORTS.includes(effort) ? { reasoning_effort: effort } : {};
       }
     }
 
     function extractStreamDelta(e) {
       with (deps) {
-        if(window.ChatUICore?.reasoning?.extractStreamDelta)return window.ChatUICore.reasoning.extractStreamDelta(e);const t=e?.choices?.[0],s=t?.delta||{},n=t?.message||{},a=normalizeReasoningText(s.reasoning_content||s.reasoning||s.thinking||s.reasoning_details||s.thinking_content||n.reasoning_content||n.reasoning||n.thinking||n.reasoning_details||n.thinking_content||e?.reasoning_content||e?.reasoning||e?.thinking||e?.reasoning_details||e?.thinking_content||"");let i=normalizeContentText(s.content||s.text||s.output_text||n.content||n.text||n.output_text||e?.output_text||("string"==typeof e?.delta?e.delta:"")||e?.content||e?.text||"");!i&&Array.isArray(e?.output)&&(i=e.output.filter(e=>!/reason/i.test(String(e?.type||e?.role||""))).map(e=>normalizeContentText(e?.content||e?.text||e?.output_text||"")).join(""));const o=!a&&Array.isArray(e?.output)?normalizeReasoningText(e.output.filter(e=>/reason/i.test(String(e?.type||e?.role||""))||e?.summary||e?.reasoning||e?.thinking)):"";return{content:i,reasoning:a||o}
+        if(window.ChatUICore?.reasoning?.extractStreamDelta)return window.ChatUICore.reasoning.extractStreamDelta(e);const t=e?.choices?.[0],s=t?.delta||{},n=t?.message||{},a=normalizeReasoningText(s.reasoning_content||s.reasoning||s.delta||n.reasoning_content||n.reasoning||n.delta||e?.reasoning_content||e?.reasoning||e?.reasoning_delta||"");let i=normalizeContentText(s.content||s.text||s.output_text||n.content||n.text||n.output_text||e?.output_text||("string"==typeof e?.delta?e.delta:"")||e?.content||e?.text||"");!i&&Array.isArray(e?.output)&&(i=e.output.filter(e=>!/reason/i.test(String(e?.type||e?.role||""))).map(e=>normalizeContentText(e?.content||e?.text||e?.output_text||"")).join(""));const o=!a&&Array.isArray(e?.output)?normalizeReasoningText(e.output.filter(e=>/reason/i.test(String(e?.type||e?.role||""))||e?.summary||e?.summary_text||e?.reasoning)):"";return{content:i,reasoning:a||o}
       }
     }
 
@@ -125,7 +133,7 @@
 
     function normalizeReasoningText(e) {
       with (deps) {
-        return window.ChatUICore?.reasoning?.normalizeReasoningText?window.ChatUICore.reasoning.normalizeReasoningText(e):e?"string"==typeof e?e:Array.isArray(e)?e.map(e=>normalizeReasoningText(e?.text||e?.content||e?.summary||e?.reasoning||e?.thinking||e)).filter(Boolean).join("\n"):"object"==typeof e?normalizeReasoningText(e.text||e.content||e.summary||e.reasoning||e.thinking||e.reasoning_content||e.thinking_content||e.reasoning_details||e.output_text||""):String(e||""):""
+        return window.ChatUICore?.reasoning?.normalizeReasoningText?window.ChatUICore.reasoning.normalizeReasoningText(e):e?"string"==typeof e?e:Array.isArray(e)?e.map(e=>normalizeReasoningText(e?.text||e?.content||e?.summary||e?.summary_text||e?.reasoning||e?.reasoning_content||e?.output_text||e?.delta||e)).filter(Boolean).join("\n"):"object"==typeof e?normalizeReasoningText(e.text||e.content||e.summary||e.summary_text||e.reasoning||e.reasoning_content||e.output_text||e.delta||""):String(e||""):""
       }
     }
 
@@ -135,15 +143,50 @@
       }
     }
 
+    function selectedReasoningEffortText(value = "none") {
+      const effort = normalizeReasoningType(value);
+      return REASONING_EFFORTS.includes(effort) ? effort : "low";
+    }
+
     function updateReasoningControls() {
       with (deps) {
-        const e=$("reasoningToggle"),t=$("reasoningMenuBtn"),s=isReasoningControlLocked(),n=!!state.reasoningMode;e&&(e.classList.toggle("active",n),e.classList.toggle("locked",s),e.disabled=s,e.setAttribute("aria-disabled",String(s)),e.setAttribute("aria-pressed",String(n)),e.title=s?"输出过程中不能切换思考模式":n?"关闭思考模式":"开启思考模式",e.setAttribute("aria-label",e.title)),t&&(t.classList.toggle("show",n),t.classList.toggle("disabled",!n||s),t.disabled=!n||s,t.setAttribute("aria-disabled",String(!n||s)),t.title=s?"输出过程中不能修改思考设置":n?"思考设置":"请先开启思考模式"),(!n||s)&&closeReasoningMenu(),$("reasoningTypeLabel")&&($("reasoningTypeLabel").textContent=reasoningTypeText()),$("reasoningProviderLabel")&&($("reasoningProviderLabel").textContent=reasoningProviderText()),document.querySelectorAll("[data-reasoning-type]")?.forEach(e=>{const t=e.dataset.reasoningType===state.reasoningType;e.classList.toggle("selected",t),e.disabled=!n||s,e.classList.toggle("disabled",!n||s),e.setAttribute("aria-disabled",String(!n||s)),e.setAttribute("aria-checked",String(t))}),document.querySelectorAll("[data-reasoning-provider]")?.forEach(e=>{const t=e.dataset.reasoningProvider===state.reasoningProvider;e.classList.toggle("selected",t),e.disabled=!n||s,e.classList.toggle("disabled",!n||s),e.setAttribute("aria-disabled",String(!n||s)),e.setAttribute("aria-checked",String(t))})
+        const toggle = $("reasoningToggle");
+        const menuButton = $("reasoningMenuBtn");
+        const locked = isReasoningControlLocked();
+        const enabled = !!state.reasoningMode;
+        if (toggle) {
+          toggle.classList.toggle("active", enabled);
+          toggle.classList.toggle("locked", locked);
+          toggle.disabled = locked;
+          toggle.setAttribute("aria-disabled", String(locked));
+          toggle.setAttribute("aria-pressed", String(enabled));
+          toggle.title = locked ? "Reasoning settings cannot be changed while output is streaming" : enabled ? "Disable reasoning" : "Enable reasoning";
+          toggle.setAttribute("aria-label", toggle.title);
+        }
+        if (menuButton) {
+          menuButton.classList.toggle("show", enabled);
+          menuButton.classList.toggle("disabled", !enabled || locked);
+          menuButton.disabled = !enabled || locked;
+          menuButton.setAttribute("aria-disabled", String(!enabled || locked));
+          menuButton.title = locked ? "\u8f93\u51fa\u8fc7\u7a0b\u4e2d\u4e0d\u80fd\u4fee\u6539\u601d\u8003\u8bbe\u7f6e" : "\u601d\u8003\u5f3a\u5ea6";
+        }
+        if (!enabled || locked) closeReasoningMenu();
+        const typeLabel = $("reasoningTypeLabel");
+        if (typeLabel) typeLabel.textContent = selectedReasoningEffortText(state.reasoningType);
+        document.querySelectorAll("[data-reasoning-type]")?.forEach(item => {
+          const selected = item.dataset.reasoningType === state.reasoningType;
+          item.classList.toggle("selected", selected);
+          item.disabled = !enabled || locked;
+          item.classList.toggle("disabled", !enabled || locked);
+          item.setAttribute("aria-disabled", String(!enabled || locked));
+          item.setAttribute("aria-checked", String(selected));
+        });
       }
     }
 
     function isReasoningControlLocked() {
       with (deps) {
-        return isSessionBusy(state.activeSessionId)
+        return isSessionBusy(state.activeSessionId);
       }
     }
 
@@ -151,77 +194,101 @@
       with (deps) {
         const session = typeof getActiveSession === "function" ? getActiveSession() : null;
         const hasSessionMode = session && session.reasoningMode !== undefined && session.reasoningMode !== null;
-        const hasSessionType = session && ["low","medium","high","xhigh"].includes(session.reasoningType);
-        const hasSessionProvider = session && String(session.reasoningProvider || "").trim();
-        state.reasoningMode = hasSessionMode ? !!session.reasoningMode : "1" === localStorage.getItem(REASONING_MODE_KEY);
-        state.reasoningType = hasSessionType ? session.reasoningType : localStorage.getItem(REASONING_TYPE_KEY) || state.reasoningType || "medium";
-        state.reasoningProvider = normalizeReasoningProvider(hasSessionProvider ? session.reasoningProvider : localStorage.getItem(REASONING_PROVIDER_KEY) || state.reasoningProvider || "auto");
+        const savedType = session?.reasoningType ?? localStorage.getItem(REASONING_TYPE_KEY) ?? state.reasoningType;
+        const savedMode = hasSessionMode ? !!session.reasoningMode : localStorage.getItem(REASONING_MODE_KEY) === "1";
+        const normalizedType = normalizeReasoningType(savedType);
+        state.reasoningMode = savedMode && REASONING_EFFORTS.includes(normalizedType);
+        state.reasoningType = state.reasoningMode ? normalizedType : "none";
         state.reasoningPersist = "0" !== localStorage.getItem(REASONING_PERSIST_KEY);
         if (session) {
           session.reasoningMode = state.reasoningMode;
           session.reasoningType = state.reasoningType;
-          session.reasoningProvider = state.reasoningProvider;
           typeof saveSessionsMeta === "function" && saveSessionsMeta();
         }
-        updateReasoningControls()
+        updateReasoningControls();
       }
     }
 
     function saveActiveReasoningPreference() {
       with (deps) {
+        const normalizedType = normalizeReasoningType(state.reasoningType);
+        state.reasoningMode = !!state.reasoningMode && REASONING_EFFORTS.includes(normalizedType);
+        state.reasoningType = state.reasoningMode ? normalizedType : "none";
         const session = typeof getActiveSession === "function" ? getActiveSession() : null;
         if (session) {
-          session.reasoningMode = !!state.reasoningMode;
-          session.reasoningType = state.reasoningType || "medium";
-          session.reasoningProvider = normalizeReasoningProvider(state.reasoningProvider || "auto");
+          session.reasoningMode = state.reasoningMode;
+          session.reasoningType = state.reasoningType;
           typeof saveSessionsMeta === "function" && saveSessionsMeta();
         }
-        localStorage.setItem(REASONING_MODE_KEY,state.reasoningMode?"1":"0"),localStorage.setItem(REASONING_TYPE_KEY,state.reasoningType||"medium"),localStorage.setItem(REASONING_PROVIDER_KEY,state.reasoningProvider||"auto")
+        localStorage.setItem(REASONING_MODE_KEY, state.reasoningMode ? "1" : "0");
+        localStorage.setItem(REASONING_TYPE_KEY, state.reasoningType);
       }
     }
 
-    function setReasoningMode(e) {
+    function setReasoningMode(enabled) {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能切换思考模式");state.reasoningMode=!!e,saveActiveReasoningPreference(),state.reasoningMode||clearAllReasoningDisplays(),updateReasoningControls()
+        if (isReasoningControlLocked()) return toast("Reasoning settings cannot be changed while output is streaming");
+        state.reasoningMode = !!enabled;
+        state.reasoningType = state.reasoningMode && REASONING_EFFORTS.includes(normalizeReasoningType(state.reasoningType))
+          ? normalizeReasoningType(state.reasoningType)
+          : state.reasoningMode ? "low" : "none";
+        saveActiveReasoningPreference();
+        if (!state.reasoningMode) clearAllReasoningDisplays();
+        updateReasoningControls();
       }
     }
 
-    function setReasoningType(e="medium") {
+    function setReasoningType(value = "none") {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningType=["low","medium","high","xhigh"].includes(e)?e:"medium",saveActiveReasoningPreference(),updateReasoningControls()
-      }
-    }
-
-    function setReasoningProvider(e="auto") {
-      with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");state.reasoningProvider=normalizeReasoningProvider(e),saveActiveReasoningPreference(),updateReasoningControls()
+        if (isReasoningControlLocked()) return toast("Reasoning settings cannot be changed while output is streaming");
+        state.reasoningType = normalizeReasoningType(value);
+        state.reasoningMode = REASONING_EFFORTS.includes(state.reasoningType);
+        saveActiveReasoningPreference();
+        if (!state.reasoningMode) clearAllReasoningDisplays();
+        updateReasoningControls();
       }
     }
 
     function openReasoningMenu() {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能修改思考设置");if(!state.reasoningMode)return toast("请先开启思考模式");const e=$("reasoningMenu"),t=$("reasoningMenuBtn");e&&(e.classList.add("show"),e.setAttribute("aria-hidden","false"),t?.setAttribute("aria-expanded","true"))
+        if (isReasoningControlLocked()) return toast("Reasoning settings cannot be changed while output is streaming");
+        if (!state.reasoningMode) return;
+        const menu = $("reasoningMenu");
+        const menuButton = $("reasoningMenuBtn");
+        if (menu) {
+          menu.classList.add("show");
+          menu.setAttribute("aria-hidden", "false");
+          menuButton?.setAttribute("aria-expanded", "true");
+        }
       }
     }
 
     function closeReasoningMenu() {
       with (deps) {
-        const e=$("reasoningMenu"),t=$("reasoningMenuBtn");
-        if(e){
-          const active=document?.activeElement;
-          active&&e.contains?.(active)&&(t&&!t.disabled?t.focus?.({preventScroll:!0}):active.blur?.());
-          e.classList.remove("show"),e.setAttribute("aria-hidden","true"),t?.setAttribute("aria-expanded","false")
+        const menu = $("reasoningMenu");
+        const menuButton = $("reasoningMenuBtn");
+        if (menu) {
+          const active = document?.activeElement;
+          if (active && menu.contains?.(active)) {
+            if (menuButton && !menuButton.disabled) menuButton.focus?.({ preventScroll: true });
+            else active.blur?.();
+          }
+          menu.classList.remove("show");
+          menu.setAttribute("aria-hidden", "true");
+          menuButton?.setAttribute("aria-expanded", "false");
         }
       }
     }
 
     function toggleReasoningMenu() {
       with (deps) {
-        const e=$("reasoningMenu");e?.classList.contains("show")?closeReasoningMenu():openReasoningMenu()
+        const menu = $("reasoningMenu");
+        if (menu?.classList.contains("show")) closeReasoningMenu();
+        else openReasoningMenu();
       }
     }
 
-    return Object.freeze({ updateReasoning, finishReasoning, showReasoningUnavailable, clearAllReasoningDisplays, clearReasoning, forceRemoveReasoning, isEmptyReasoningPanel, reasoningModelProfile, reasoningPayloadOptions, extractStreamDelta, extractResponsesStreamDelta, normalizeContentText, normalizeReasoningText, renderReasoningMarkdown, updateReasoningControls, isReasoningControlLocked, loadReasoningPreference, setReasoningMode, setReasoningType, setReasoningProvider, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu });
+    return Object.freeze({ updateReasoning, finishReasoning, showReasoningUnavailable, clearAllReasoningDisplays, clearReasoning, forceRemoveReasoning, isEmptyReasoningPanel, isGpt5ReasoningModel, reasoningPayloadOptions, extractStreamDelta, extractResponsesStreamDelta, normalizeContentText, normalizeReasoningText, renderReasoningMarkdown, updateReasoningControls, isReasoningControlLocked, loadReasoningPreference, setReasoningMode, setReasoningType, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu });
   }
 
   const api = Object.freeze({ createReasoningWorkflow });

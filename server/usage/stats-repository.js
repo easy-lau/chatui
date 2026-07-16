@@ -1,4 +1,3 @@
-const { assertRuntimeConfig } = require('../config/runtime-config');
 const {
   RANGE_FILTERS,
   DEPARTMENT_RANGE_FILTERS,
@@ -57,7 +56,7 @@ function normalizeRangeBounds(row = {}) {
 }
 
 function createUsageStatsRepository(pool, options = {}) {
-  const rankingLimit = normalizeRankingLimit(options.rankingLimit || assertRuntimeConfig().usageRankingLimit);
+  const rankingLimit = normalizeRankingLimit(options.rankingLimit || process.env.USAGE_RANKING_LIMIT || process.env.USAGE_STATS_RANKING_LIMIT);
 
   async function getRanking(range) {
     const filter = RANGE_FILTERS[range];

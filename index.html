@@ -6,7 +6,7 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.86-managed-auth" />
+  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -161,31 +161,18 @@
                   </svg>
                 </button>
                 <div class="reasoning-popover-wrap">
-                  <button id="reasoningMenuBtn" class="reasoning-menu-btn" type="button" aria-expanded="false" aria-haspopup="menu" title="思考设置">
-                    <span id="reasoningTypeLabel">标准</span>
-                    <span class="reasoning-menu-sep">·</span>
-                    <span id="reasoningProviderLabel">自动</span>
+                  <button id="reasoningMenuBtn" class="reasoning-menu-btn" type="button" aria-expanded="false" aria-haspopup="menu" title="&#x601D;&#x8003;&#x5F3A;&#x5EA6;">
+                    <span id="reasoningTypeLabel">low</span>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
                   </button>
                   <div id="reasoningMenu" class="reasoning-menu" role="menu" aria-hidden="true">
                     <div class="reasoning-menu-section">
-                      <div class="reasoning-menu-title">思考强度</div>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-type="low" role="menuitemradio" aria-checked="false">快速</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-type="medium" role="menuitemradio" aria-checked="true">标准</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-type="high" role="menuitemradio" aria-checked="false">深度</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-type="xhigh" role="menuitemradio" aria-checked="false">最强</button>
-                    </div>
-                    <div class="reasoning-menu-divider"></div>
-                    <div class="reasoning-menu-section">
-                      <div class="reasoning-menu-title">兼容类型</div>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="auto" role="menuitemradio" aria-checked="true">自动</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="openai" role="menuitemradio" aria-checked="false">OpenAI</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="anthropic" role="menuitemradio" aria-checked="false">Claude</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="qwen" role="menuitemradio" aria-checked="false">Qwen</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="deepseek" role="menuitemradio" aria-checked="false">DeepSeek</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="kimi" role="menuitemradio" aria-checked="false">Kimi</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="glm" role="menuitemradio" aria-checked="false">GLM</button>
-                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="generic" role="menuitemradio" aria-checked="false">通用</button>
+                      <div class="reasoning-menu-title">&#x601D;&#x8003;&#x5F3A;&#x5EA6;</div>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="low" role="menuitemradio" aria-checked="false">low</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="medium" role="menuitemradio" aria-checked="false">medium</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="high" role="menuitemradio" aria-checked="false">high</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="xhigh" role="menuitemradio" aria-checked="false">xhigh</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="max" role="menuitemradio" aria-checked="false">max</button>
                     </div>
                   </div>
                 </div>
@@ -275,12 +262,6 @@
                 </button>
               </div>
             </label>
-            <label>
-              <span>Managed access token???????</span>
-              <div class="secret-field">
-                <input id="managedAccessToken" name="managedAccessToken" type="password" placeholder="???????????" autocomplete="off" />
-              </div>
-            </label>
           </form>
           <div class="connection-helper">
             <strong>连接说明</strong>
@@ -364,6 +345,26 @@
   </div>
 
 
+  <div id="webPreview" class="web-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="webPreviewTitle" aria-hidden="true">
+    <div class="web-preview-dialog-panel">
+      <header class="web-preview-dialog-header">
+        <div>
+          <strong id="webPreviewTitle">&#x7F51;&#x9875;&#x9884;&#x89C8;</strong>
+          <span>&#x5728;&#x72EC;&#x7ACB;&#x8FD0;&#x884C;&#x73AF;&#x5883;&#x4E2D;&#x6253;&#x5F00;&#xFF0C;&#x652F;&#x6301;&#x811A;&#x672C;&#x3001;&#x8868;&#x5355;&#x548C;&#x7F51;&#x7EDC;&#x8D44;&#x6E90;&#x3002;</span>
+        </div>
+        <div class="web-preview-dialog-actions">
+          <button id="webPreviewDownload" class="web-preview-download-btn" type="button" title="&#x4E0B;&#x8F7D;&#x7F51;&#x9875;" aria-label="&#x4E0B;&#x8F7D;&#x7F51;&#x9875;" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+          </button>
+          <button id="webPreviewClose" class="web-preview-close" type="button" title="&#x5173;&#x95ED;&#x7F51;&#x9875;&#x9884;&#x89C8;" aria-label="&#x5173;&#x95ED;&#x7F51;&#x9875;&#x9884;&#x89C8;">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+          </button>
+        </div>
+      </header>
+      <iframe id="webPreviewFrame" title="&#x7F51;&#x9875;&#x9884;&#x89C8;&#x5185;&#x5BB9;" frameborder="0" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock allow-presentation" referrerpolicy="no-referrer"></iframe>
+    </div>
+  </div>
+
   <div id="imagePreview" class="image-preview" aria-hidden="true">
     <div class="image-preview-mask"></div>
     <button id="imagePreviewDownload" class="image-preview-download image-preview-action" type="button" data-download-image="1" title="下载图片" aria-label="下载图片" hidden>
@@ -432,20 +433,20 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.86-managed-auth"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
   <link rel="stylesheet" href="./styles.css?v=1.3.2" />
-  <link rel="stylesheet" href="./styles/composer.css?v=1.3.1" />
-  <link rel="stylesheet" href="./styles/messages.css?v=1.3.12" />
+  <link rel="stylesheet" href="./styles/composer.css?v=1.3.2-gpt5-reasoning-menu" />
+  <link rel="stylesheet" href="./styles/messages.css?v=1.3.17-web-preview-iframe-borderless" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.7" />
   <link rel="stylesheet" href="./styles/flat-theme.css?v=2.1.71" />
   <script src="./client/app/markdown/source-normalizer.js?v=1.2.67"></script>
   <script src="./client/app/markdown/link-policy.js?v=1.2.65"></script>
   <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.65"></script>
-  <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.66"></script>
-  <script src="./client/app/markdown/browser-engine.js?v=1.2.66"></script>
+  <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.67-reasoning-cleanup"></script>
+  <script src="./client/app/markdown/browser-engine.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/app/markdown/enhancer.js?v=1.2.82"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
   <script src="./client/app/image-store.js?v=1.2.65"></script>
@@ -453,7 +454,7 @@
   <script src="./client/app/markdown/dependency-loader.js?v=1.2.84"></script>
   <script src="./client/app/markdown/browser.js?v=1.2.75"></script>
   <script src="./client/core/http.js?v=1.2.65"></script>
-  <script src="./client/core/reasoning.js?v=1.2.66"></script>
+  <script src="./client/core/reasoning.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.65"></script>
   <script src="./client/core/image-route-context.js?v=1.3.15"></script>
@@ -467,12 +468,12 @@
   <script src="./client/core/context-budget.js?v=1.3.6"></script>
   <script src="./client/core/storage.js?v=1.2.65"></script>
   <script src="./client/core/browser.js?v=1.2.65"></script>
-  <script src="./client/core/request-auth.js?v=1.0.0"></script>
+  <script src="./client/core/web-preview.js?v=1.0.1-interactive"></script>
   <script src="./client/config/storage-keys.js?v=1.0.0"></script>
   <script src="./client/config/feature-flags.js?v=1.0.0"></script>
   <script src="./client/domain/types.js?v=1.0.0"></script>
   <script src="./client/services/model-service.js?v=1.2.65"></script>
-  <script src="./client/services/job-service.js?v=1.2.66"></script>
+  <script src="./client/services/job-service.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/services/chat-service.js?v=1.2.65"></script>
   <script src="./client/services/prompt-composer-service.js?v=1.0.0"></script>
   <script src="./client/services/route-service.js?v=1.3.49"></script>
@@ -487,13 +488,13 @@
   <script src="./client/ui/usage-stats-auth.js?v=1.0.1"></script>
   <script src="./client/features/usage-stats/view-helpers.js?v=1.0.3"></script>
   <script src="./client/services/browser.js?v=1.2.65"></script>
-  <script src="./client/app/state.js?v=1.2.67"></script>
+  <script src="./client/app/state.js?v=1.2.69-reasoning-levels"></script>
   <script src="./client/app/app-context.js?v=1.0.0"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
   <script src="./client/app/session-config.js?v=1.2.65"></script>
-  <script src="./client/app/formatting.js?v=1.2.66"></script>
+  <script src="./client/app/formatting.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
-  <script src="./client/app/display-items.js?v=1.2.66"></script>
+  <script src="./client/app/display-items.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/app/persistence.js?v=1.2.65"></script>
   <script src="./client/app/runs.js?v=1.2.65"></script>
   <script src="./client/app/model-ui.js?v=1.2.65"></script>
@@ -502,7 +503,7 @@
   <script src="./client/app/session-persistence.js?v=1.4.0-no-truncate"></script>
   <script src="./client/app/message-records.js?v=2.0.0"></script>
   <script src="./client/app/session-store.js?v=2.0.1-delete-tombstone"></script>
-  <script src="./client/app/session-display.js?v=2.1.0-session-repository"></script>
+  <script src="./client/app/session-display.js?v=2.1.2-reasoning-levels"></script>
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>
@@ -512,7 +513,7 @@
   <script src="./client/features/messages/markdown-final-renderer.js?v=1.0.0"></script>
   <script src="./client/app/session-ui-workflow.js?v=1.3.13-resource-manager"></script>
   <script src="./client/app/route-diagram-workflow.js?v=1.0.0"></script>
-  <script src="./client/app/config-workflow.js?v=1.2.74-managed-auth"></script>
+  <script src="./client/app/config-workflow.js?v=1.2.73-configurable-upstream"></script>
   <script src="./client/app/dialog-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-actions-workflow.js?v=1.2.68"></script>
   <script src="./client/app/image-preview-workflow.js?v=1.2.67"></script>
@@ -524,33 +525,34 @@
   <script src="./client/app/job-resume-workflow.js?v=1.2.70-skip-completed-image"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.0.0"></script>
   <script src="./client/app/submit-workflow.js?v=1.2.74-quoted-chat-image-normalize"></script>
-  <script src="./client/app/chat-workflow.js?v=1.3.19-answer-start-scope"></script>
+  <script src="./client/app/chat-workflow.js?v=1.3.20-reasoning-cleanup"></script>
   <script src="./client/app/image-workflow.js?v=1.3.17-render-completed-image"></script>
-  <script src="./client/app/message-workflow.js?v=1.3.33-streamsync"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.34-web-preview-first-open"></script>
   <script src="./client/app/display-history-workflow.js?v=2.0.0-pending-only"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.33"></script>
   <script src="./client/app/route-decision-workflow.js?v=1.3.18"></script>
-  <script src="./client/app/reasoning-workflow.js?v=1.3.29-ds3"></script>
+  <script src="./client/app/reasoning-workflow.js?v=1.3.33-reasoning-cleanup"></script>
   <script src="./client/ui/file-actions.js?v=1.2.67"></script>
   <script src="./client/ui/realtime-renderer.js?v=1.2.65"></script>
   <script src="./client/ui/scroll-controller.js?v=1.2.65"></script>
   <script src="./client/ui/message-renderer.js?v=1.2.65"></script>
+  <script src="./client/ui/web-preview.js?v=1.0.5-first-open-layout"></script>
   <script src="./client/ui/message-actions.js?v=1.2.80"></script>
   <script src="./client/ui/image-actions.js?v=1.2.65"></script>
   <script src="./client/ui/browser.js?v=1.2.65"></script>
-  <script src="./client/ui/render-cache.js?v=1.2.66"></script>
-  <script src="./client/ui/render-scheduler.js?v=1.2.66"></script>
-  <script src="./client/ui/message-virtualizer.js?v=1.2.66"></script>
+  <script src="./client/ui/render-cache.js?v=1.2.67-reasoning-cleanup"></script>
+  <script src="./client/ui/render-scheduler.js?v=1.2.67-reasoning-cleanup"></script>
+  <script src="./client/ui/message-virtualizer.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/ui/usage-stats.js?v=1.2.76"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
   <script src="./client/app/runtime.js?v=1.2.67"></script>
-  <script src="./client/app/media-workflow.js?v=1.2.66"></script>
+  <script src="./client/app/media-workflow.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/app/session-resources.js?v=1.1.0-resource-manager"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
-  <script src="./client/app/bootstrap-workflow.js?v=2.0.1-background-resume"></script>
+  <script src="./client/app/bootstrap-workflow.js?v=2.0.2-gpt5-reasoning"></script>
   <script src="./client/app/image-result-reconciliation.js?v=1.0.0"></script>
-  <script src="./app.js?v=2.1.1-background-resume"></script>
+  <script src="./app.js?v=2.1.6-reasoning-cleanup"></script>
   </template>
 </body>
 </html>

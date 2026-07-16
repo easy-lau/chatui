@@ -39,6 +39,11 @@ async function withServer(run) {
   }
 }
 
+function assertCorsJson(response) {
+  assert.strictEqual(response.res.headers.get('access-control-allow-origin'), '*');
+  assert.match(response.res.headers.get('content-type') || '', /application\/json/);
+}
+
 function assertJson(response) {
   assert.match(response.res.headers.get('content-type') || '', /application\/json/);
 }
@@ -76,13 +81,13 @@ async function testApiContractCoreEndpointsKeepShape() {
   await withServer(async baseUrl => {
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
-    assertJson(version);
+    assertCorsJson(version);
     assert.deepStrictEqual(Object.keys(version.json).sort(), ['version']);
     assert.strictEqual(typeof version.json.version, 'string');
 
     const publicConfig = await request(baseUrl, '/api/config/public');
     assert.strictEqual(publicConfig.res.status, 200);
-    assertJson(publicConfig);
+    assertCorsJson(publicConfig);
     assert.strictEqual(typeof publicConfig.json.version, 'string');
     assert.ok(publicConfig.json.config && typeof publicConfig.json.config === 'object');
     assert.ok(publicConfig.json.config.ui && typeof publicConfig.json.config.ui === 'object');
@@ -96,9 +101,9 @@ async function testApiContractMethodAndCorsPreflight() {
   await withServer(async baseUrl => {
     const options = await request(baseUrl, '/api/version', { method: 'OPTIONS' });
     assert.strictEqual(options.res.status, 204);
-    assert.strictEqual(options.res.headers.get('access-control-allow-origin'), null);
-    assert.strictEqual(options.res.headers.get('access-control-allow-methods'), null);
-    assert.strictEqual(options.res.headers.get('access-control-allow-headers'), null);
+    assert.strictEqual(options.res.headers.get('access-control-allow-origin'), '*');
+    assert.match(options.res.headers.get('access-control-allow-methods') || '', /GET,POST,DELETE,OPTIONS/);
+    assert.match(options.res.headers.get('access-control-allow-headers') || '', /Content-Type/);
 
     const wrongMethod = await request(baseUrl, '/api/version', { method: 'POST', body: '{}' });
     assert.strictEqual(wrongMethod.res.status, 405);
@@ -107,7 +112,7 @@ async function testApiContractMethodAndCorsPreflight() {
 
     const disposedMissingJob = await request(baseUrl, '/api/chat-jobs/not-found', { method: 'DELETE' });
     assert.strictEqual(disposedMissingJob.res.status, 200);
-    assertJson(disposedMissingJob);
+    assertCorsJson(disposedMissingJob);
     assert.deepStrictEqual(disposedMissingJob.json, { disposed: true, existed: false });
   });
 }
@@ -116,12 +121,12 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
   await withServer(async baseUrl => {
     const rankings = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ range: 'today' }) });
     assert.strictEqual(rankings.res.status, 400);
-    assertJson(rankings);
+    assertCorsJson(rankings);
     assert.deepStrictEqual(rankings.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
     const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: 'sk-test', range: 'bad' }) });
     assert.strictEqual(invalidRangeWithoutDatabase.res.status, 400);
-    assertJson(invalidRangeWithoutDatabase);
+    assertCorsJson(invalidRangeWithoutDatabase);
     assert.deepStrictEqual(invalidRangeWithoutDatabase.json, { error: { message: '请先正确配置聊天模型', code: 'MODEL_NOT_CONFIGURED' } });
 
     const missingApiKey = await request(baseUrl, '/api/usage/personal', {
@@ -130,12 +135,12 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
       body: JSON.stringify({ range: 'today' }),
     });
     assert.strictEqual(missingApiKey.res.status, 400);
-    assertJson(missingApiKey);
+    assertCorsJson(missingApiKey);
     assert.deepStrictEqual(missingApiKey.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
     const unknownUsage = await request(baseUrl, '/api/usage/not-found');
     assert.strictEqual(unknownUsage.res.status, 404);
-    assertJson(unknownUsage);
+    assertCorsJson(unknownUsage);
     assert.deepStrictEqual(unknownUsage.json, { error: { message: '未找到使用统计接口' } });
   });
 }
@@ -143,7 +148,7 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
 async function testApiContractUsageConfiguredValidationShapes() {
   const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings', { method: 'POST', body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'bad' }), usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getRanking() { return []; } } });
   assert.strictEqual(invalidRankingRange.status, 400);
-  assert.strictEqual(invalidRankingRange.headers['Access-Control-Allow-Origin'], undefined);
+  assert.strictEqual(invalidRankingRange.headers['Access-Control-Allow-Origin'], '*');
   assert.deepStrictEqual(invalidRankingRange.json, { error: { message: '不支持的排行范围' } });
 
   const invalidPersonalRange = await invokeUsageRoute('/api/usage/personal', {
@@ -152,7 +157,7 @@ async function testApiContractUsageConfiguredValidationShapes() {
     usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getPersonalRange() { return null; } },
   });
   assert.strictEqual(invalidPersonalRange.status, 400);
-  assert.strictEqual(invalidPersonalRange.headers['Access-Control-Allow-Origin'], undefined);
+  assert.strictEqual(invalidPersonalRange.headers['Access-Control-Allow-Origin'], '*');
   assert.deepStrictEqual(invalidPersonalRange.json, { error: { message: '不支持的统计范围' } });
 }
 

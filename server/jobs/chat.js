@@ -7,18 +7,15 @@ const chatStreamParser = require('./chat-stream-parser');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../shared/config/context-budget');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
-const { assignJobOwner } = require('./ownership');
-const { reserveManagedJob, releaseManagedJob } = require('./admission');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
   return Math.max(1, elapsed);
 }
 
-function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {}, ownerId = '' } = {}) {
+function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
   return {
     id: jobId,
-    ownerId: String(ownerId || ''),
     status: 'running',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -65,26 +62,10 @@ function summarizeChatPayload(payload = {}) {
   };
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, jobAdmission, upstreamLimiter = limiter, fetchUpstream = createUpstreamFetch }) {
-function scheduleChatJob(job, runner) {
-  withLimiter(upstreamLimiter, async () => {
-    try {
-      // A queued job can be aborted or disposed before it receives an upstream slot.
-      if (job.status === 'running') await runner(job);
-    } finally {
-      releaseManagedJob(job, jobAdmission);
-    }
-  }).catch(err => {
-    job.status = 'error';
-    job.error = err.message || String(err);
-    job.updatedAt = Date.now();
-    releaseManagedJob(job, jobAdmission);
-    notifyJob(job);
-  });
-}
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS }) {
 async function runChatJob(job) {
 job.serverStartAtMs = performance.now();
-const { response: upstreamResponse, controller, timer } = fetchUpstream(job.targetUrl, {
+const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -123,7 +104,7 @@ job.streamStarted = true;
 job.serverStartAt = Date.now();
 job.serverStartAtMs = performance.now();
 job.firstTokenMs = null;
-const { response: upstreamResponse, controller, timer } = fetchUpstream(job.targetUrl, {
+const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -151,8 +132,8 @@ try {
     const data = safeParseJson(text);
     const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
     const msg = data?.choices?.[0]?.message || {};
-    const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) : '';
-    const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || outputReasoning || '');
+    const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.summary_text || item?.reasoning) : '';
+    const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || data?.reasoning_content || data?.reasoning || outputReasoning || '');
     if (content || reasoning) markFirstToken(job);
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
@@ -187,14 +168,15 @@ try {
   safeLog('[chat-stream-job] upstream payload', summarizeChatPayload(payload));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
-  if (job && !findJobOr404(chatJobs, jobId, res, req)) return;
   if (!job) {
     job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders });
-    assignJobOwner(job, req);
-    reserveManagedJob(job, req, jobAdmission);
     chatJobs.set(jobId, job);
   }
-  if (body.start === true && !job.streamStarted && job.status === 'running') scheduleChatJob(job, runChatStreamJob);
+  if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(limiter, () => runChatStreamJob(job)).catch(err => {
+    job.status = 'error';
+    job.error = err.message || String(err);
+    job.updatedAt = Date.now();
+  });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
   respondJobError(res, err);
@@ -209,11 +191,7 @@ try {
   const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
   safeLog('[chat-job] upstream payload', summarizeChatPayload(payload));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
-  if (chatJobs.has(jobId)) {
-    const existingJob = findJobOr404(chatJobs, jobId, res, req);
-    if (!existingJob) return;
-    return sendJson(res, 200, publicJob(existingJob), { 'Access-Control-Allow-Origin': '*' });
-  }
+  if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const job = {
     id: jobId,
     status: 'running',
@@ -226,10 +204,12 @@ try {
     data: null,
     error: '',
   };
-  assignJobOwner(job, req);
-  reserveManagedJob(job, req, jobAdmission);
   chatJobs.set(job.id, job);
-  scheduleChatJob(job, runChatJob);
+  withLimiter(limiter, () => runChatJob(job)).catch(err => {
+    job.status = 'error';
+    job.error = err.message || String(err);
+    job.updatedAt = Date.now();
+  });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
   respondJobError(res, err);
@@ -239,7 +219,7 @@ try {
 function getChatJob(req, res) {
 safeLog('[getChatJob]', { path: redactUrl(req.url) });
 const id = getJobIdFromUrl(req);
-const job = findJobOr404(chatJobs, id, res, req);
+const job = findJobOr404(chatJobs, id, res);
 if (!job) return;
 sendJson(res, 200, publicJob(job, { resumeUrl: req.url }), { 'Access-Control-Allow-Origin': '*' });
 }
@@ -266,4 +246,4 @@ function updateChatJobFromStreamChunk(job, text, options = {}) {
   };
 }
 
-module.exports = { makeChatJob, createChatJobHandlers, summarizeChatPayload };
+module.exports = { createChatJobHandlers, summarizeChatPayload };

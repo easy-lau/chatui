@@ -1,4 +1,3 @@
-const { assertRuntimeConfig } = require('../config/runtime-config');
 const crypto = require('crypto');
 const { isDepartmentRange, isPersonalRange } = require('../usage/ranges');
 
@@ -68,7 +67,7 @@ function normalizeDepartmentId(body) {
 }
 
 function departmentPassword() {
-  return normalizeText(assertRuntimeConfig().usageDepartmentPassword);
+  return normalizeText(process.env.USAGE_DEPARTMENT_PASSWORD || process.env.USAGE_STATS_DEPARTMENT_PASSWORD);
 }
 
 function constantTimeEquals(a, b) {

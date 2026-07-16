@@ -1,4 +1,4 @@
-const { responseHeaders, send, sendError } = require('../http/response');
+const { SECURITY_HEADERS, send, sendError } = require('../http/response');
 const { performance } = require('perf_hooks');
 const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
 const { limiter } = require('../concurrency');
@@ -11,8 +11,6 @@ const {
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
-const { assignJobOwner, canAccessJob, jobNotFoundPayload } = require('../jobs/ownership');
-const { reserveManagedJob, releaseManagedJob } = require('../jobs/admission');
 
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);
@@ -29,7 +27,7 @@ function withQueryParams(rawUrl, params) {
   return url.toString();
 }
 
-function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths, jobAdmission, upstreamLimiter = limiter, fetchUpstream = createUpstreamFetch }) {
+function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths }) {
   async function proxy(req, res) {
   const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
   if (!allowedProxyPaths.some(re => re.test(targetPath))) {
@@ -42,7 +40,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
   try {
-    await upstreamLimiter.acquire();
+    await limiter.acquire();
     limiterAcquired = true;
     const payload = body.payload || {};
     const query = body.query || {};
@@ -61,13 +59,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
-      const existingJob = chatJobs.get(proxyJobId);
-      if (existingJob && !canAccessJob(existingJob, req)) return sendError(res, 404, jobNotFoundPayload({ includeCode: req.authRequired === true }).error.message, 'JOB_NOT_FOUND');
-      proxyChatJob = existingJob || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, { stream: true });
-      if (!existingJob) {
-        assignJobOwner(proxyChatJob, req);
-        reserveManagedJob(proxyChatJob, req, jobAdmission);
-      }
+      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, { stream: true });
       if (proxyChatJob.streamStarted) proxyChatJob = null;
       else {
         proxyChatJob.updatedAt = Date.now();
@@ -87,7 +79,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     }
     const targetUrl = withQueryParams(`${baseUrl.replace(/\/+$/, '')}${upstreamPath}`, query);
     const upstreamStartedAt = performance.now();
-    const { response: upstreamResponse, controller, timer } = fetchUpstream(targetUrl.toString(), {
+    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
       headers: {
         ...upstreamContentHeaders,
@@ -112,12 +104,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       }
       const compactResponses = targetPath === '/responses' && wantsStream;
       const responsesNormalizer = compactResponses ? createResponsesCompactStreamNormalizer({ startedAt: upstreamStartedAt }) : null;
-      res.writeHead(upstream.status, responseHeaders(res, {
+      res.writeHead(upstream.status, {
+        ...SECURITY_HEADERS,
         'Content-Type': compactResponses ? 'text/event-stream; charset=utf-8' : contentType,
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
-      }));
+      });
       if (!upstream.body) return res.end();
       let clientOpen = true;
       res.on('close', () => { clientOpen = false; controller.abort(); });
@@ -167,8 +160,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     }
   } finally {
     if (upstreamTimer) clearTimeout(upstreamTimer);
-    if (limiterAcquired) upstreamLimiter.release();
-    if (proxyChatJob) releaseManagedJob(proxyChatJob, jobAdmission);
+    if (limiterAcquired) limiter.release();
   }
 }
 
@@ -183,7 +175,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (!['http:', 'https:'].includes(imageUrl.protocol)) return sendError(res, 400, '非法图片地址', 'INVALID_IMAGE_URL');
     if (imageUrl.origin !== base.origin) return sendError(res, 403, '只允许代理同源图片地址', 'IMAGE_PROXY_ORIGIN_FORBIDDEN');
 
-    const { response: upstreamResponse, controller, timer } = fetchUpstream(imageUrl.toString(), {
+    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(imageUrl.toString(), {
       method: 'GET',
       headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       upstreamTimeoutMs,

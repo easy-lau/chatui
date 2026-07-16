@@ -43,9 +43,6 @@ const usageTests = require('../unit/usage.test');
 const serverHardeningTests = require('../unit/server-hardening.test');
 const staticBundleTests = require('../unit/static-bundle.test');
 const projectToolingTests = require('../unit/project-tooling.test');
-const runtimeToolingTests = require('../unit/runtime-tooling.test');
-const httpSecurityTests = require('../unit/http-security.test');
-const authJobOwnershipTests = require('../unit/auth-job-ownership.test');
 const sessionJobRecoveryTests = require('../unit/session-job-recovery.test');
 const staticHttp = require('../../server/http/static');
 const apiContractTests = require('../unit/api-contract.test');
@@ -56,6 +53,8 @@ const imageEditPayloadContractTests = require('../unit/image-edit-payload-contra
 const imageServiceContractTests = require('../unit/image-service-contract.test');
 const clientContractTests = require('../unit/client-contract.test');
 const submitWorkflowHelperTests = require('../unit/submit-workflow-helpers.test');
+const webPreviewTests = require('../unit/web-preview.test');
+const reasoningWorkflowTests = require('../unit/reasoning-workflow.test');
 const serverSmokeTests = require('../smoke/server-smoke.test');
 
 function stripLargeDataUrlsFromText(text = '') {
@@ -376,8 +375,8 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=2.1.1-background-resume') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'download filename changes should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match download filename cache-busting');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'browser cache versions should match the current static bundle');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match browser cache-busting');
 }
 
 function testPendingClarificationMergesFollowupSupplements() {
@@ -1373,7 +1372,7 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.canShowChatWaiting(true), false, 'waiting feedback must be permanently disabled after answer output starts');
   assert.ok(source.includes('if(!canShowChatWaiting(answerStarted))return') && source.includes('canShowChatWaiting(answerStarted)&&setPendingFeedback'), 'accepted callbacks and non-stream fallback must not restore waiting feedback after answer output starts');
   assert.ok(source.includes('const responseStartedAt=metricNow();let answerStarted=!1;try{let t="",s=!1,c=null,answerText="",reasoningText="",firstTokenMs=null;'), 'answer-start state must remain in scope for the streaming fallback catch');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && bundle.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && bundle.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
 function testStreamingTailRendersWithoutCursor() {
@@ -1391,7 +1390,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('flat-theme.css?v=2.1.71'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('flat-theme.css?v=2.1.71'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1515,7 +1514,7 @@ function testLegacyWelcomeScreenIsRestored() {
   assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
   assert.ok(app.includes('function shouldShowEmptyWelcome'), 'welcome renderer should gate on real empty session state');
   assert.ok(app.includes('!s&&!n&&!a'), 'welcome should render only when messages, pending display items, and non-welcome DOM are all empty');
-  assert.ok(index.includes('./app.js?v=2.1.1-background-resume'), 'app.js cache version should change after stop-stream cleanup updates');
+  assert.ok(index.includes('./app.js?v=2.1.6-reasoning-cleanup'), 'app.js cache version should change after stop-stream cleanup updates');
   assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('font-weight:820') && css.includes('repeating-linear-gradient(90deg,transparent 0 26px') && css.includes('linear-gradient(100deg,#111827 0%,#1d2b5f 26%,#4d6bfe 52%,#18b9ee 72%,#111827 100%)') && !css.includes('conic-gradient(from 210deg') && !css.includes('content:"AI"'), 'welcome screen should be cooler and more premium while still matching the calm flat theme');
   assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
@@ -1642,7 +1641,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.17-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -1697,7 +1696,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(browserStreaming.includes('tailTextNode.appendData') && browserStreaming.includes('STREAMING_TAIL_SCAN_LIMIT'), 'streaming Markdown should append cumulative tail deltas and bound expensive tail scans for huge unstable blocks');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.33-streamsync'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.34-web-preview-first-open'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
@@ -1842,7 +1841,7 @@ function testResumeStreamButtonAnchorsAboveComposer() {
   assert.ok(scroll.includes('button.style.setProperty("--resume-stream-bottom"') && scroll.includes('viewportHeight - composer.top + 10'), 'resume stream button should anchor from the live composer top, not a stale safe-area fallback');
   assert.ok(scroll.includes('state.userScrollLocked && away') && !scroll.includes('!state.streamFocusLocked || away'), 'resume stream button should only show after a real user scroll-away, not flicker during normal streaming auto-follow');
   assert.ok(css.includes('.resume-stream-btn') && css.includes('bottom:var(--resume-stream-bottom'), 'composer stylesheet should place the resume button above the input composer');
-  assert.ok(index.includes('styles/composer.css?v=1.3.1') && index.includes('scroll-focus-workflow.js?v=1.3.33'), 'cache-busting versions should be bumped for resume button positioning fixes');
+  assert.ok(index.includes('styles/composer.css?v=1.3.2-gpt5-reasoning-menu') && index.includes('scroll-focus-workflow.js?v=1.3.33'), 'cache-busting versions should be bumped for resume button positioning fixes');
 }
 
 function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
@@ -1854,8 +1853,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -2859,27 +2858,30 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0);'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=2.1.1-background-resume') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'cache versions should be bumped for regenerate early-refresh recovery');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'cache versions should be bumped for regenerate early-refresh recovery');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
   const session = appState.createSession('A', () => 1000, () => 0.123456);
   assert.strictEqual(session.reasoningMode, false);
-  assert.strictEqual(session.reasoningType, 'medium');
-  assert.strictEqual(session.reasoningProvider, 'auto');
+  assert.strictEqual(session.reasoningType, 'none');
+  assert.strictEqual(Object.hasOwn(session, 'reasoningProvider'), false, 'sessions should not retain a provider compatibility setting');
 
   const displaySource = fs.readFileSync(path.join(__dirname, '../../client/app/session-display.js'), 'utf8');
   assert.ok(displaySource.includes('reasoningMode: session.reasoningMode === undefined ? null : !!session.reasoningMode'), 'session metadata should persist reasoningMode per session');
-  assert.ok(displaySource.includes("reasoningType: ['low', 'medium', 'high', 'xhigh'].includes(session.reasoningType) ? session.reasoningType : ''"), 'session metadata should persist reasoningType per session');
-  assert.ok(displaySource.includes('reasoningProvider: String(session.reasoningProvider ||'), 'session metadata should persist reasoningProvider per session');
+  assert.ok(displaySource.includes("reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(session.reasoningType) ? session.reasoningType : ''"), 'session metadata should persist reasoningType per session');
+  assert.ok(!displaySource.includes('reasoningProvider'), 'session metadata should not persist provider compatibility settings');
 
   const reasoningSource = fs.readFileSync(path.join(__dirname, '../../client/app/reasoning-workflow.js'), 'utf8');
   assert.ok(reasoningSource.includes('session.reasoningMode = state.reasoningMode'), 'reasoning mode changes should write active session');
   assert.ok(reasoningSource.includes('session.reasoningType = state.reasoningType'), 'reasoning type changes should write active session');
-  assert.ok(reasoningSource.includes('session.reasoningProvider = state.reasoningProvider'), 'reasoning provider changes should write active session');
+  assert.ok(reasoningSource.includes('isGpt5ReasoningModel'), 'reasoning should be restricted to GPT-5 model names');
+  assert.ok(!reasoningSource.includes('setReasoningProvider'), 'reasoning workflow should not expose provider compatibility controls');
+  assert.ok(!reasoningSource.includes('thinking_budget'), 'reasoning workflow should not emit compatibility payloads');
   assert.ok(reasoningSource.includes('typeof saveSessionsMeta === "function" && saveSessionsMeta()'), 'reasoning preference changes should save session metadata');
 
   const appSource = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  assert.ok(appSource.includes('function reasoningPayloadOptions(e={}){return getReasoningWorkflow().reasoningPayloadOptions(e)}'), 'the app runtime should bridge the GPT-5 reasoning payload helper into the chat workflow');
   const switchStart = appSource.indexOf('function switchSession');
   const switchReasoning = appSource.indexOf('loadReasoningPreference()', switchStart);
   const switchRender = appSource.indexOf('renderActiveSession({reason:"switch-bottom"', switchStart);
@@ -2900,7 +2902,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -2909,16 +2911,18 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
   const reasoningSource = fs.readFileSync(path.join(__dirname, '../../client/app/reasoning-workflow.js'), 'utf8');
-  assert.ok(reasoningSource.includes('active&&e.contains?.(active)'), 'closing reasoning menu should detect focused descendants before hiding');
-  assert.ok(reasoningSource.includes('t.focus?.({preventScroll:!0})') && reasoningSource.includes('active.blur?.()'), 'closing reasoning menu should move or clear focus before aria-hidden=true');
-  assert.ok(reasoningSource.indexOf('active&&e.contains?.(active)') < reasoningSource.indexOf('e.setAttribute("aria-hidden","true")'), 'focus should be released before setting aria-hidden on reasoning menu');
+  assert.ok(reasoningSource.includes('active && menu.contains?.(active)'), 'closing reasoning menu should detect focused descendants before hiding');
+  assert.ok(reasoningSource.includes('menuButton.focus?.({ preventScroll: true })') && reasoningSource.includes('active.blur?.()'), 'closing reasoning menu should move or clear focus before aria-hidden=true');
+  assert.ok(reasoningSource.indexOf('active && menu.contains?.(active)') < reasoningSource.indexOf('menu.setAttribute("aria-hidden", "true")'), 'focus should be released before setting aria-hidden on reasoning menu');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'reasoning menu accessibility fix should bump cache versions');
+  const composerCss = fs.readFileSync(path.join(__dirname, '../../styles/composer.css'), 'utf8');
+  assert.ok(composerCss.includes('min-width:158px!important') && composerCss.includes('grid-template-columns:minmax(0,1fr)!important'), 'the single-section GPT-5 reasoning menu should not retain the obsolete two-column compatibility layout');
+  assert.ok(index.includes('reasoning-workflow.js?v=1.3.33-reasoning-cleanup') && index.includes('composer.css?v=1.3.2-gpt5-reasoning-menu') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'reasoning menu changes should bump cache versions');
 }
 
 function testModalCloseReleasesFocusBeforeAriaHidden() {
@@ -2943,7 +2947,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('assets/chatui.bundle.css?v=1.3.86-managed-auth'), 'CSS bundle cache versions should be bumped for visual fixes');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless'), 'CSS bundle cache versions should be bumped for visual fixes');
 }
 
 function testArchitectureBoundaryScaffolding() {
@@ -3025,7 +3029,7 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should restore the saved Endpoint field and use the default only when storage is empty');
   assert.ok(configSource.includes(String.raw`baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, "")`) && configSource.includes('getElement("baseUrl").readOnly=!1'), 'config workflow should submit the editable Endpoint Base URL after removing a trailing slash');
   assert.ok(index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" />') && !index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" readonly'), 'settings UI should allow users to edit Endpoint Base URL');
-  assert.ok(index.includes('config-workflow.js?v=1.2.74-managed-auth'), 'config workflow changes should bump browser cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream'), 'config workflow changes should bump browser cache-busting version');
 
   const values = new Map([['config', JSON.stringify({ baseUrl: 'https://gateway.example/v1/' })]]);
   const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };
@@ -3055,8 +3059,8 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.74-managed-auth') && index.includes('bootstrap-workflow.js?v=2.0.1-background-resume') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=2.1.1-background-resume') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth'), 'config copy UI changes should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match config copy cache-busting');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=2.0.2-gpt5-reasoning') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match config copy cache-busting');
 }
 
 function testSensitiveConfigAndIntentTraceAreNotPersisted() {
@@ -3070,7 +3074,7 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
 
   const localValues = new Map(), sessionValues = new Map();
   const makeStorage = values => ({ getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) });
-  const elements = new Map(['baseUrl','apiKey','managedAccessToken','chatModel','routeModel','imageModel','imageSize','systemPrompt','imageStylePrompt'].map(id => [id, { value: '' }]));
+  const elements = new Map(['baseUrl','apiKey','chatModel','routeModel','imageModel','imageSize','systemPrompt','imageStylePrompt'].map(id => [id, { value: '' }]));
   const localStorage = makeStorage(localValues), sessionStorage = makeStorage(sessionValues);
   const config = configModule.createConfigWorkflow({
     state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
@@ -3084,10 +3088,6 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
   assert.ok(!localStorage.getItem('test-config').includes('sk-session-only'), 'general localStorage config must not contain the API key');
   elements.get('apiKey').value = '';
   assert.strictEqual(config.getConfig().apiKey, 'sk-session-only', 'API key should survive closing and reopening the browser through localStorage');
-  elements.get('managedAccessToken').value = 'managed-session-token';
-  config.saveConfig(true);
-  assert.strictEqual(sessionStorage.getItem('test-config:managed-access-token'), 'managed-session-token');
-  assert.ok(!localStorage.getItem('test-config').includes('managed-session-token'), 'managed access token must remain out of localStorage configuration');
 
   const workflow = routeWorkflow.createRouteDecisionWorkflow({ state: { sessions: [], messages: [], activeSessionId: '', attachments: [] } });
   const summary = workflow.summarizeIntentTrace({
@@ -3134,8 +3134,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('app.js?v=2.1.1-background-resume') && index.includes('assets/chatui.bundle.css?v=1.3.86-managed-auth') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -3152,8 +3152,8 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && index.includes('styles/flat-theme.css?v=2.1.71'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && index.includes('styles/flat-theme.css?v=2.1.71'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -3176,8 +3176,8 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.86-managed-auth') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && index.includes('styles/flat-theme.css?v=2.1.71'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && index.includes('styles/flat-theme.css?v=2.1.71'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
@@ -3195,8 +3195,8 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(!imageWorkflow.includes('<div class="pending-feedback"') && !jobResumeWorkflow.includes('<div class="pending-feedback"'), 'image and resume workflows should use the shared pending feedback renderer instead of handcrafted HTML');
   assert.ok(!imageWorkflow.includes('IMG RUNNING') && !imageWorkflow.includes('setPendingFeedback(d,'), 'image running/waiting prompts should not use a special pending feedback branch');
   assert.ok(imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 0 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 ${t} 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(t)'), 'image generation, editing, and upload waits should use the shared pending feedback renderer');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.86-managed-auth') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && index.includes('styles/flat-theme.css?v=2.1.71'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && index.includes('styles/flat-theme.css?v=2.1.71'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
@@ -3206,8 +3206,8 @@ function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
   assert.ok(flatCss.includes('body:not(.session-sidebar-collapsed) .composer,') && flatCss.includes('width:var(--ds-chat-column)!important') && flatCss.includes('left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important'), 'expanded desktop composer should match the same ds chat column as messages');
   assert.ok(flatCss.includes('--ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important') && flatCss.includes('body.session-sidebar-collapsed .messages>.message,') && flatCss.includes('body.session-sidebar-collapsed .empty{') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important'), 'collapsed desktop messages should use a wider dedicated reading column after the sidebar frees space');
   assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important') && flatCss.includes('left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important'), 'collapsed desktop composer should be centered on the same wider collapsed reading column');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.86-managed-auth') && index.includes('chatui.bundle.js?v=1.3.86-managed-auth') && index.includes('styles/flat-theme.css?v=2.1.71'), 'sidebar composer width fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.86-managed-auth'"), 'server bundle version should match sidebar composer cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.101-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless') && index.includes('styles/flat-theme.css?v=2.1.71'), 'sidebar composer width fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match sidebar composer cache-busting');
 }
 
 function testSubmitNormalizesTaskContractBeforeDispatch() {
@@ -3256,7 +3256,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.1-background-resume') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3306,8 +3306,8 @@ function testImageSuccessResultReconciliation() {
   assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
-  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.1-background-resume'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=2.1.1-background-resume'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.6-reasoning-cleanup'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=2.1.6-reasoning-cleanup'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
@@ -3456,9 +3456,6 @@ const tests = [
   ...serverHardeningTests,
   ...staticBundleTests,
   ...projectToolingTests,
-  ...runtimeToolingTests,
-  ...httpSecurityTests,
-  ...authJobOwnershipTests,
   ...sessionJobRecoveryTests,
   ...apiContractTests,
   ...jobRouteTests,
@@ -3468,6 +3465,8 @@ const tests = [
   ...imageServiceContractTests,
   ...clientContractTests,
   ...submitWorkflowHelperTests,
+  ...webPreviewTests,
+  ...reasoningWorkflowTests,
   ...serverSmokeTests,
   testSessionPromptDraftPersistsPerSession,
   testLegacyDocSupportIsRoutedToWordExtractor,

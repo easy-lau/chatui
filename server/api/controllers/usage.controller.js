@@ -1,7 +1,6 @@
 const { readBody, parseJson } = require('../../http/body');
 const usageService = require('../../services/usage.service');
 const usageValidator = require('../../validators/usage.validator');
-const { responseHeaders } = require('../../http/response');
 
 function unavailablePayload() {
   return {
@@ -272,11 +271,11 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
           'Content-Disposition': `attachment; filename="department-usage-${range}.xlsx"`,
         });
       }
-      res.writeHead(200, responseHeaders(res, {
+      res.writeHead(200, {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="department-usage-${range}.xlsx"`,
-      }));
+      });
       return res.end(workbook);
     } catch (err) {
       console.error('[usage] department export failed:', err);

@@ -33,6 +33,7 @@ function visibleTextFromNode(node) {
   if (!node) return '';
   if (node.nodeType === 3) return node.nodeValue || '';
   if (node.nodeType !== 1) return '';
+  if (node.dataset?.copyExclude === '1') return '';
   const tag = node.tagName || '';
   if (tag === 'BR') return '\n';
   if (tag === 'IMG') return node.alt || '';

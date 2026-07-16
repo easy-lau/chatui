@@ -157,6 +157,7 @@
           delete messageNode.dataset.progressiveOffscreen;
           cleanupGeneratedImageNumberArtifacts(messageNode);
           hydrate(messageNode, { save: false });
+          deps.syncWebPreviews?.(messageNode, text);
           resetActions(messageNode);
           cleanupStage();
           if (movedAway) raf?.(() => restoreMovedAwayGap?.());
@@ -173,7 +174,7 @@
             messageNode.dataset.renderedHash = hash;
             delete messageNode.dataset.progressiveRendering;
             delete messageNode.dataset.progressiveOffscreen;
-            try { bindCopy(messageNode); enhance(messageNode, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true }); } catch {}
+            try { bindCopy(messageNode); enhance(messageNode, { deferMermaid: true, allowResourceLoad: true, autoRenderMermaid: true, forceMermaid: true }); deps.syncWebPreviews?.(messageNode, text); } catch {}
           }
           cleanupStage();
         }

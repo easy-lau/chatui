@@ -276,3 +276,14 @@ body.app-booting .composer.compact-composer *{
   pointer-events:none!important;
   transition:none!important;
 }
+
+/* The reasoning menu now contains only GPT-5 effort choices. */
+.composer-actions .reasoning-menu{
+  min-width:158px!important;
+  grid-template-columns:minmax(0,1fr)!important;
+}
+@media (max-width:640px){
+  .composer-actions .reasoning-menu{
+    min-width:min(158px,calc(100vw - 28px))!important;
+  }
+}

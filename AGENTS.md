@@ -1,33 +1,25 @@
 # Repository Agent Instructions
 
-## Commands
+## Release procedure
 
-- Use Node 22 (`.nvmrc`); the package minimum is Node 20.19.
-- Install reproducibly with `npm ci`.
-- Run `npm run check` after code, static-asset, Docker, or tooling changes. It runs project-contract checks, syntax checks, and the complete test suite in that order.
-- Use `npm run check:project` for the fast package-version and root static-asset contract check.
-- Start the app with `npm start`; there is no frontend build step.
+When the user asks to **commit and release** (for example, "commit and release"), complete the entire release process; pushing a Git tag by itself is not a completed release.
 
-## Tests
+1. Determine the next semantic version, update `package.json` and every matching version in `package-lock.json`, and ensure they match the planned `vMAJOR.MINOR.PATCH` tag.
+2. Run the project test suite and do not release if it fails.
+3. Commit the release changes and push the release commit to `main`.
+4. Create an **annotated** `vMAJOR.MINOR.PATCH` Git tag and push it. This triggers the Docker publishing workflow.
+5. Add `docs/releases/vMAJOR.MINOR.PATCH.md` with a clear title and concise user-facing notes, then create a published (not draft) **GitHub Release** for the same tag from that file. Do not treat a tag as a substitute for a GitHub Release.
+6. Verify both conditions before reporting the release as complete:
+   - the GitHub Release exists and is published;
+   - the tag-triggered Docker publishing workflow completed successfully.
+7. Report the exact version, commit, tag, GitHub Release status, Docker workflow result, and any remaining deployment action. If verification is still running, explicitly say the release is in progress rather than complete.
 
-- `npm test` is the only complete test entry point. `test/run-tests.js` loads `test/legacy/regression.test.js`, which aggregates the focused unit and smoke suites.
-- Most `test/unit/*.test.js` and `test/smoke/*.test.js` files only export arrays; running them directly with `node` does not execute their tests.
-- To run one exported suite during development, use this pattern, then still run `npm run check` before finishing:
-  `node -e "const ts=require('./test/unit/project-tooling.test');(async()=>{for(const t of ts)await t()})().catch(e=>{console.error(e);process.exit(1)})"`
-- Add focused coverage under `test/unit/` or `test/smoke/`, and register the exported array in `test/legacy/regression.test.js`. Do not add new cases directly to the legacy file unless preserving an existing regression.
+For a hotfix that only repairs packaging or deployment, still follow the complete procedure above, including the GitHub Release and Docker workflow verification.
 
-## Static Delivery And Boundaries
+## Engineering standards
 
-- Root `index.html`, `route.html`, `app.js`, `styles.css`, and `favicon.svg` are a public deployment contract, not incidental root files. Renaming or adding a root entry requires coordinated updates to `server/http/static.js`, `Dockerfile`, `scripts/check-project.js`, tests, and docs.
-- The browser bundle is assembled at request time by `server/services/static-bundle.service.js` from the hidden `#chatuiAssetManifest` in `index.html`; do not look for or commit a generated bundle directory.
-- Preserve the load order in the `index.html` manifest: browser modules publish globals rather than using a frontend module bundler.
-- Follow `docs/architecture.md`: browser-independent rules belong in `client/core/`, orchestration in `client/app/`, DOM work in `client/ui/`, and server use cases in `server/services/`. `shared/` must remain browser-safe and contain no Node-only access, SQL, credentials, or secrets.
-- `vendor/` contains checked-in third-party browser assets. Do not hand-edit minified vendor files or place application code there.
-
-## Releases
-
-- A release requires matching versions in `package.json`, `package-lock.json` top level, and `package-lock.json` root package, plus `docs/releases/vMAJOR.MINOR.PATCH.md` beginning with `# ChatUI vMAJOR.MINOR.PATCH`.
-- Validate release metadata with `npm run verify:release -- vMAJOR.MINOR.PATCH`, then run `npm run check`. Do not tag if either fails.
-- For “commit and release”: push the release commit to `main`, create and push an annotated `vMAJOR.MINOR.PATCH` tag, then monitor `.github/workflows/dockerhub.yml`.
-- The tag workflow validates the release, publishes amd64/arm64 images to Docker Hub and ACR, then creates or updates the published GitHub Release from the checked-in release-notes file. A pushed tag alone is not a completed release.
-- Report a release complete only after both the Docker publish job and published GitHub Release are verified; otherwise report it as in progress.
+- Keep browser, server, and shared-code boundaries described in `docs/architecture.md`.
+- Preserve root static-entry assets unless the static server, Docker image, tests, and documentation are updated together.
+- Add new tests to `test/unit/` or `test/smoke/`; do not expand `test/legacy/` unless preserving an existing regression.
+- Keep package scripts, CI, Docker validation, and documentation aligned. Run `npm run check` after changes.
+- Do not commit generated reports, logs, local editor state, or secrets.

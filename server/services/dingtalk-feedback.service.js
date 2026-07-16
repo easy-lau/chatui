@@ -1,14 +1,13 @@
-const { assertRuntimeConfig } = require('../config/runtime-config');
 const crypto = require('crypto');
 
 const DINGTALK_WEBHOOK_HOSTS = new Set(['oapi.dingtalk.com', 'api.dingtalk.com']);
 
-function normalizeAccessToken(value = assertRuntimeConfig().dingtalkFeedbackAccessToken) {
+function normalizeAccessToken(value = process.env.DINGTALK_FEEDBACK_ACCESS_TOKEN) {
   const token = String(value || '').trim();
   return /^[A-Za-z0-9_-]{16,256}$/.test(token) ? token : '';
 }
 
-function normalizeWebhook(value = assertRuntimeConfig().dingtalkFeedbackAccessToken) {
+function normalizeWebhook(value = process.env.DINGTALK_FEEDBACK_ACCESS_TOKEN) {
   const raw = String(value || '').trim();
   if (!raw) return '';
   try {
@@ -21,7 +20,7 @@ function normalizeWebhook(value = assertRuntimeConfig().dingtalkFeedbackAccessTo
   }
 }
 
-function signedWebhookUrl(webhook, secret = assertRuntimeConfig().dingtalkFeedbackSecret, now = Date.now()) {
+function signedWebhookUrl(webhook, secret = process.env.DINGTALK_FEEDBACK_SECRET, now = Date.now()) {
   const url = new URL(webhook);
   const signingSecret = String(secret || '').trim();
   if (!signingSecret) return url.toString();
@@ -48,7 +47,7 @@ function feedbackMessage(content, username = '', now = new Date()) {
   };
 }
 
-function createDingTalkFeedbackSender({ accessToken = assertRuntimeConfig().dingtalkFeedbackAccessToken, secret = assertRuntimeConfig().dingtalkFeedbackSecret, fetchImpl = global.fetch, now = () => Date.now() } = {}) {
+function createDingTalkFeedbackSender({ accessToken = process.env.DINGTALK_FEEDBACK_ACCESS_TOKEN, secret = process.env.DINGTALK_FEEDBACK_SECRET, fetchImpl = global.fetch, now = () => Date.now() } = {}) {
   const normalizedWebhook = normalizeWebhook(accessToken);
   return {
     configured: Boolean(normalizedWebhook),
