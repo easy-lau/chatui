@@ -55,6 +55,7 @@ const clientContractTests = require('../unit/client-contract.test');
 const submitWorkflowHelperTests = require('../unit/submit-workflow-helpers.test');
 const webPreviewTests = require('../unit/web-preview.test');
 const reasoningWorkflowTests = require('../unit/reasoning-workflow.test');
+const routeRecognitionSubmitTests = require('../unit/route-recognition-submit.test');
 const serverSmokeTests = require('../smoke/server-smoke.test');
 
 function stripLargeDataUrlsFromText(text = '') {
@@ -581,7 +582,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args'), 'submit workflow cache version should be bumped for pending clarification fix');
   assert.ok(index.includes('clarification-service.js?v=1.0.5'), 'clarification service cache version should be bumped for pending state machine fix');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -1853,7 +1854,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.101-web-preview-iframe-borderless'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -2858,7 +2859,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0);'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'cache versions should be bumped for regenerate early-refresh recovery');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('chatui.bundle.js?v=1.3.101-web-preview-iframe-borderless'), 'cache versions should be bumped for regenerate early-refresh recovery');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -3256,7 +3257,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('chat-workflow.js?v=1.3.20-reasoning-cleanup') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.6-reasoning-cleanup') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3467,6 +3468,7 @@ const tests = [
   ...submitWorkflowHelperTests,
   ...webPreviewTests,
   ...reasoningWorkflowTests,
+  ...routeRecognitionSubmitTests,
   ...serverSmokeTests,
   testSessionPromptDraftPersistsPerSession,
   testLegacyDocSupportIsRoutedToWordExtractor,
