@@ -74,6 +74,12 @@
     return controller;
   }
 
+  function normalizeSingleLinePromptPaste(text = '') {
+    const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+    const nonEmpty = lines.filter(line => line.trim());
+    return nonEmpty.length === 1 ? nonEmpty[0] : lines.join('\n');
+  }
+
   function createBootstrapWorkflow(deps = {}) {
     let bootReleaseTimer = null;
 
@@ -98,8 +104,18 @@
       };
 
       prompt.addEventListener('paste', event => {
-        const text = event.clipboardData?.getData?.('text/plain');
-        if (text) rejectInsertion(event, text);
+        const sourceText = event.clipboardData?.getData?.('text/plain');
+        if (!sourceText) return;
+        const text = normalizeSingleLinePromptPaste(sourceText);
+        if (rejectInsertion(event, text) || text === sourceText) return;
+        event.preventDefault();
+        const start = Number.isFinite(prompt.selectionStart) ? prompt.selectionStart : prompt.value.length;
+        const end = Number.isFinite(prompt.selectionEnd) ? prompt.selectionEnd : start;
+        if (typeof prompt.setRangeText === 'function') prompt.setRangeText(text, start, end, 'end');
+        else prompt.value = `${prompt.value.slice(0, start)}${text}${prompt.value.slice(end)}`;
+        const EventCtor = deps.window?.Event || root?.Event;
+        if (EventCtor && typeof prompt.dispatchEvent === 'function') prompt.dispatchEvent(new EventCtor('input', { bubbles: true }));
+        else deps.scheduleAutoResize?.();
       }, { capture: true });
       prompt.addEventListener('drop', event => {
         const text = event.dataTransfer?.getData?.('text/plain');
@@ -134,7 +150,7 @@
     return Object.freeze({ start });
   }
 
-  const api = Object.freeze({ createBootstrapWorkflow, createPromptEnterSubmitController, bindPromptEnterSubmitGuard, isAppleCompositionPlatform });
+  const api = Object.freeze({ createBootstrapWorkflow, createPromptEnterSubmitController, bindPromptEnterSubmitGuard, isAppleCompositionPlatform, normalizeSingleLinePromptPaste });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppBootstrapWorkflow = api;
   if (root?.window) root.window.ChatUIAppBootstrapWorkflow = api;

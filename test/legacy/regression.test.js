@@ -77,6 +77,7 @@ const messageOrderPersistenceTests = require('../unit/message-order-persistence.
 const messageSizeGuardTests = require('../unit/message-size-guard.test');
 const messageQuoteLayoutTests = require('../unit/message-quote-layout.test');
 const promptImeSubmitGuardTests = require('../unit/prompt-ime-submit-guard.test');
+const userMessageCopyTests = require('../unit/user-message-copy.test');
 const streamingCodeBlockTests = require('../unit/streaming-code-block.test');
 const serverSmokeTests = require('../smoke/server-smoke.test');
 const multiImageComposeFlowSmokeTests = require('../smoke/multi-image-compose-flow.test');
@@ -3371,6 +3372,7 @@ const tests = [
   ...messageSizeGuardTests,
   ...messageQuoteLayoutTests,
   ...promptImeSubmitGuardTests,
+  ...userMessageCopyTests,
   ...streamingCodeBlockTests,
   ...serverSmokeTests,
   ...multiImageComposeFlowSmokeTests,

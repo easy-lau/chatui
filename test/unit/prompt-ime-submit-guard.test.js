@@ -6,6 +6,7 @@ const {
   createPromptEnterSubmitController,
   bindPromptEnterSubmitGuard,
   isAppleCompositionPlatform,
+  normalizeSingleLinePromptPaste,
 } = require('../../client/app/bootstrap-workflow');
 
 function createKeyEvent(overrides = {}) {
@@ -109,6 +110,12 @@ function testAppleCompositionPlatformDetection() {
   assert.strictEqual(isAppleCompositionPlatform({ userAgentData: { platform: 'Windows' } }), false);
 }
 
+function testSingleLinePasteDropsCopiedBlankRows() {
+  assert.strictEqual(normalizeSingleLinePromptPaste('SkyWalking如何部署\n\n\n\n'), 'SkyWalking如何部署');
+  assert.strictEqual(normalizeSingleLinePromptPaste('\n\nSkyWalking如何部署\n\n'), 'SkyWalking如何部署');
+  assert.strictEqual(normalizeSingleLinePromptPaste('第一段\n\n第二段'), '第一段\n\n第二段', 'real multi-line input must remain unchanged');
+}
+
 function testBootstrapUsesImeAwarePromptEnterGuard() {
   const bootstrap = fs.readFileSync(path.join(__dirname, '../../client/app/bootstrap-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
@@ -184,6 +191,7 @@ module.exports = [
   testWindowsEnterSubmitsImmediatelyAfterCompositionEnds,
   testAppleTrailingCompositionEnterIsSuppressedOnce,
   testAppleCompositionPlatformDetection,
+  testSingleLinePasteDropsCopiedBlankRows,
   testBootstrapUsesImeAwarePromptEnterGuard,
   testBoundGuardUsesPlatformSpecificCompositionEndPolicy,
   testPromptEnterGuardBindsOnceAndUsesComposerSubmit,
