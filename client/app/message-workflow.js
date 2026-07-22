@@ -14,8 +14,43 @@
     resetMessageActionStates(node);
   }
 
+  function copyComparableText(text = '') {
+    return String(text || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]*\n[ \t]*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function selectedUserMessageRawText(selection) {
+    if (!selection?.rangeCount || !String(selection.toString?.() || '').trim()) return '';
+    const range = selection.getRangeAt(0);
+    const asElement = node => node?.nodeType === 1 ? node : node?.parentElement || null;
+    const start = asElement(range.startContainer)?.closest?.('.message.user .content') || null;
+    const end = asElement(range.endContainer)?.closest?.('.message.user .content') || null;
+    if (!start || start !== end) return '';
+    const message = start.closest?.('.message.user');
+    if (!message || message.querySelector('.user-attachment-preview-grid,.sent-quote-preview')) return '';
+    const rawText = String(message.dataset?.rawText || '');
+    return rawText && copyComparableText(selection.toString()) === copyComparableText(rawText)
+      ? rawText.replace(/\r\n?/g, '\n')
+      : '';
+  }
+
   function createMessageWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
+
+    const documentRef = deps.document || root.document;
+    if (typeof documentRef?.addEventListener === 'function' && !documentRef.__chatuiUserRawCopyBound) {
+      documentRef.__chatuiUserRawCopyBound = true;
+      documentRef.addEventListener('copy', event => {
+        if (event.defaultPrevented || typeof event.clipboardData?.setData !== 'function') return;
+        const rawText = selectedUserMessageRawText(documentRef.getSelection?.() || root.getSelection?.());
+        if (!rawText) return;
+        event.clipboardData.setData('text/plain', rawText);
+        event.preventDefault();
+      });
+    }
 
     function cleanupGeneratedImageNumberArtifacts(root) {
       const scopeRoot = root?.querySelectorAll ? root : null;
